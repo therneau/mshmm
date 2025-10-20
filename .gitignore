@@ -1,0 +1,11 @@
+src/.*.so
+src/.*.o
+src/cdecomp.c
+noweb
+vignettes/.*.aux
+vignettes/.*.log
+vignettes/.*.tex
+vignettes/.*.pdf
+vignettes/.*.bbl
+vignettes/.*.blg
+.*~

@@ -1,0 +1,2 @@
+These are tests of the MCMC algorithm.  They are long enough that we don't want
+to run them as part of a standard check; thus didn't put them in "tests".

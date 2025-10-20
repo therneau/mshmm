@@ -1,0 +1,1187 @@
+\documentclass{article}
+\usepackage{amsmath}
+\title{The HMM fitter}
+\author{Terry Therneau}
+
+\addtolength{\textwidth}{1in}
+\addtolength{\oddsidemargin}{-.5in}
+\setlength{\evensidemargin}{\oddsidemargin}
+\newcommand{\code}[1]{\texttt{#1}}
+
+%\VignetteIndexEntry{Using hmm}
+%\VignetteEngine{knitr::knitr}
+%\VignetteEncoding{UTF-8}
+
+<<setup, echo=FALSE>>=
+library(survival)
+library(hmm)
+library(knitr)
+opts_chunk$set(tidy=FALSE, fig.keep='none',
+               fig.path='compete',fig.width=6,fig.height=4)
+
+options(continue="  ", width=60)
+pdf.options(pointsize=10) #text in graph about the same as regular text
+table2 <- function(...) table(..., useNA = "ifany")
+options(show.significant.stars = FALSE) # be statistically intelligent
+palette("Okabe-Ito")
+@ 
+
+\begin{document}
+\maketitle
+
+\section{What is a hidden Markov model (HMM)?}
+The answer to this is that HMM is a general technique, and we see the
+label applied to many different problems in many different subfields.
+The mshmm package addresses a particular structure, one that has been useful
+in our analyses of data from the Mayo Clinic Study of Aging (MCSA).
+
+Our models can be thought of having two levels.  Level 1 is a multi-state
+hazards model, much like those addressed by multistate hazard (MSH) models
+fit using the coxph function in the survival library.
+Here for instance is the state space for model used with long term cognitive
+outcomes.
+Subjects progress from cognitively unimpaired (CU), through mild cognitive
+impairment (MCI) and on to dementia, with death as a competing risk.
+
+<<states>>=
+state1 <- c("CU", "MCI", "dementia", "death")
+smat <- matrix(0, 4, 4, dimnames=list(from=state1, to=state1))
+smat[1,2] <- smat[2,3] <-1
+smat[1:3,4] <- 1
+#opar <- par(mfrow=c(1,2), mar=c(1,1,1,1))
+statefig(cbind(c(3,1)), smat)
+
+#smat2 <- smat
+#state2 <- c("A0", "A1", "A2", "death")
+#dimnames(smat2) <- list(state2, state2)
+#statefig(c(3,1), smat2)
+#par(opar)
+@ 
+
+The first major difference between the MSH and HMM models is that observations
+on each state come from interval censored data, also known as panel data. 
+That is, subjects visit at regular intervals and undergo a panel of tests.
+We will know their state at a given test date, but not the time at which the
+study participant transitioned to that state.  This leads to a more complex
+likelihood than a MSH model, but also more realistic for data such as this.
+
+The second difference is that an HMM treats the states as latent factors.
+The model will have both standard covariates, things
+like age, sex and genotype which affect the transition rates from state to
+state, and also reporter or biomarker variables on the states themselves.
+In this case, we might have the following misclassification matrix.
+\begin{centering}
+  \begin{tabular}{ccccc}
+   & \multicolumn{4}{c} \\
+True & CU & MCI & dementia & death \\
+C0   & $1- p_1$& $p_1$ & 0 & 0 \\
+C1   & $p_2$ & $1-(p_2 + p_3)$ & $p_3$ & 0 \\
+C2   & 0     & $p_4$ & $1-p_4$ & 0 \\
+death& 0 & 0 & 0 & 1
+ \end{tabular} \end{centering}
+
+We have been careful above to use one set of labels for the true states
+(C0, etc) and another for the observed states.  
+In many cases a user will be tempted to use the same labels for the true
+underlying state and for the clinical observation: this is a good way to
+generate confusion, and we recommend that you do otherwise.
+Death is a special state, it is not interval censored as we
+know the exact death date, nor is it a latent state since it is observed
+without error.
+
+A primary reference for the material is Christopher Jackson's excellent manual 
+for the msm package \cite{Jackson16}.
+Others that I found particularly helpful were a web page by Nikolai
+Shokiriv \cite{Shokhirev}, Satten and Lingini \cite{Satten96} and
+computational details from Kalbfleisch and Lawless \cite{Kalbfleisch85}.
+
+Per Shokhirev there are 3 canonical problems for HMM models.
+
+\begin{enumerate}
+  \item Given the model parameters, compute the probability of a particular
+    output sequence.  This is solved by the Forward or Backwards algorithms.
+  \item Given the model parameters and an output sequence, compute the
+    most likely path for the hidden states (the true but unobserved path).
+    This is solved by the Viterbi algorithm.
+  \item Given an output sequence, find the most likely set of model
+    parameters.  This is solved by the Baum-Welch algorithm.
+\end{enumerate}
+We are focused on problem 1: an underlying search algorithm will choose
+parameters $\beta$, which map to rates, which in turn lead to a likelihood
+value.  The search algorithm uses this to find an MLE.
+Many references, e.g. Wikipedia, focus only on problem 2 the exclusion of
+the others.  This led to much early confusion for this author, e.g., 
+the Viterbi algorithm involves a forward recursion and earns a 'forward'
+label as well.
+It might look like 3 is our target, but that would only be true if there 
+were no covariates and we were directly estimating the rates.
+
+Further math and computational details are found in a mathematical vignette.
+
+\section{Design}
+Specification of an HMM model is complex, because the model is complex.
+\begin{itemize}
+  \item The underlying Markov model: the states, state names, and the
+    allowable transitions.
+  \item Which covariates apply to each transition, and which of these
+    transition/covariate pairs share a coefficient.
+  \item For each marker $y$  transmission function $P(y |s)$ needs to be
+    defined, which provides the distribution of $y$ given the true state $s$.
+    (Death does not need a transmission function).
+  \item The initial probabilities, whether these should be estimated,
+    and if so what covariates to use.
+  \item Initial values for the coefficients and specification of which of them,
+    if any, are fixed.
+\end{itemize}
+
+Another issue to consider is that the hmm and the survival functions require
+different input data.  
+The survival functions use data that has been cast into the counting process
+form:
+\begin{itemize}
+  \item Each line has a subject id along with a time interval (t1, t2] to which
+    this observation applies
+  \item Covariates apply over the entire interval, from start to finish
+  \item Outcome variables apply to the end of the interval
+\end{itemize}
+The data for msm and hmm should be in \emph{timeline} form.
+\begin{itemize}
+  \item Each line of the data has a subject id, along with a time value
+  \item Other variables on the line are information that was measured or
+    known \emph{at that time}
+\end{itemize}
+
+A timeline data set is actually more natural in the sense that it mimics the 
+way in which data is gathered. 
+It also may be easier to create.
+It is however different than our usual practice.
+For instance, for ordinary survival, a Kaplan-Meier say,
+data in timeline form requires two observations per subject.
+The first observation at time 0 will have baseline covariates along with 
+status= alive.  A second
+observation at the death or last follow-up date will have the status at that
+time point (alive/dead). 
+That second observation will also have many missing values, e.g., blood
+pressure would not be known at that time point.
+
+One of the attractions of the HMM likelihood is that reporter
+variables need not all be present.  In the MCSA for instance, visits are
+scheduled every 15 months, but PET imaging is only gathered on a subset,
+and for many of those PET is done every 30 months. For the HMM likelihood there
+is no need to ``fill in'' those other measurement using imputation, special
+missing value computations, etc.  Each measured reporter adds to the likelihood
+and those which are not measured at this visit don't.  Simple.
+
+
+\section{Time dependent covariates}
+Though markers for the states can be observed intermittently, covariates
+that affect the rates can not be missing, the same restriction that applies
+in a MSH model.  
+If cerebral vascular disease (CeVD) were the state, for instance, with an 
+intermittently observed predictor of the disease rate such as systolic blood
+pressure, this would commonly be filled in wrt continuous time by using the most
+recently measured value, also called last value carried forward; see the 
+\code{lcvf} function. 
+
+\section{CAV example}
+Data from a study that monitors the progression of coronary allograft
+vasculopathy (CAV) is provided in the msm package. 
+CAV is a post-transplant deterioration of the aterial walls in patients who
+have recieved a heart transplant. We will first make a few changes to
+the data set to set it up for our hmm function.
+
+The \code{hmm} and \code{msm} packages solve the same problem, so why create
+the hmm package?  There are currently three primary differences between the
+two packages.
+\begin{enumerate}
+  \item From a user point of view, hmm is designed to have similar structure
+    and code to the survival package.  The hmm and survival packages share a 
+    primary author, who (of course) finds this style more natural.
+  \item For more complex data, like the dementia example found further below in
+    this vignette, the underlying optimization functions in msm were very often
+    not successful at finding the maximum, and very slow when they did succeed.
+    Expermentation with more robust approaches, along a need for these models 
+    within our dementia research program, was the primary driver for the hmm
+    package.  Some aspects of the msm code made such extension of the 
+    optimization more difficult, e.g., the addition of constraints.
+  \item Follow-up summaries of the model, e.g., mean time in state, are more
+    fully fleshed out in the msm package.
+\end{enumerate}
+As a user, 1 and 2 might recommend hmm, while item 3, a longer history, and 
+a deserved reputation for reliability would recommend msm.  
+We emphatically do not claim that hmm is superior. Use what works for you.
+Christopher Jackson, the author of msm, has provided invaluable feedback
+about techincal aspects of the models, and fits to particular data sets,
+that allowed this work to succeed.
+
+<<newcav>>=
+cav2 <- cav
+names(cav2) <- casefold(names(cav2))  # personal preference
+
+#  multi-state status for Surv(), first level has to be "no event at this time"
+cav2$cstate <- factor(cav2$state, 0:4,  
+                      c("censor", "no CAV", "mild/mod", "severe", "death"))
+table(cav2$cstate)       # no off study FU
+table(table(cav2$ptnum)) # everyone has at least 1 follow-up visit
+hist(cav2$years[cav2$cstate != "death"], breaks=c(0:18),
+     xlab="Year of visit", main=NULL)
+
+# what are the inter-visit intervals?
+interval <- c(0, diff(cav2$years))
+igroup <- with(cav2, ifelse(duplicated(ptnum), 1*(cstate=="death"), 2))
+#between visits
+round(quantile(interval[igroup==0], c(0,.25, .5, .75, .9, .95,1)),2)
+#last visit to death
+round(quantile(interval[igroup==1], c(0,.25, .5, .75, .9, .95,1)),2)
+
+if (FALSE) {
+d1 <- density(interval[igroup==0]) # visit intervals
+d2 <- density(interval[igroup==1]) # last vist to death
+matplot(cbind(d1$x, d2$x), cbind(d1$y, d2$y), type='l', lwd=2, 
+        xlab="Visit intervals (years)", ylab="Density")
+abline(v=1:4, lty=3)
+legend(7, .6, c("Between visits", "Last visit to death"), lty=1:2, lwd=2,
+       col=1:2)
+
+opar <- par(mfrow=c(2,1), mar=c(5,5,1,1))
+temp <- table(round(interval[igroup==0]*4)/4)
+plot(as.numeric(names(temp)), c(temp), type='h',
+     xlab="Years since last visit", ylab="Visits by quarter")
+temp2 <- table(round(interval[igroup==1]*4)/4)
+plot(as.numeric(names(temp2)), c(temp2), type='h',
+     xlab="Years since last visit", ylab="Deaths by quarter")
+par(opar)
+}
+@ 
+
+The data set is unusual in that there is no off study follow-up, i.e., a
+date last known alive for those who are not dead.
+The 622 subjects have betwen 2 and 15 assessments, 
+less than 1/2 have more than 4.
+
+For either interval censored or HMM data we need to specifiy the set of
+valid transitions $Q$. For hmm this is a matrix of 0/1 value, which can
+also be used by the statefig routine.
+We also want initial estimates for the rates, we will use the values from
+the msm vignette.
+
+<<cavstates>>=
+cstates <- c("no CAV", "mild/mod", "severe", "death")
+cqmat <- matrix(0,4,4, dimnames= list(from=cstates, to=cstates))
+cqmat[1,2] <- cqmat[2,1] <- 1
+cqmat[2,3] <- cqmat[3,2] <- 1
+cqmat[1:3,4] <- 1
+statefig(rbind(3,1), cqmat, offset=.02)
+
+init <- c(.166, .25, .25, .166, .25, .166, .25))
+# the coefs are in the same order as the non-zero entries in cqmat; remember 
+#  that R matrices are stored in column major order.
+
+hfit0 <- hmm(Surv(years, cstate) ~ 1, data= cav2, id= ptnum,
+               qmatrix= cqmat, exact="death")
+hfit0
+@ 
+
+There are 3 kinds of states in the hmm fitter:
+latent states, which are not observed precisely but for which we have observed
+but imperfect \emph{markers} of the current state, known states, where the
+state a subject is in at the observation time is certain, but not when they
+entered the state, and exact states where both the state and its time of entry
+is known. Known states appear as levels in the in the \code{cstate} argument
+above, which should be a factor whose first level corresponds to ``not a known
+state at this time'' and remaining levels will match the state labels in the
+$Q$ matrix. (Common labels for first level are ``censor'' or ``none'').
+Death is the most common exact state, so much so that ``death'' is the default 
+value of the \code{exact} argument, we could have omitted \code{exact='death'}
+from the above call.  Also, if there is only one exact state, then as a
+convenience to the user 0/1 is allowed as
+the second argument of \code{Surv}, and is assumed to refer to said state.
+
+\section{Example data}
+We will use the included \code{dementia} data set as a running example for
+the remainder of the vignette.  This data set is a simulant, based on data
+from the Mayo Clinic Study of Aging which was used in the analyses of 
+\cite{Jack2022} and \cite{Jack2025}.
+The MCSA is an age and sex stratified sample of subject from Olmsted County,
+Minnesota.  After recruitment, subjects are invited to return for a study
+visit every 15 months, with the goal of understanding the evolution of
+cognitive decline along with various markers of the pathology that underlies
+such decline.  
+The \code{dementia} data set focuses on two processes. 
+The first is cognitive loss, as
+measured by clinical assessment, cognitively unimpaired (CU) versus
+mild cognitive impairment (MCI) versus dementia, a memory score based on a
+battery of cognitive tests, and hippocampal volume, a measure the of neural 
+loss that presumably underlies cognitive decline.
+The second is progression of amyloid and tau deposition, known
+to be part of the Alzheimers disease pathway, direct PET imaging of amyloid and
+tau in the brain, and a putative blood based biomarker P-tau181 of amyloid load.
+(Whether amyloid and tau are causative the disease or only convient markers
+process is vigorously debated.)
+Death is a competing risk for both processes.
+
+\section{Multi-state hazard model}
+We first fit a multi-state hazard (MSH) model, using functions from the
+survival package. This will help make the data clearer, along with the
+differences between MSH, interval censored and HMM models.
+The MSH fit will partially reprise the analysis in \cite{Jack2022}, 
+which fits the simple
+3 state model of not demented (ND)/dementia/death on age scale, with sex,
+ amyloid, CMC, and APOE positivity as covariates.
+
+The choice of time scale is a critical step in the analysis plan. One useful
+way to think about this is as a choice of which covariates to explicitly
+model and which covariates to adjust for by matching. 
+The advantage of matching on some covariate $x$ is that it provides the best 
+possible adjustmement: it works independently of the true functional form of the
+relationship of the relationship $y = f(x)$.  A disadvantage is that we do not
+get a p-value, or an estimate of $f$.  
+In epidemiology studies of chronic disease, 
+matching on age and sex is often a natural
+choice: we already know that rates rise with age and differ by sex, no one
+needs a p-value ``proof'' of this, and a given study is usually focused on other
+questions. 
+In a simple Cox model or a multistate hazard (MSH) model, the partial likelihood
+is based on matching. If time-since-enrollment is used as the underlying scale
+then for an observed dementia in subject ``Smith'', say, at 249 days post 
+enrollment, Smith is compared to all others who were also alive and at 
+risk at 249 days post enrollment, using their appropriate covariate values 
+at that time.
+If age is used as the time scale and that same event happened when Smith was
+30104 days of age (approx 82y 8m), the matched group will be all those who were
+active in the study at 30104 days of age, some of whom might have been enrolled
+in the study for a month while others had been active for a decade.
+A general rule of thumb for the Cox model is to match on the time variable
+that is the most impactfull and/or difficult to model, and model the easier
+and/or less impactful time scale. 
+I often tell the researcher ``Assume you want to predict a subject's risk over
+the next year, and you can have only one of age, time 
+since first diagnosis of desease, or time since enrollment in the study to
+guide you.  Which would you choose?''
+
+
+Both death and dementia rates rise rapidly with
+age, death rates are approximately log-linear from age 50 onward 
+but dementia rates have a different form (a later but more precipitous rise).
+The MCSA is is an age and sex stratified random sample from a defined population,
+enrollment ages range from 50 to 90 and follow-up of up to 16 years.  
+The data thus has observations from 50 to 100+ years of age, over this range 
+population death rates increase by approximately 150 fold, e.g.,
+\code{survexp.mn[100,,'2020']/ survexp.mn[50,,'2020']}.
+If modeling the effect of age on the hazard one really 
+needs to get it right, blindly adding \code{+ age} the the formula will not
+suffice, since even a small error can cause effects of interest, such as the
+1.3--1.4 fold effect APOE genotype, to be completely lost in the resulting bias.
+On the other hand, one would expect little clinical effect for time since
+enrollment, which is the time since a subject was randomly selected from the
+master age/sex registry of Olmsted County residents for an invitation letter.
+This makes age the natural time scale for an MSH model.
+
+A model using time from enrollment as the time scale would include age as
+a covariate; similarly a model using age as the time scale should include
+time-since enrollment as a covariate. 
+Based on prior experience we have coded this as a categorical time-dependent
+variable of 0-1 years, 1-4, and 4+ years post enrollment, with 4+ as the
+reference level.
+The dementia data set included in the package is modeled on the actual MCSA
+data, results will not match any analyses using the actual MCSA sample but
+will often be similar in magnitude.  
+
+<<counting>>=
+state1 <- c("ND", "dementia", "death")
+smat1 <- matrix(0, 3,3, dimnames= list(state1, state1))
+smat1[1:2,3] <- smat1[1,2] <- 1
+statefig(rbind(2,1), smat1)
+
+# The dementia data is in timeline form, our first task is to create a
+#  counting process version suitable for an MSH model (coxph).
+# Create rows for years since enrollment (fake data set)
+first <- subset(dementia, !duplicated(ptnum),c(ptnum, age, male, educ, apoepos))
+yrdummy <- data.frame(ptnum = rep(first$ptnum, 3),
+                      age= c(outer(first$age, c(0,1, 4), '+')),
+                      years= rep(c(0,1,4), each= nrow(first)))
+                    
+
+# first row of data, along with fixed covariates
+last  <- subset(dementia, !duplicated(ptnum, fromLast= TRUE))
+last$age1 <- first$age
+cdata <- tmerge(first[,-2], last, id=ptnum, tstart=age1, tstop=age,
+                death= event(age, death), 
+                options= list(tstartname="age1", tstopname="age2"))
+# full counting process form
+cdata <- tmerge(cdata, dementia, id= ptnum,
+                dementia= cumevent(age, dx=="dementia"),
+                centiloid= tdc(age, centiloid),
+                cmc = tdc(age, cmc))
+c("timeline"= nrow(dementia), "unique id"= length(unique(dementia$ptnum)),
+  "counting process"= nrow(cdata))
+
+# Add in years since enrollment as a time-dependent covariate
+cdata <- tmerge(cdata, yrdummy, id=ptnum,
+                yearc = tdc(age, years))
+cdata$yearc <- factor(cdata$yearc, c(4,0,1), c("4+", "0-1", "1-4"))
+
+# create the event variable
+temp <- with(cdata, ifelse(death, 2, ifelse(dementia==1, 1, 0)))
+cdata$event <- factor(temp, 0:2, c("censor", "dementia", "death"))
+
+check <- survcheck(Surv(age1, age2, event) ~ 1, data=cdata, id = ptnum)
+check
+@
+
+Of note:
+\begin{itemize}
+  \item The timeline data set has one more row per subject than the 
+    counting process data set.
+  \item There are participants in the data set who have multiple office visits
+    in the demented state.
+    For the MSH model, we don't want to count these as separate instances of a
+    new dementia, i.e., as a transition.  Hence the use of
+    \code{cumevent}, and setting the event variable to ``dementia'' only for
+    the first instance.
+  \item Several participants have a diagnosis of dementia followed by a later
+    MCI diagnosis, then dementia again; a few flip multiple times.
+    Clearly the clinical categorization is imperfect, and our working diagnosis
+    of ``first dementia'' may be biased early.  We will 
+    discuss this later with HMM models.
+  \item CMC and centiloid will be used as predictors of the hazard rates in
+    the model, and as such need to have missing values filled in using last
+    value carried forward (LVCF), which is done automatically by the tdc()
+    operator.
+\end{itemize}
+
+The results of survcheck show that 543 subjects had a dementia diagnosis of 
+which 469 were followed to death, another 1002 died without dementia. 
+(All subjects in the data start in either CU or MCI.)
+The row of zeros shows than no one had dementia after death, a second death,
+or further follow-up after death, all useful checks that the data set was
+correctly created.
+
+A more interesting question is why we did not include MCI as a state. The reason
+is that the study has informative drop out --- those who are beginning to
+experience cognitive decline, perhaps not yet diagnosed as such, are more
+likely to leave the study.  However, we have access to the ongoing medical
+records of those who choose to cease active participation, and a diagnosis
+of dementia can be made from review of the physician notes and diagnoses that
+are part of their their standard care.
+Thus, with respect to death and dementia there is not 
+informative loss and \code{cfit1} below is valid.  
+Accurate diagnosis of mild cognitive impairment (MCI), however, requires formal
+cognitive tests, which only occur for on-study visits.
+We will return to this with the HMM model.
+
+Here is a MSH hazard model fit, results are similar to the original study.
+We have categorized amyloid similarly to that paper (clgp = centiloid group).
+
+<<mshfit>>=
+atemp <- with(cdata, ifelse(is.na(centiloid),4,
+                            as.numeric(cut(centiloid, c(-100, 20, 68, 500)))))
+cdata$clgp <- factor(atemp, 1:4, c("low", "med", "high", "missing"))
+cdata$istate <- factor(as.numeric(check$istate), 1:2, c("ND", "dementia"))
+cdata$edu4 <- cdata$educ/4  # a more useful coefficient
+cfit1 <- coxph(list(Surv(age1, age2, event) ~ male + apoepos + clgp + edu4 +cmc,
+                    1:2 ~ male * (apoepos + clgp), 1:3 ~ yearc),
+               data=cdata, istate=istate, id= ptnum)
+print(cfit1, digits=2)
+@ 
+
+It is easier to see the results as a plot.
+The result is shown in figure \ref{fig:mshplot}.
+For the 12 groups created by the
+interacting covariates, sex * apoe * centiloid group we find it easier to 
+visualize these by comparing each to an overall average effect rather than 
+choosing one as a reference.
+
+\begin{itemize}
+  \item With respect to the rate of dementia, the primary question of interest
+    in the study
+    \begin{itemize}
+      \item One or more $\epsilon{4}$ alleles in the APOE gene confer a higher
+        risk of dementia, and this increase is larger for females than males.
+      \item There is gradation of risk across low/moderate/high amyloid levels;
+        however, males do not particpate in the lowest tranche of risk.
+        Low centiloid + APOE- is the largest subset of patients, so the marginal
+        effect is a higher average dementia hazard for males.
+      \item Each CMC condition increases the hazard ratio by about 12\%.
+    \end{itemize}
+    \item For transitions to death, 
+      \begin{itemize}
+        \item APOE and amyloid no longer play an important role.
+        \item Male sex and CMC are important predictors of death, both with and
+          without dementia.
+        \item Education lowers the ND:death rate by 9\%, but appears to
+          increase the dementia:death hazard by 13\%. The decrease in ND:dementia
+          rate (though not ``significant'') along with an increase in the 
+          dementia:death rate aligns with
+          the popular hypothesis that those with higher education can better 
+          mask early cognitive decline, making them appear to enter dementia 
+          later but progress faster.
+        \item The age ajusted death rate in the first year after enrollment
+        is only 1/2 the rate found in year 4+.
+      \end{itemize}
+\end{itemize}
+
+We have found a lower death rate in the first year of enrollment to be common
+for any study that involves informed consent.  A simple explanation for this
+would be that subjects who are in extremis do not sign up for research studies.
+
+The more important estimates in a multi-state model are absolute risks:
+  \item $p_k(t; x(a), s(a))$, the probability of being in state $k$ at 
+     future time $t>a$, given the covariates and starting state at age $a$.
+  \item $E(N_k(t); x(a), s(a))$, the expected number of visits to state $k$ up
+    through time $t$, given the initial covariates and state.
+  \item ${\rm sojourn}_k(t;  x(a), s(a))$, the expected sojourn time in 
+    state $k$, through time $t$, given the initial covariates and state.
+\end{itemize}
+Though these are straightforward compuations when all the covariates $X$ are 
+fixed, this
+is much more difficult in the presence of time-varying covariates such as 
+amyloid and will be taken up in section \ref{tdcov}.
+
+<<contrast, echo=FALSE>>=
+# This is a helper function, to compute a marginal effect
+contrast <- function(fit, data, global=FALSE, weight, transition=1,
+                     tol=sqrt(.Machine$double.eps)) {
+    newx <- model.matrix(fit, data= data)
+    if (global)  # test for all differences =0
+        newx <- scale(newx[-1,], center=newx[1,], scale=FALSE)
+    else {    
+        if (missing(weight))  # subtract first row
+            newx <- scale(newx, center=newx[1,], scale=FALSE) 
+        else  { # use a weighted average
+            wt <- weight/sum(weight)# use a weighted average
+            if (length(wt) != nrow(newx)) stop("wrong length for weight")
+            newx <- scale(newx, center= wt %*% newx , scale=FALSE)
+        }
+    }
+    
+    if (inherits(fit, 'coxphms')) { 
+        # multistate model
+        indx <- fit$cmap[,transition]
+        beta <- coef(fit, matrix=TRUE)[,transition]
+        vmat <- matrix(0, length(indx), length(indx))
+        vmat[indx>0, indx>0] <- vcov(fit)[indx, indx]
+        # vmat and beta are the coef and variance matrix for this transition
+    } else {
+        beta <-coef(fit)
+        vmat <- vcov(fit)
+    }
+        
+    test <- drop(newx %*% beta)
+    V    <- newx %*% vmat %*% t(newx)
+    if (global) {
+        stemp <- svd(V)
+        nonzero <- (stemp$d > tol)
+        ctemp <- test %*% stemp$u[,nonzero]
+        chi <- ctemp %*% diag(1/stemp$d[nonzero]) %*% c(ctemp)
+        c(chisq= drop(chi), df= sum(nonzero))
+    }
+    else {
+        std <- sqrt(diag(V))
+        z <- ifelse(std==0, 0, test/std)
+        cbind(estimate=test, std.err=std, z= z)
+    }
+}
+@ 
+
+\begin{figure}
+<<mshplot, figure=FALSE, height=6in>>=
+dummy <- expand.grid(apoepos=0:1, 
+                     clgp=c("low", "med", "high"), 
+                     male=0:1, cmc=2, edu4= 3, yearc="4+")
+count <- with(cdata, table(apoepos, clgp, male))[,-4,]
+con1  <- contrast(cfit1, dummy, weight= count, transition=1)
+hr1 <- con1[,1] + outer(con1[,2], c(0, -1.96, 1.96), '*')
+temp <- summary(cfit1)$coefficients
+cmcrow <- grepl("cmc", row.names(temp))
+temp[cmcrow,c(1,3,4)] <- temp[cmcrow, c(1,3, 4)] *2  # display 2 points of cmc
+hr2 <- temp[,1] + outer(temp[,3], c(0, -1.96, 1.96), '*')
+hr <- exp(rbind(hr1, hr2[c(6,7, 12:15, 17:24, 26:27),]))
+yy <- 31- c(1:14, 16:23, 25:30)
+opar <- par(mar=c(5,7,1,1))
+matplot(hr, yy, type='n', log='x', yaxt='n', xlab="Hazard ratio", ylab="")
+points(hr[,1], yy, pch=19, col=rep(1:3, c(14, 8, 6)))
+segments(hr[,2], yy, hr[,3], yy,  col=rep(1:3, c(14, 8, 6)))
+abline(h=c(16, 7), lty=2)
+abline(v=1, lty=3)
+ylab <- c("F- low", "F+ low", "F- mod", "F+ mod", "F- high", "F+ high",
+          "M- low", "M+ low", "M- mod", "M+ mod", "M- high", "M+ high",
+          "+4 educ", "+2 CMC", "male", "APOE+", "amyl mod", "amyl high",
+          "+4 educ", "+2 CMC", "year 0-1", "year 1-4", "male", "APOE+",
+          "amyl mod", "amyl high", "+4 educ", "+2 CMC")
+axis(2, yy, ylab, las=1, cex.axis=.7)
+text(c(.4,4,4), c(24,12, 3), c( "ND: dementia", "ND:death", "dementia:death"),
+     col=1:3)
+par(opar)
+@ 
+  \caption{Hazard ratos and confidence limits for the predictors in an MSH fit.}
+  \label{mshplot}
+\end{figure}
+
+\section{HMM fitter}
+\subsection{data}
+The \code{hmm} function allows for interval censored data and for latent
+states. The combination of these allows us to accomdate the MCI state.
+The data set itself needs to be in timeline format: each row has an
+identifier plus a timestamp, along with all the covariates measured or
+known at that time point, other covariates are NA.  
+
+The hmm model uses a parametric baseline hazard for each transition, i.e., 
+intercept, age, sex, apoe etc. appear as covariates.
+Age is the most important term, which we will model as a spline for dementia
+rates and (log) linear for age; like a Cox model each rate is modeled as
+exp(linear predictor) as a way to constrain rates to be non-negative.
+A key part of the computation is transition probability matrix
+$P(s,t)$ over the time window between two visits at time $s$ and $t$, 
+$\exp[(t-s)R]$ where $R$ is the matrix of rates.
+If rates are constant over the time window from $s$ to $t$ this
+compuataion is feasable, $P(s,t)= exp[(t-s)R]$ where exp is the matrix
+exponential; if the rates vary over the window the computation is intractable
+(a numerical integration that would take forever).
+As a consequence our first task is to create an expanded data set with
+time-dependent covariate \code{iage}, the integer ''birthday age'' for each
+subject, which is the covariate that will be used as the age predictor.
+Treating death and dementia rates as a step function over age is similar to how
+population rate tables are organized, see for instance the human mortality
+data base (www.mortality.org); 
+experience in that domain has shown that it is sometimes necessary to subdivide
+the first year of life, but single years suffice from there on.
+One could argue for using 2 or even 5 year increments in the dementia data, 
+as a way to speed
+up the computation, but we have chosen the more conservative route.
+It will more than double the size of the data set.
+
+<<expanddementia>>=
+# Create a dummy data set of all birthdays for all subjects.
+# There are almost certainly more clever ways to do this, but the
+#  brute force method below is clear and not all that slow
+# Create rows for ages that are strictly between first age +1 and last age.
+#  I know that all the ages are in tenths of a year.
+first <- subset(dementia, !duplicated(ptnum), c(ptnum, age))
+last  <- subset(dementia, !duplicated(ptnum, fromLast=TRUE), c(ptnum, age))
+temp  <- lapply(which((first$age+1) < (last$age-.01)), function(i) {
+    data.frame(ptnum= first$ptnum[i], 
+               age= seq(from= 1+ first$age[i], to= last$age[i]- .01, by=1),
+               death=0)
+})
+temp2 <- do.call(rbind, temp)
+c("Original rows"= nrow(dementia), "Added rows"= nrow(temp2))
+
+# Now merge it in
+dement2 <- merge(dementia, temp2, all=TRUE)
+dement2$iage <- floor(dement2$age)  
+# also add the 'years on study' category             
+tyear <- with(dement2, age - age[match(ptnum, ptnum)]) #years on study
+dement2$cyear <- factor(as.numeric(cut(tyear, c(-1, 1, 4, 100))),
+                                   c(3,1,2), c(">4", "0-1", "1-4"))
+@ 
+
+We now have to make a choice. Variables in the data set that will act as
+markers for a hidden or latent state should be non-missing only when they
+are actually observed, as the likelihood involves a probabiliy(observed marker, 
+given the true state) term.
+Variables that will be used as covariates in the transition rate need to be
+available at all times, just as they do for the multi-state hazard model
+\code{cfit1} above. For an interval censored version of \code{cfit1} missing
+amyloid and CMC values will need to be filled in using most recent value
+seen.  Create this version as data set \code{dement2b}.
+
+<<dement2b>>=
+dement2b <- dement2
+dement2b$centiloid <- with(dement2, lvcf(ptnum, centiloid))
+dement2b$cmc       <- with(dement2, lvcf(ptnum, cmc))
+# create the categorical centiloid, with missing as a category
+atemp <- with(dement2b, ifelse(is.na(centiloid), 4,
+                               as.numeric(cut(centiloid, c(-100, 20, 68, 500)))))
+dement2b$clgp <- factor(atemp, 1:4, c("low", "med", "high", "missing"))
+
+# the 3 level outcome based on first dementia or death
+dtemp <- with(dement2, ifelse(is.na(dx), 0, 1*(dx=="dementia")))
+firstdem <- unlist(tapply(dtemp, dement2$ptnum, pmax))
+temp <- ifelse(dement2b$death==1, 2, firstdem)
+dement2b$state3 <- factor(temp, 0:2, c("censor", "dementia", "death"))
+@ 
+
+As the next part of the setup we need to describe the state space and the allowed
+transitions, e.g., see the matrix \code{qmat} below, 
+as this can not be deduced simply from the data.
+The values of qmat are 0 for transitions that can not occur, and 1 for those
+that can.
+For instance, the dementia data contains many subjects that were
+categorized as cognitively unimpaired on one visit and as dementia at the
+next study visit (see counts below), but biologically we know that those 
+subjects 
+must have passed through the MCI state during the intervening period.
+The hmm function itself does not know any biology, so it is necessary to
+inform it that a direct CU:dementia transition is not possible.
+
+<<dstate>>=
+state2 <- c("CU", "MCI", "dementia", "death")
+qmat <- matrix(0, 4,4, dimnames= list(state2, state2))
+qmat[1:3,4] <- qmat[1,2] <- qmat[2,3] <- 1
+statefig(rbind(3,1), qmat)
+
+# All the observed transitions, for all subjects
+indx <- which(duplicated(dementia$ptnum))
+table(from=dementia$dx[indx-1], to=dementia$dx[indx])
+@ 
+
+The fact that there are observed MCI to CU pairs in the data shows that
+the measurment of CU/MCI/dementia is imperfect. To deal with this
+define a set of latent states C0/C1/C2 corresponding to the true cognitive
+state, and treat the clinical measurment of CU/MCI/dementia as an imperfect
+biomarker of the true state. 
+The underlying probability model is 
+$$ y = f(state) $$
+i.e., a probability distribution 
+of observed values corresponding to each true state.
+Since the clinical measurement is categorical, this leads to a set of
+3 multinomial distributions shown in the rows of table \ref{tabmulti}.  
+We have made an assumption that CU and dementia diagnoses are not confused.
+
+\begin{table} \centering
+  \begin{tabular}{ccccc}
+    & \multicolumn{4}{c}{Observed biomarker} \\
+ True & CU & MCI & dementa & ND \\
+  C0  & p_1 & 1-p_1 & 0 &  1  \\
+  C1  & p_2 & 1-(p_2 + p_3) & p_3 & 1-p_3 \\
+  C2  &  0  & p_4  & 1-p_4 & p_4
+ \end{tabular}
+ \caption{Multinomial distributions for the dementia data. At an in-person
+   study visit CU/MCI/dementia is recorded, 
+   a record review yeilds ND/dementia.}
+  \label{tabmulti}
+\end{table}
+
+A common error is to think in terms of  state = g(observed) as the model, e.g.,
+if MCI is observed the probability of CU/MCI/dementia is a,b,c;
+but the statistical model goes the other direction.
+ After the fit is finished one can compute the relevant
+posteriors at a fixed time $t$, which will of course depend on prevalence at
+time $t$.
+
+(Note that there are no observed transitions from ND to dementia in the
+data, this is structural. 
+Medical record reviews were undertaken for subjects who were not yet demented
+and had no study visit or prior review within approx 3 years, someone found to
+be not demented is coded as ND, as CU and MCI cannot be distinguished in this
+instance. However, the data entry screen for this task retains only the most
+recent ND/dementia date and the ND/dementia status as of that date.)
+
+
+\subsection{Fit}
+<<hmmfit1>>=
+# make death a factor
+dement2$death <- factor(dement$death, 0:1, c("censor", "death"))
+
+# updated state matrix, using C0, C1, C2 for the latent (hidden) states
+cstate <- c("C0", "C1", "C2", "death")
+qmat <- matrix(0, 4, 4, dimnames=list(cstate, cstate))
+qmat[1:3,4] <- qmat[1,2] <- qmat[2,3] <- 1
+
+# pattern matrix for the multinomial
+pmat <- matrix(c(-1,1,0, 2, -1, 3, 0, 4, -1), 3,3,byrow= TRUE,
+                  dimnames=list(true= paste0("C", 0:2),
+                                marker=c("CU", "MCI", "dementia")))
+ns2 <- function(x, ...) ns(x, Boundary.knots=c(60,90), knots=c(70, 80))
+zzz
+hfit1 <- hmm(list(Surv(age, death) ~ male + apoepos + clgp + cmc,
+                  1:2 + 2:3 ~ ns2(iage) + male*(apoepos + clgp),
+                  1:4 + 2:4 + 3:4 ~ iage,
+                  1:2  ~ yearc),  qmatrix= qmat,
+             marker= c(1:3):dx ~1 / multinomial(pattern=pmat),
+             data= dement2, id= ptnum, exacttime="death")
+@ 
+
+
+This leads to the following basic components for an hmm call
+\begin{itemize}
+  \item A model formula specifying the time and covariates that apply to the
+    transition rates. This has the same form as a MSH model fit using
+    coxph.
+  \item The usual data, weight, and subset arguments that go with a formula.
+    Parallel to \code{lm}, \code{glm}, and other standard modeling functions,
+    formula, data, weight and subset are the first four arguments.
+    There is not an na.action argument, more on this later.
+  \item The subject identifier.
+  \item A matrix specifying the valid transitions, whose dimnames are the
+    names of the states.
+  \item An indicator of the death state, if any.
+  \item The mapping(s) between latent states and biomarkers.
+\end{itemize}
+
+The data is specified by using standard R modeling language, illustrated
+in the call below.
+<<model, eval=FALSE>>=
+
+fit <- hmm(hbind(age, cstate) ~ iage + ns(iage,3) + male, data=data2,
+           subset=1:50, id=clinic, otype=otype,
+           qmatrix= qmat, qcoef=qcon, rcoef=rcon, pcoef=pcon,
+           rfun = hmmgauss, fitter = hmmscore)
+@ 
+
+
+In this example \code{age} indicates the observation time at which the 
+state was observed for the subject and \code{cstate}
+is a variable giving the \emph{observed} 
+outcome for each observation, as opposed to the true underlying state of
+the HMM.  The iage variable is integer age: for HMM models a covariate must
+be constant over each time interval, so as a predictor iage moves forward
+in steps at each birthday.
+The otype and id variables are required, and will normally be found in 
+the data set along with the
+formula variables.  The data must have all of the observations for a particular
+id in contiguous rows, sorted by time within subject, but the data set
+does not need to be sorted by subject identifier.
+The \code{obstype} variable is 0= censored, 1= usual, 2= death, 3= entry.
+The \code{data} and \code{subset} arguments work exactly as in other
+R modeling functions.
+
+
+Having age as both our time scale and ``current age'' as a covariate can be 
+confusing, 
+and one needs to use two separate variable names.  
+The variable on the left hand side encodes actual observation times
+and so will be continuous.  The variable on the right hand
+side is a time dependent covariate and will normally be an integer,
+corresponding to the idea that there is a rate for age 50-51, another for
+age 51-52, \ldots and each rate applies over the whole age interval. 
+This is similar to US death rate tables. More importantly a stepped
+variable like this is the only way that the HMM model can handle continuous
+age; the matrix exponential, a key part of the compuation, is only defined
+for constant hazard rates over the interval, i.e., constant covariates.
+(Or more accurately, the matrix exponential can be efficiently computed for
+only this case.)
+How many intervals to use is up to the user: single years of age is
+perhaps overkill (at least at the younger ages).
+Note that the exact same model fit would ensue if the first term were
+\code{hbind(time, y)} with \code{time} the time since enrollment.
+
+In the current iteration of the package (1.x series) the hmm function acts as
+more of an organizer of the computation than than a doer of the work.
+This was done on purpose, to make the code a better testbed for new ideas.
+The fitter argument, for instance, specifies an external program to use as
+the maximizer.  We have routines that make use of the optim library, Fisher
+scoring, and MCMC methods.  The default fitter simply returns the fit at 
+the initial values.  
+
+Although this made the code a good tool for exploration, setting up any given
+problem can be tedious. Sections below talk about all of the individual bits.
+
+\subsection{Transition rates}
+The matrix of transition rates is specified using the \code{qmatrix}
+argument, which has the same form as it does in the msm package.
+If there were 6 true states then $Q$ will be 6 by 6, element $i,j$ is 0
+if transitions from state $i$ to state $j$ do not (directly) occur
+and a positive value if the transition is allowed.
+The row and/or column names of $Q$ contain
+the names of the states, which will be attached to various parts of the
+printout; no dimnames corresponds to using 1, 2, 3, \ldots as the state names.
+(This is discouraged).
+
+For our 6 state model of Alzheimers the $Q$ matrix would be
+<<qmat>>=
+qmat <- matrix(c(0, 1, 1, 0, 0, 1,
+                 0, 0, 0, 1, 0, 1,
+                 0, 0, 0, 1, 1, 1,
+                 0, 0, 0, 0, 1, 1, 
+                 0, 0, 0, 0, 1, 1,
+                 0, 0, 0, 0, 0, 1), ncol=6, byrow=TRUE)
+states <- c("A-N-", "A+N-", "A-N+", "A+N+", "demented", "dead")
+dimnames(qmat) <- list(states, states)
+qmat
+@ 
+The diagonal is ignored and can contain any value.  
+(Subjects can always stay in the same state, and the program
+knows this.)  Zeros correspond to transitions that cannot occur
+and non-zero to those that can.
+The non-zero values will normally be simple indicators as in the above example,
+with initial values for the transitions found in the \code{qcoef} argument.
+Alternately, the elements of \code{qmat} can contain initial values for the
+log of the transition rates.  Any initial values in \code{qcoef} will 
+override the values in \code{qmat}.
+
+Covariates are controlled by the \code{qcoef} argument, which is
+a data frame containing variables \code{state1, state2, term, coef}
+and optionally \code{init}.
+Normally, this data frame is created usint the \code{qcoef} function,
+which was itself a prototype for the list of formulas approach used in
+coxph. (That approach will soon be ported back to hmm, and this section
+of the vignette replaced.) 
+The first two arguments to \code{qcoef} are the transition matrix $Q$
+and a data frame used to define convenient aliases.
+
+<<qcexample>>=
+smap <- data.frame(states= rownames(qmat),
+                   A= c(0,1,0,1, 10,11),
+                   N= c(0,1,0,1, 10,11))
+q1 <- qcoef(qmat, smap,
+            A(0)/A(1) ~ 1/ init(-2.3),
+            A(0)/A(1) ~ ns(iage, 3) + apoepos,
+            N(0)/N(1) ~ 1/ init(-3),
+            N(0)/N(1) ~ ns(age,3),
+            
+            
+                   
+@ 
+
+
+
+The first three variables can be either numeric or character, depending
+on whether you want to refer to the states and/or terms by number or label.
+A term in the model formula such as \code{ns(x3, 3)} will expand into multiple 
+coefficients but is thought of as one \emph{term} by R, and entered as
+such in qcoef.  Do not forget the intercept, which is
+implicit in most R models and can be referred to either as `(Intercept)'
+or as term number 0.
+
+Any row in \code{qcoef} that has coef=0 causes that coefficient to not
+be optimized; it will be fixed at its initial value. 
+All rows with \code{coef} set to the same nonzero value are 
+constrained to share the same coefficient.  
+The actual values used in the coef column for this purpose 
+are of no consequence although one will normally use integers.
+Initial values for the intercept terms are are taken from the 
+\code{qmatrix} argument or the \code{qcoef} data frame; if present
+the \code{qcoef} values override any in $Q$.
+
+In the model given above, assume that we want a common death rate for
+the first 4 states, differing for males and females, and
+the spline term only for the A-N- to A+N- transition.
+Below is a sample qcoef argument.
+The program will automatically add the
+intercepts and their initial values. 
+In order to be consistent with the msm package the current code expects the
+hazard (exp(coef)) in qmat and the coefficient itself in qcoef.  
+I'm not sure if this is a good idea.
+
+<<qcon>>=
+states <- c("A-N-", "A+N-", "A-N+", "A+N+", "demented", "dead")
+qcon1 <- data.frame(state1 = states[c(1,3,1,2,3,4,5)],
+                    state2 = states[c(2,4,3,4,5,5,6)],
+                    term = rep(c("ns(iage, 3)", "iage"), c(1,6)),
+                    coef = 1:7)
+# force equal age coefficients for death
+qcon2 <- data.frame(state1 = states[rep(1:4, 3)],
+                    state2 = rep("dead", 12),
+                    term   = rep(c("(Intercept)", "iage","male"), c(4,4,4)),
+                    coef = rep(12:14, c(4,4,4)))
+rbind(qcon1, qcon2)
+@ 
+
+\subsection{Response functions}
+Response functions are set up in a parallel way.
+The \code{rfun} argument contains the name of the response
+function, or a list of functions if there are multiple y values at
+each visit.  The first response function goes with the first $y$ value
+and etc.
+The \code{rcoef} argument is a data frame with names of 
+response, lp, term, coef and optionally init; 
+the first of these is not needed if there
+is a single response.
+A given response function can depend on multiple linear predictors.
+The term, coef, and init arguments are identical to those for qcoef.
+
+A response function will be called with four arguments
+\begin{description}
+  \item[y] a vector of values $y$ of length $n$
+  \item[nstate] number of states
+  \item[eta] a matrix of linear predictors with $n$ rows.
+  \item[derivative]  FALSE or TRUE, whether the function should also return
+    derivatives of the result
+\end{description}
+The routine will return a matrix with $nstate$ rows and $n$ columns.
+Each column refers to a single observation, and contains
+$P(y_i | s_i=j)$, the probability of seeing the given $y$ if the true state
+were $j$.  
+The routine is not called for missing $y$ values, the parent \code{hmm}
+routine has taken care of that.
+If derivatives are requested then the response will have a \code{gradient}
+attribute which is an array whose first two dimensions are identical to 
+the return, and last dimension is the number of linear predictors.
+Each ``slice'' of the array contains the derivatives wrt a single linear
+predictor.
+
+The code contains a response function \code{noerror.hmm} which treats every
+response as though it were observed without error.  Using this yields the
+usual Markov model rather than a hidden Markov model.
+Say one has a response function with no optimized parameters, e.g., if error
+rates were known a-priori.  
+One way to deal with this are to write a simple function with those rates
+baked in as constants; it depends on no parameters so the
+the \code{rcoef} argument would be empty.
+Another is to write one that depends on parameters but call
+it with those parameters fixed.
+An rcoef data frame for the latter would have one or more rows with
+lp= 1, 2, \ldots, term=0 (intercept), coef=0 (fixed
+value) and init = the desired value. 
+In either test cases the parent routine is smart enough not to 
+ask for derivatives.
+
+\subsection{Starting probabilities}
+The starting probability $\pi_0$ is defined in the same way as the
+response functions using \code{pfun} and \code{pcoef}.
+The \code{pfun} function has arguments of number of states, linear predictors,
+and derivative.
+
+\section{Optmization}
+Within the code there are a few key variables.
+First is the $X$ matrix which has $n$ rows and $m$ columns, and is
+like any other X matrix in a modeling function.
+Second is $\beta$ which has $m$ rows and $p$ columns, one for each linear 
+predictor.  There is a linear predictor for each allowed transition rate,
+along with those for the response functions and $\pi$.  
+Some elements of $\beta$ may be constant.
+The third is \code{cmap}, which has the same shape as $\beta$, and contains
+parameter numbers.  A value of 0 means that the corresponding element of
+$\beta$ is fixed (often at zero), a value of $k$ means that the corresponding
+element of $\beta$ is taken from the $k$th parameter.
+The maximum value of \code{cmap} is the number of estimated parameters,
+which is also the length of the \code{coefficient} vector. 
+This is the vector that the optimization routine sees.
+
+The \code{scale} option controls centering and scaling of the variables.
+If centered then the intercepts are with respect to the mean
+covariate values, scaling scales them all to a standard deviation of 1.
+Centering can be critical for convergence of the code, and scaling will
+often be helpful.  The default for the routine is \code{c(TRUE, FALSE)}
+for centering but not scaling.
+The \code{scale} component of an hmm fit contains the vector of centering
+values and the vector of scale values.  This can be used as the argument
+in other hmm fits to ensure the same center/scale from run to run of a 
+set of models.
+
+A strength of the code (but more work for the user) is that it allows the
+use of an optimizer of choice.  The routine should have \code{par} and
+\code{fn} as the first arguments, and return a list containing elements
+\code{loglik} and {coefficients}.
+As an olive branch to the optim routine the results can also be labeled
+as \code{par} and \code{value}.
+The \code{mfun} argument to \code{hmm} should contain the name of the
+optimizer and \code{mpar} a list of any other parameters desired by the
+routine.  
+When called \code{par} will contain the initial values of the parameters
+and \code{fn} will by default be 'hmmloglik'.  However, any of
+'hmmloglik', 'hmmgrad' or 'hmmfull', can be be used by
+adding this as the \code{fn} element of \code{mpar}.  
+Each of these takes a single vector of parameter values as input.
+\begin{itemize}
+  \item hmmloglik returns a single log-likelihood value
+  \item hmmgrad returns a vector of first derivatives
+  \item hmmfull returns vector of log-likelihood values, one per subject,
+    along with a matrix of derivatives with one row per subject and one
+    column per parameter.
+\end{itemize}
+
+\section{Constraints and penalties}
+One way to create the constraints is to use the hmmpenalty function.
+The primary idea is to define contrasts between linear predictors.
+The arguments are
+\begin{itemize}
+  \item A data set with the same covariates as the fitted model, and one
+    row for each target.
+  \item A vector of linear predictor names, which will be matched to the
+    column names of \code{coef(fit)}.  Alternately this can be a vector of
+    column numbers.
+  \item A set of contrasts/comparisons between the linear predictors.
+\end{itemize}
+
+For instance, suppose that we want the a:b rate to be similar to the c:d rate
+for a model with multiple transitions, with age, sex, and APOE as covariates.
+As our default subject choose a 70 year old male, APOE negative.  Then the
+data set and linear predictors could be:
+<<apoe>>=
+newdata <- data.frame(age=c(70, 70), male=c(1,1), apoe=c(0,0))
+lp      <- c("a:b", "c:d")
+@ 
+to create a contrast matrix that will be used as a penalty.
+
+Alternatively we might want to force the rate to be increasing from age 70 to
+80, in which case the data set and linear predictors would be
+<<apoe2>>=
+newdata <- data.frame(age=c(70, 80), male=c(1,1), apoe=c(0,0))
+lp      <- c("a:b", "a:b")
+@ 
+
+A call might have two targets or a hundred, it is entirely up to the user.
+The third argument creates combinations of the constraints.  For instance if
+there were 4 targets we could have a contrast argument of
+<<apoe3>>=
+contrast <- rbind(c(1, -1, 0, 0), c(0, 0, 1, -1), c(1, 0, -1, 0))
+contrast
+@ 
+This compares linear predictors 1 with 2, 3 with 4, and 1 with 3.
+If all of the pairing are simple +1/-1 comparisons like the above then an
+alternate form of the argument is allowed which is a 2 column matrix
+with rows of (1,2), (3,4), and (1,3).
+
+
+One reason for thinking of the constraints in this way is that the result is
+invariant to any variable recoding.  A covariate can be centered or rescaled
+and the predicted value is unchanged.
+A second reason which is perhaps more important is that working directly 
+with the
+parameters can be hard.  For instance, we might want one linear rate to be 
+greater than another --- but what does this mean?  Consider the figure below.
+The second rate will cross the first at about age 95, but it may be larger
+for all the ages we care about.  Constraints that the rate is
+higher at ages 60 and 80 may accomplish what we want without resorting to 
+non-linear tail behavior.
+<<agefig, echo=FALSE>>=
+age <- 50:90
+y <- cbind(-8 + age/100, -7.55 + age/190)
+matplot(age, 1e4*exp(y), type='l', lty=1, lwd=2, log='y',
+        xlab="Age", ylab = "rate/100")
+@ 
+
+A last advantage is that this approach is simple to specify for non-linear
+functions such as a spline.  
+
+The result of a call to \code{hmmpenalty} is a 3 dimensional array whose 
+first 2 dimensions match \code{coef(fit)} and third dimension the number of
+comparisons.  Each ``slice'' is one comparison.
+An array can instead be created directly by the user, if desired.
+The same form is used for both the penalty and constraint arguments.
+Let $C\beta$ be the set of linear contrasts after translation to the
+underlying parameters $\beta$ of the maximization. 
+(This is done automatically by hmm).  Then a penalty
+is the addition of the square of each contrast to the log-likelihood,
+formally $\beta'(C'C) \beta /2$.  
+For our figure above, a penalty at age 70 adds the square of the distance
+between the two curves.
+(Actually the log curves, since rates are fit on log scale to avoid negative
+numbers).
+
+How should penalties be scaled?  
+For penalties, a degrees-of-freedom argument would note that the likelihood
+should increase by about 2 units with the addition of an extraneous
+degree of freedom,
+which is the basis of Akiake's information criterion.  
+(Compare 2*loglik to a chi square on 1 degree of freedom).
+The BIC replaces 2 with log(n).
+Since rates are all on the log scale, two rates that differ by 1 unit
+corresponds to a 2.7 fold change in the event rate, which is fairly 
+substantial.  The penalty to the loglik in this case is $1^2/2 = 1/2$ unit.
+A difference of 2 units (7.4 fold rate change) has a penalty of 2 units.
+We see that an unscaled penalty does not impose a large practical constraint
+from a biology point of view.  
+In a small number of examples, however, it seems to be able to stop the
+derivative based methods from particularly bad guesses during optimization.
+When using an MCMC optimization the priors on the parameters perform the same 
+function.
+
+Constraints are handled by the minimization routines themselves.  The MCMC
+code deals with them perfectly.  
+The hmmscore function obeys the constraints and seems to do well, but there
+is no guarantee that it will find the optimal solution.  More importantly
+the approximate variance matrix that is returned is not a reliable way to 
+create confidence intervals.  The optim function will ignore any constraints.
+
+\bibliographystyle{plain}
+\bibliography{refer}
+
+\end{document}
+
+
+
+

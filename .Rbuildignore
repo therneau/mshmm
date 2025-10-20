@@ -1,0 +1,12 @@
+testmc
+Readme
+data/dementia.Rmd
+data/dementia.log
+data/dementia.pdf
+noweb/
+.git
+.gitignore
+vignettes/test
+vigtemp
+
+

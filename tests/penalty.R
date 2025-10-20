@@ -1,0 +1,104 @@
+#
+# Verify that penalties and constraints work correctly.
+#  In particular that they track center/scale properly.
+#
+library(hmm)
+
+# First with the dummy data set
+sname <- levels(test1$state)
+qmat <- matrix(0, 6, 6, dimnames=list(from= sname, to=sname))
+qmat[1,2] <- qmat[1,3] <- .01
+qmat[2,4] <- .03
+qmat[3,4] <- .04
+qmat[3,5] <- .03
+qmat[4,5] <- .1
+qmat[,6]  <- c(.02, .02, .02, .02, .06, 0)
+
+test1$istate <- as.numeric(test1$state)
+test1$id <- match(test1$id, unique(test1$id))  # easier to use
+
+otype <- 1 + 1*(test1$istate==6)  # death
+otype[1:3] <- c(0,0,3)  # entry
+otype[10:11] <- c(0,3)
+evec <- c(1, .3, .4, .5, .1, 0)  # a range of values, on purpose
+pdat <- data.frame(lp=1:3, term=0, coef=1:3, init=c(-1, -2, -3))
+
+astate <- c(1,2,1,2, NA, NA)[test1$state]
+nstate <- c(1,1,2,2, NA, NA)[test1$state]
+cstate <- c(NA, NA, NA, NA, 1,2)[test1$state]
+
+err1 <- function(y, nstate, eta, gradient) {
+    statemap <- matrix(c(1,2,1,2,0,0,2,1,2,1,0,0), ncol=2)
+    hmulti(y, nstate, eta, gradient, statemap)
+}
+
+err2 <- function(y, nstate, eta, gradient) {
+    statemap <- matrix(c(1,1,2,2,0,0,2,2,1,1,0,0), ncol=2)
+    hmulti(y, nstate, eta, gradient, statemap)
+}
+
+# death/dementia is perfect
+err3 <- function(y, nstate, ...) {
+     temp <- matrix(0L, nrow=nstate, ncol=length(y))
+     temp[5,] <- ifelse(y==1, 1, 0)
+     temp[6,] <- ifelse(y==2, 1, 0)
+     temp
+}
+
+# An overall fit, test scaling
+rcoef <- data.frame(response=1:2, lp=1:2, term=0, coef=0,
+                    init=log(c(.12/.88, .2/.8)))
+qcoef <- data.frame(state1=c(3,4,4), state2=5, term=c(1,1,2), coef=1:3, 
+                    init=1:3/10)
+
+hfit4 <-  hmm(hbind(age, astate, nstate, cstate) ~ educ + male, data=test1, 
+               mc.cores=1,
+               id = id, qmatrix = qmat, qcoef=qcoef,
+               rfun = list(err1, err2, err3), rcoef=rcoef,
+               pfun=hmminit, pcoef=pdat, mfun=hmmtest, mpar=list(fn="hmmboth"),
+               otype= otype, death=6, entry=evec,
+               scale=FALSE)
+hfit4a <-  hmm(hbind(age, astate, nstate, cstate) ~ educ + male, data=test1, 
+              mc.cores=1,
+               id = id, qmatrix = qmat, qcoef=qcoef,
+               rfun = list(err1, err2, err3), rcoef=rcoef,
+               pfun=hmminit, pcoef=pdat, mfun=hmmtest, mpar=list(fn="hmmboth"),
+               otype= otype, death=6, entry=evec,
+              scale=c(TRUE, TRUE))
+
+check <- c("loglik", "loglik0", "coefficients", "beta")
+all.equal(hfit4[check], hfit4a[check])
+
+
+# Try out a penalty and contrasts
+tdata <- data.frame(educ=c(10,10, 12), male=c(0,0,1))
+p1 <- hmmpenalty(hfit4, tdata, lp=c("3:5", "4:5", "4:5"),
+                 contrast=cbind(1:2, 2:3))
+p2 <- hmmpenalty(hfit4, tdata, lp=c("3:5", "4:5", "4:5"),
+                 contrast=cbind(2:3, 1:2))
+all.equal(p1, -p2)
+
+hfit4b <-  hmm(hbind(age, astate, nstate, cstate) ~ educ + male, data=test1, 
+               mc.cores=1,
+               id = id, qmatrix = qmat, qcoef=qcoef,
+               rfun = list(err1, err2, err3), rcoef=rcoef,
+               pfun=hmminit, pcoef=pdat, mfun=hmmtest, mpar=list(fn="hmmboth"),
+               otype= otype, death=6, entry=evec,
+               penalty=p1, constraint=p2/10)
+all.equal(hfit4b$beta, hfit4$beta)
+
+
+px1 <- p1 %*% coef(hfit4b, type="raw")
+all.equal(hfit4$loglik[2] -.5*sum(px1^2), hfit4b$loglik[2])
+
+# Do I have the derivatives right?  They are not rescaled back to the original
+# units as coef is, so refit using no scaling.
+hfit4c <-  hmm(hbind(age, astate, nstate, cstate) ~ educ + male, data=test1, 
+               mc.cores=1,
+               id = id, qmatrix = qmat, qcoef=qcoef,
+               rfun = list(err1, err2, err3), rcoef=rcoef,
+               pfun=hmminit, pcoef=pdat, mfun=hmmtest, mpar=list(fn="hmmboth"),
+               otype= otype, death=6, entry=evec,
+               penalty=p1, scale=FALSE)
+all.equal(hfit4c$beta, hfit4$beta)
+

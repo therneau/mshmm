@@ -1,0 +1,195 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath}
+\title{Further documentation on code and methods for the mshmm package}
+\author{Terry Therneau}
+\addtolength{\textwidth}{1in}
+
+\addtolength{\oddsidemargin}{-.5in}
+\setlength{\evensidemargin}{\oddsidemargin}
+\newcommand{\code}[1]{\texttt{#1}}
+
+%\VignetteIndexEntry{Code detail}
+%\VignetteEngine{knitr::knitr}
+%\VignetteEncoding{UTF-8}
+
+<<setup, echo=FALSE>>=
+library(survival)
+library(hmm)
+
+library(knitr)
+opts_chunk$set(tidy=FALSE, fig.keep='none',
+               fig.path='compete',fig.width=6,fig.height=4)
+options(continue="  ", width=60)
+pdf.options(pointsize=10) #text in graph about the same as regular text
+@ 
+
+\begin{document}
+\maketitle
+
+\chapter{Introduction}
+\begin{quote}
+Kernighan's Law:  ``Everyone knows that debugging is twice as
+hard as writing a program in the first place. So if you're as clever as 
+you can be when you write it, how will you ever debug it?''
+\end{quote}
+
+Work on my own packages has taught me the wisdom of the above. 
+Even more to relevant is ``how will you understand the code when you
+look at it a year from now''?
+Nevertheless, though I try to be simple, there are parts of the code that
+are complex.
+Even for the 'simpler' parts, 
+I find that any time that a new case arises, months or years later that makes me
+need to examine my code (and they always do) the end result will be
+3x as many additions to the comments as to the code.
+
+This is an attempt to add more context to critical regions.  There are some 
+parts of the code where comments just are not enough, one needs figures, tables
+and entire paragraphs of text.
+I originally undertook this further documentation using Knuth's ``web of code''
+idea. I have used the noweb package to intersperse technical
+documentation with the source code for the survival package, and the first
+drafts of the mshmm package were done that way.
+However, despite its advantages, the uptake of noweb by the R community
+in general has been nearly nil. 
+It is increasingly clear that no future maintainer will continue the 
+work, e.g.,
+on the survival github page I have yet to recieve a suggested update that
+actually
+fixed the .Rnw source file instead of the .R file derived from it.  This means
+that I can't merge a suggested change automatically, but have to replicate it
+myself.
+
+This is my current idea. This latex document will contain an index, and the R
+source code can have comments pointing to the index of the code vignette.
+
+\section{Parsing the formulas}
+The set of models for each transition rate are represented by a list
+of formulas.
+The first element of the list is the default formula, later elements
+are of the form \code{transitions ~ formula/options}, where the left hand side
+denotes one or more transitions, and the right hand side is used to augment
+the basic formula for the specified transition(s).  
+Here is an example for a 4 state model, it uses a second list of formulas
+for the markers.
+
+\begin{verbatim}
+mfit1 <- hmm(list(Surv(time, death) ~ male + apoe + cmc,
+                  1:2 + 2:3 ~ male*apoe / common,
+                  1:4 ~ yearc),
+             marker = list(C(1:3):dx ~ 1 / mutlinomial(pattern= pmat),
+                           C(1:3):memory ~ practice / gaussian),
+             data= dementia, id=ptnum, ...)
+\end{verbatim}
+
+Step 1 is to break the formula into parts.  The first formula is
+the default formula \code{dformula}, the rest become a 3 component list
+containing the left sides, the right sides and the options.
+The marker argument becomes a list with 4 components of state, marker,
+formula and options.
+From this we can create a single master formula that is used to drive 
+the model.frame process, which ensures that all of the variables we need
+will be found in the model frame. In this case the master formula would have
+\code{Surv(time, death)} on the left, and
+\code{male + apoe + cmc + male*apoe + years + dx + memory + practice}
+on the right.  The terms structure of that master formula is very useful.
+Further processing of the formulas is deferred until after the model frame
+is in hand.
+
+What if the default formula has sex, and
+one of the sub-formulas has -sex in it? 
+If we just paste together the character form, then if -sex were at the end
+sex would not appear in the data frame. 
+But since we paste together terms.labels attributes, the -sex term does not
+appear and all is well.
+One special case would be if sex appeared in the default formula, and then was
+removed from every transition in the formula list: sex would then be in the
+data frame though we don't need it. 
+This requires almost malicous intent on the part of the user, so we have
+decided not to worry about it.
+
+Should we walk the parse tree of the formula, or convert it to character and use
+string manipulations?  The latter looks promising until you see a fragment 
+like this:
+\code{entry:death + dementia:death~ sex + ns(iage, df=4) / common},
+whose parse tree is shown in figure \ref{figparse}.
+Walking the parse tree is a bit more subtle, but we then can take advantage of 
+all the knowledge built into the R parser.
+A formula is a 3 element list of ``~'', leftside, rightside, or 2 elements if 
+it has only a right hand side.  Legal ones for hmm have both left and right.
+
+\begin{figure}
+<<R, echo=FALSE>>= 
+opar <- par(mar=c(1,1,1,1))
+ptplot(entry:death + dementia:death~ sex + ns(iage, df=4) / common)
+par(opar)
+@
+  \caption{The parse tree for the formula 
+    \code{entry:death + dementia:death~ sex + ns(iage, df=4) / common)}.
+    At branches we show the class followed by the value.}
+  \label{figparse}
+\end{figure}
+
+<<R, ptree>>=
+test <- cu:death + dem:death ~ x1 + x2
+length(test)
+test[[1]]
+test[[2]]
+test[[3]]
+
+length(test[[3]])
+test[[3]][[1]]
+test[[3]][[2]]
+@ 
+Extrapolating from the above, the way one walks a parse tree is to simply
+step along the nested list.
+
+One useful ideas is to use the terms() function to much of the work for
+us. For the right hand size the resulting \code{term.names} attribute nicely
+picks off the variables that should be pasted together to make a master
+formula from a list of formulas.
+However, it doesn't work for something like 1:2 on the lhs, since '1' and '2'
+are not valid variable names. 
+More fatally, terms considers A:B and B:A to be the same, which means that
+both never appear in the same terms object, and which label gets used can
+be rather arbitrary. But of course an
+A$\rightarrow$B transition is not the same as B$\rightarrow$A.
+Nor does terms() work for splitting off the options, which involves finding the 
+last '/' on the line.  So for both the options and the states we will need to
+walk the tree.
+
+Starting simple,
+the parsecovar1 routine accepts the list of formulas and returns 3 lists:
+left hand sides, right hand sides (less options), and options, which are the
+things like ``common'' and ``init'' that live after the last /.
+The list of right hand sides is used to build the master formula.
+
+The left hand side of each formula specifies the set of transitions to which
+the covariates apply, and is more complex.
+Say instance that we had 7 states and the following statedata
+data set.
+\begin{center}
+  \begin{tabular}{cccc}
+    state & A&  N&  D \\ \hline 
+    A0N0 &  0&  0 & 0\\
+    A1N0 &  1&  0 & 0\\
+    A0N1 &  0&  1 & 0\\
+    A1N1 &  1&  1 & 0\\
+    A0N2 &  0&  2 & 0\\
+    A1N2 &  1&  2 & 0\\
+    Death&  NA & NA& 1 
+\end{tabular}
+\end{center}
+
+  Here are some valid transitions
+\begin{enumerate}
+   \item 0:state('Death'),   any transition to the death state
+   \item 0:Death, same as above
+   \item A0N0:D(0), a transition from A0N0, but not to death
+   \item A(0):A(1), any transition that starts with A=0 and ends with A=1
+   \item N(0):N(1,2) + N(1):N(2), an upward change of N
+   \item A0N0:c('A0N1','A1N0'); a pair of states
+   \item (1:3 + 2:3):4;  we can refer to states by number
+   \item c(1,2):3 is legal, (1,2):3 is not; the second flagged as invalid
+     by the R parser
+\end{enumerate}

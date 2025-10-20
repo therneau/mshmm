@@ -1,0 +1,17 @@
+Title: Multi-state hidden Markov models
+Description: Hidden Markov models for time to event data.
+Package: mshmm
+Version: 2.0-0
+Depends: survival, expm
+Imports:  parallel, mvtnorm, quadprog
+Suggests: msm, knitr
+Lazyload: Yes
+LazyData: Yes
+VignetteBuilder: knitr
+Authors@R: c(person(c("Terry", "M"), "Therneau", 
+                    email="therneau.terry@mayo.edu",
+	            role=c("aut", "cre")),
+             person("Weigand", "Stephen", role=c("ctb")),
+	     person("Wiste", "Heather", role="ctb"))
+License: GPL
+

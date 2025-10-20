@@ -1,0 +1,23 @@
+useDynLib(hmm)
+import(survival, parallel)
+importFrom(expm, expm)
+importFrom(mvtnorm, dmvnorm)
+importFrom(quadprog, solve.QP)
+importFrom(mvtnorm, rmvnorm, dmvnorm)
+importFrom(stats, model.extract, model.response, model.matrix, model.weights,
+           model.frame, na.pass, na.omit, terms, cov, sd, dnorm, rnorm, runif,
+           delete.response, coef, printCoefmat, naprint, .getXlevels,
+           dlogis, plogis, pnorm, logLik, dbeta, dgamma, dexp)
+export(hmm, hmm_noerror, hmminit, hmmtest, mlogit)
+export(hmulti, hmmscore, hmmpenalty, hmmcontrast)
+export(mcmc0, mcmc1, pade, derivtest, hmmscore)
+export(hmulti, hmmgauss, hmmbeta, hmmgamma, hmmexp)
+export(ptplot, qplus, noworse)
+S3method(print, hmm)
+# S3method('plot',  'hmm')
+S3method(coef,  hmm)
+S3method(logLik, hmm)
+S3method(predict, hmm)
+S3method(model.matrix, hmm)
+S3method(model.frame, hmm)
+

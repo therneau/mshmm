@@ -1,0 +1,76 @@
+
+R Under development (unstable) (2017-04-11 r72503) -- "Unsuffered Consequences"
+Copyright (C) 2017 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu (64-bit)
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+> library(hmm)
+Loading required package: survival
+Loading required package: expm
+Loading required package: Matrix
+
+Attaching package: 'expm'
+
+The following object is masked from 'package:Matrix':
+
+    expm
+
+> #
+> # Test the mlogit function
+> #
+> # First a simple vector
+> eta <- matrix(c(-1, -2, .1), nrow=1)
+> 
+> eps <- 1e-7
+> test <- mlogit(eta, gradient=TRUE)
+> 
+> temp <- c(1, exp(eta))
+> p <- temp/sum(temp)
+> all.equal(as.vector(test), p)
+[1] TRUE
+> 
+> deriv <- matrix(0,4,3)
+> for (i in 1:3) {
++     eta2 <- eta
++     eta2[1,i] <- eta2[1,i] + eps
++     temp2 <- c(1, exp(eta2))/(1 + sum(exp(eta2)))
++     deriv[,i] <- (temp2- p)/eps
++ }
+> all.equal(deriv, attr(test, "gradient")[1,,], tol=sqrt(eps))
+[1] TRUE
+> 
+> # Now with multiple rows
+> eta <- matrix(-(1:15)/15, nrow=5)
+> test <- mlogit(eta, gradient=TRUE)
+> 
+> phat <-  cbind(1,exp(eta))/ (1+ rowSums(exp(eta)))
+> all.equal(test, phat, check.attributes=FALSE)
+[1] TRUE
+> 
+> dmat <- attr(test, "gradient")
+> for (i in 1:nrow(phat)) {
++     temp <- diag(phat[i,]) - outer(phat[i,], phat[i,])
++     print(c(all.equal(dmat[i,,], temp[,-1]), 
++           all.equal(dmat[i,,],  
++                     attr(mlogit(eta[i,,drop=FALSE], TRUE), "gradient")[1,,])))
++ }
+[1] TRUE TRUE
+[1] TRUE TRUE
+[1] TRUE TRUE
+[1] TRUE TRUE
+[1] TRUE TRUE
+> 
+> proc.time()
+   user  system elapsed 
+  0.976   0.040   1.074 

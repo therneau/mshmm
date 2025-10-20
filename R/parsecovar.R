@@ -1,0 +1,385 @@
+# The routine allows a list of formulas. The first is the default, such as
+#    Surv(time, death) ~ 1+ x
+# Later ones are state:state ~ covariates
+# See the section on parsing formulas in the code vignette for an more
+#  complete discussion of how this is all done. It shows the graph of a
+#  parse tree.
+#
+# We use formulas, but with some changes in how we interpret things.
+# An advantage is that we gain all the knowlege of the R parser,
+#  it understands nested parenthesis for instance. A  disadvantage is that our 
+#  formula has to look 'legal' to the parser.
+#     "Surv(time,death) ~ x1 / init=5" for instance won't fly since
+#  lm/glm formulas don't have equals signs. 
+#     "Surv(time, death) ~ x1 + x2 / init(c(3, 2.1)" is okay, it looks like
+#  a function call
+#     "1:3 + 2:3 ~ x" is okay and "c(1,2):3 ~ x" but not "(1,2):3 ~ x".
+#
+# The first pass splits out the left side (states), the formula for the 
+#  variables, and the options.  The second of these is used to get the model 
+#  frame.  The rest of the processing is deferred until after the model frame
+#  has been built.
+#
+parsecovar1 <- function(flist) {
+    # flist = all the formulas except the default
+    if (any(sapply(flist, function(x) !inherits(x, "formula"))))
+        stop("an element of the formula list is not a formula")
+    if (any(sapply(flist, length) != 3))
+        stop("all formulas must have a left and right side")
+    
+    # split the formulas into a right hand and left hand side
+    lhs <- lapply(flist, function(x) x[[2]])  
+    rhs <- lapply(flist, function(x) x[[3]])  
+    
+    temp <- lapply(rhs, rightslash)
+    options <- lapply(temp, function(x) if (is.list(x)) x[[2]] else NULL)
+    rightformula <- lapply(temp, function(x) {
+        tfun <- ~ z  #dummy function
+        if (is.list(x)) tfun[[2]] <- x[[1]] else tfun[[2]] <- x
+        tfun
+        }) # make sure each element of rightformula is a one sided formula
+
+    list(lhs = lhs, rhs= rightformula, options=options)
+}
+
+# The following function splits a formula at the rightmost slash, ignoring
+# the inside of any function or parenthesised phrase.
+# Recursive functions like this are almost impossible to read, but luckily 
+# it is short.
+# The function recurrs on the left and right side of +,*,:, and \%in\%, and on 
+#  binary - (but not on unary -).
+# If there are options the result will be a 2 element list: the formula without
+#  options, and the options (unevaluated), if no options x is returned
+rightslash <- function(x) {
+    if (!inherits(x, 'call')) return(x)
+    else {
+        if (x[[1]] == as.name('/')) return(list(x[[2]], x[[3]]))
+        else if (x[[1]]==as.name('+') || 
+                 (x[[1]]==as.name('-') && length(x)==3)  ||
+                 x[[1]]==as.name('*') || x[[1]]==as.name(':')  ||
+                 x[[1]]==as.name('%in%')) {
+                     temp <- rightslash(x[[3]])
+                     if (is.list(temp)) {
+                         x[[3]] <- temp[[1]]
+                         return(list(x, temp[[2]]))
+                     } else {
+                         temp <- rightslash(x[[2]])
+                         if (is.list(temp)) {
+                             x[[2]] <- temp[[2]]
+                             return(list(temp[[1]], x))
+                         } else return(x)
+                     }
+                 }
+        else return(x)
+    }
+}
+   
+# expand the set of transitions implied by a left hand side.
+statepair <- function(lhs, statemap) {
+    # create a dummy function for each column of statemap
+    # state() is a created function such that state("s1", "s2") will first
+    #  check that s1 and s2 are present in the statemap[,"state"], give an
+    #  error if not, and return which rows of statemap[,"state"] have
+    #  a value of "s1" or "s2"
+    # If statemap has another column "N" say, we want to also create an N()
+    #  function of the same type. Do that by making a copy of state(),
+    #  then changing the default values of target and cname in situ by
+    #  using formals.
+    # All of these are put into a separate environment because these short new
+    #  function names might well conflict with a prior variable name.
+    # The entire reason for this is so that a user can type N(1) as a 
+    #  shorthand for "all the states for which variable N is 1"
+    env1 <- new.env(parent= parent.frame(2))
+    assign("state", env= env1,
+           value = function(..., target=statemap[,1], cname= "state") {
+               j <- c(...)
+               check <- match(j, target)
+               if (any(is.na(check))) stop("value ", j[is.na(check)], 
+                                           " not found in ", cname)
+               which(target %in% j)
+           })
+
+    if (ncol(statemap) > 1) {
+        cname <- colnames(statemap)
+        for (i in 2:ncol(statemap)) {
+            temp <- get("state", env= env1)
+            ftemp <- formals(temp)
+            ftemp$target <- statemap[,i]
+            ftemp$cname <- cname[i]
+            formals(temp) <- ftemp
+            assign(cname[i], temp, env= env1)
+        }
+    }
+
+    # seup done, the real work is done by a recursive function
+    statewalk <- function(x, nstate) {
+        # simple ones first
+        if (is.character(x) || (length(x)==1 & is.name(x))) {
+            z <- match(as.character(x), statedata$state)
+            if (any(is.na(z))) stop("invalid state: ", 
+                                    (as.character(x))[is.na(z)])
+            else return(z)
+        } else if (is.numeric(x)) {
+            if (x==0) return(1:nstate)
+            else {
+                if (x != as.integer(x)) stop("non integer state: ", x)
+                else if (x<1 || x > nstate) stop("state out of range: ", x)
+                else return(x)
+            }
+        } else if (length(x)==1) stop("unrecognized symbol in statepair: ", x)
+ 
+        if (x[[1]]== as.name("*") || x[[1]]== as.name("/") || 
+            x[[1]]== as.name("-") || x[[1]]== as.name("%in%"))
+            stop("invalid operator on the left of a formula")
+
+        if (x[[1]]== as.name(":")) { # the heart of the function
+            # the left and right should 2 row matrices
+            from <- statewalk(x[[2]], nstate)
+            to   <- statewalk(x[[3]], nstate)
+            pairs <- rbind(from= rep(from, length(to)), 
+                           to= rep(to, each=length(from)))
+            pairs[,pairs[1,] != pairs[2,]]
+        } else if (x[[1]] == as.name("+")) {
+            # both left and right should be from:to sets, or neither
+            if (is.matrix(x[[2]]) && nrow(x[[2]])==2) {
+                if (is.matrix(x[[3]]) && nrow(x[[3]])==2) cbind(x[[2]], x[[3]])
+                else stop("statewalk error 1")
+            } else {
+                if (is.matrix(x[[3]]) && nrow(x[[3]]) ==2) 
+                    stop("statewalk error 2")
+                else cbind(statewalk(x[[2]], nstate), statewalk(x[[3]], nstate))
+            }
+        } else if (x[[1]] == as.name("(")) statewalk(x[[2]], nstate)
+        else if (x[[1]] == as.name("c")) statewalk(eval(x), nstate)
+        else { #match to a row in statemap
+            # a user might write 3:"death" or 3:death
+            if (is.character(x) || is.name(x)) 
+                z <- which(statemap$state == as.character(x)) 
+            else z <- eval(x, env= env1)
+
+            if (!is.numeric(z)) stop("non-numeric state: ", deparse(x))
+            if (any(z != as.integer(z))) {
+                j <- min(which(z!= as.integer(z)))
+                stop("non integer state: ", z[j])
+            }
+            if (any(z<1 | z > nstate)) {
+                j <- min(which(z<1 | z>nstate))
+                stop("state out of range: ", z[j])
+            }
+            z
+        }
+     }
+ 
+    statewalk(lhs, nrow(statemap))
+}
+
+        
+# A key trick for the rhs (variables) of a formula is to call
+#  terms() on it rather than parse it myself.  One glitch is that an
+#  interaction might appear as "x1:x2" in term.labels attribute of the master
+#  formula (Terms argument) but as "x2:x1" in the terms of a the sub-formula
+#  for a particular transition; a simple match() call on term.labels won't
+#  work. The function below works around this.  The factors attribute for 
+#  each term is a matrix with a column for x1:x2 in one and x2:x1 in the other
+#  and row names that include x1 and x2. 
+#  Sort rows into the same order and find matching columns.
+
+termmatch <- function(f1, f2) {
+    # f1 = attr(terms, 'factor') of smaller formula, f2 =  master formula
+    if (length(f1)==0) return(NULL)   # a formula with only ~1
+    irow <- match(rownames(f1), rownames(f2))
+    if (any(is.na(irow))) stop ("termmatch failure 1") # should never happen
+    hashfun <- function(j) sum(ifelse(j==0, 0, 2^(seq(along.with=j))))
+    # make a variant of f1 that has the same number of rows as f2. If we instead
+    # subset f2, then x1:x2 could match the hashfun of x1:x2:x3
+    dummy <- matrix(0, nrow(f2), ncol(f1))
+    dummy[irow,] <- f1
+
+    hash1 <- apply(dummy, 2, hashfun)
+    hash2 <- apply(f2, 2, hashfun)
+    index <- match(hash1, hash2)
+    if (any(is.na(index))) stop("termmatch failure 2")
+    index
+}
+
+# do the options contain "common"?
+hascommon <- function(options) {
+    if (is.null(options)) return(FALSE)
+    tform <- ~ x # dummy formula
+    tform[[2]] <- options
+    "common" %in% attr(terms(tform), "term.labels")
+}
+        
+# The second part of parsing the formula
+# The goal is to create a matrix with a row for each term in the model,
+#  e.g., sex or ns(age, 3), and a column for each transition. Elements of
+#  the matrix will be integers identifing unique terms, with 0= not present
+# A formula with a /common option will lead to repeated values. 
+# The code for coxph is more complex because there the "intercept" is the 
+#  baseline hazard function; keeping track of shared baselines is more subtle
+#
+#  parse2 function
+#   parse1 = return from parsecovar1
+#   statedata= alias data frame,
+#   dformula = default formula 
+#   Terms = the terms structure from the master formula that was used to 
+#    build the data frame.
+#   qmatrix = the Q matrix of valid transitions
+#   qmatrix = vector of valid states
+# The version of this code in survival is more complex, because it also
+#  needs to sort out strata, which are not a concept here
+parsecovar2 <- function(parse1, statedata, dformula, Terms, qmatrix,
+                        states) {
+    nterm <- 1L + length(attr(Terms, "term.labels")) # +1 for (Intercept)
+    nstate <- length(states)
+    from <- row(qmatrix)[qmatrix>0]
+    to   <- col(qmatrix)[qmatrix>0]
+    tran.id <- paste(from, to, sep=':')
+    ntran <- length(from)
+    
+    # Create tmap: a row for each term and a column for each transition.
+    #  value of 0 = this term isn't used for this transition
+    #  1, 2, etc = marks unique sets of coefficients
+    #  dmap = a matrix of unique integers to draw from, so that we don't reuse 
+    #  an index
+    tmap <- matrix(0L, nterm, ntran)
+    dmap <- matrix(seq_len(length(tmap)), ncol= ntran) # term numbers
+
+    # initialize every column with the default formula, which cannot have a
+    #  /common option
+    temp <- delete.response(terms(dformula))
+    dterm <- termmatch(attr(temp, "factors"), attr(Terms, "factors"))
+    if (attr(Terms, "intercept") ==1) dterm <- c(1, 1L + dterm)
+    else dterm <- dterm + 1L
+    for (i in 1:ntran) tmap[dterm,i] <- dmap[dterm,i]
+    
+    if (is.null(parse1)) {
+        # only a default formula! We're done
+        dimnames(tmap) <- list(c("(Intercept)", attr(Terms, "term.labels")),
+                               tran.id)
+        return(list(tmap= tmap, mapid= rbind(from, to)))
+    }
+               
+    # a list of formulas, one per transition. Elements will be updated with
+    # update.formula in order to keep track of -1 or -covariate deletions
+    # start with ntran copies dformula, without the response
+    formlist <- lapply(1:ntran, function(i) dformula[-2])  
+
+    # the transitions targeted by each formula.  The result will be a list,
+    # one element for each formula (except the default) giving the columns
+    # of tmap affected by that line, i.e., which transitions
+    translist <- lapply(parse1$lhs, function(x) {
+        temp <- statepair(x, statedata)
+        id <- paste(temp[1,], temp[2,], sep=':')
+        indx <- match(id, tran.id)
+        # A specification like A(0):A(1) will generate spurious illegal 
+        #  combinations, ignore them silently.
+        # This means we won't catch all user errors. But if all of indx are
+        #  missing, it is almost certainly a direct mistake of an impossible
+        #  A:B transtion
+        if (all(is.na(indx))) 
+            stop("invalid transtion(s): ", paste(id, collapse=', '))
+        indx[!is.na(indx)]
+    })
+
+    # Process each formula in turn
+    for (k in seq(along.with= parse1$lhs)) {
+        kform <- (parse1$rhs[[k]]) # the formula for this update,
+        kcommon <- hascommon(parse1$options[[k]])
+        j <- translist[[k]] # the transitions, cols of tmat
+        i <- 1L + termmatch(attr(terms(kform), "factors"), 
+                       attr(Terms, "factors")) # which terms, rows of tmat
+        # if the new formula included -1, set intercept terms to 0.  If it
+        # included an *explicit* +1, then add row 1 to vector "i".  To check
+        # for explicit +1, one has to temporarily paste "-1 +" on the front
+        # of the formula: terms() will declare that  "~ -1 + x1 + x2 +1" has 
+        # intercept attribute of 1
+        if (attr(terms(kform), "intercept") ==0) tmap[1,j] <- 0 # explicit -1
+        else {
+            tform <- ~ -1+ x # dummy formula
+            tform[[2]][[3]] <- kform[[2]]  # portion after the ~
+            if (attr(terms(tform), "intercept") ==1) i <- c(1L, i)
+        }
+
+        d <- dmap[i,j, drop=FALSE]  # the "is part of the model" marker
+        if (kcommon) d <- d[,1] # single set of coefs
+        tmap[i,j] <- d  # make additions to tmap
+
+        # Update the running formula for each transition using update.formula
+        # To do this temporarily paste "~ . " on the front if the addition
+        #  starts with unary minus, or "~ . +" otherwise.
+        # Any term not mentioned in the updated formula either was never there,
+        #  or just got removed, so set those elements of tmap to 0.
+        # 
+        if (substring(deparse(kform[[2]]), 1,1) == '-') {
+            # manipulating strings seems to be the only way to get - in
+            #  the right place.  For the formula "~ -age + x1" the - sign
+            #  is well down the tree, and ~. + (-age + x1) does not work
+            #  in update.formula
+            tform <- parse(text= paste("~.", deparse(kform[[2]]), collapse=" "))
+            tform <- tform[[1]]  # get rid of expression()
+        } else { # usual case
+            tform <- ~ . + x  #dummy formula
+            tform[[2]][[3]] <- kform[[2]]
+        }
+        for (jj in j) { # for each affected term:
+            # update the transition's formula
+            formlist[[jj]] <- update.formula(formlist[[jj]], tform)
+            # remove unused
+            ii <- 1L + termmatch(attr(terms(formlist[[jj]]), "factors"),
+                                   attr(Terms, "factors"))
+            tmap[-c(1L,ii), jj] <- 0
+        }
+    }
+    
+    # reset the values in tmap to 0,1,2,3,...
+    tmap[,] <- match(c(tmap), sort(unique(c(0, tmap)))) -1L
+    dimnames(tmap) <- list(c("(Intercept)", attr(Terms, "term.labels")),
+                           tran.id)
+    mapid <- rbind(from, to)
+    colnames(mapid) <- tran.id
+    list(tmap= tmap, mapid= mapid)
+}
+                          
+parsecovar3 <- function(tmap, Xcol, Xassign, phbaseline=NULL) {
+    # sometime X will have an intercept, sometimes not; cmap never does
+    hasintercept <- (Xassign[1] ==0)
+    ph.coef <- (phbaseline !=0)  # any proportional baselines?
+    ph.rows <- length(unique(phbaseline[ph.coef])) #extra rows to add to cmap
+    cmap <- matrix(0L, length(Xcol) + ph.rows -hasintercept, ncol(tmap))
+    uterm <- unique(Xassign[Xassign != 0L])  # terms that will have coefficients
+    
+    xcount <- table(factor(Xassign, levels=1:max(Xassign)))
+    mult <- 1L+ max(xcount)  # temporary scaling
+
+    ii <- 0
+    for (i in uterm) {
+        k <- seq_len(xcount[i])
+        for (j in 1:ncol(tmap)) 
+            cmap[ii+k, j] <- if(tmap[i+1,j]==0) 0L else tmap[i+1,j]*mult +k
+        ii <- ii + max(k)
+    }
+
+    if (ph.rows > 0) {
+        temp <- phbaseline[ph.coef] # where each points
+        for (i in unique(temp)) {
+            # for each baseline that forms a reference
+            j <- which(phbaseline ==i)  # the others that are proportional to it
+            k <- seq_len(length(j))
+            ii <- ii +1   # row of cmat for this baseline
+            cmap[ii, j] <- max(cmap) + k  # fill in elements
+        }
+        newname <- paste0("ph(", colnames(tmap)[unique(temp)], ")")
+    } else newname <- NULL
+
+    # renumber coefs as 1, 2, 3, ...
+    cmap[,] <- match(cmap, sort(unique(c(0L, cmap)))) -1L
+    
+    colnames(cmap) <- colnames(tmap)
+    if (hasintercept) rownames(cmap) <- c(Xcol[-1], newname)
+    else rownames(cmap) <- c(Xcol, newname)
+
+#    nonzero <- colSums(cmap) > 0  # there is at least one covariate
+#    if (!all(nonzero)) cmap <- cmap[, nonzero, drop=FALSE]
+    cmap
+}

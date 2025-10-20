@@ -1,0 +1,734 @@
+\documentclass{article}
+\usepackage{amsmath}
+\title{Hidden Markov Models}
+\author{Terry Therneau}
+
+\addtolength{\textwidth}{1in}
+\addtolength{\oddsidemargin}{-.5in}
+\setlength{\evensidemargin}{\oddsidemargin}
+\newcommand{\code}[1]{\texttt{#1}}
+
+%\VignetteIndexEntry{HMM theory}
+%\VignetteEngine{knitr::knitr}
+\begin{document}
+\maketitle
+
+<<setup, echo=FALSE>>=
+library(hmm)
+library(survival)
+library(knitr)
+
+knitr::opts_chunk$set(comment=NA, tidy=FALSE, highlight=FALSE, echo=FALSE,
+               fig.with=7, fig.height=5.5, fig.path="figures/",
+               out.width="\\textwidth", out.height="!", device="pdf",
+               cache=FALSE, background="#FFFFFF",
+               warning=FALSE, error=FALSE)
+@ 
+
+\section{Introduction}
+This report describes the underlying mathematics behind the HMM models.
+It took me a long time to get this straight in my own mind, and this is at
+least in part documentation for a future me who has forgotten the
+details.
+
+A primary reference for the material is Christopher Jackson's excellent manual 
+for the msm package \cite{Jackson16}.
+Others that I found particularly helpful were a web page by Nokoalai
+Shokiriv \cite{Shokhirev}, Satten and Lingini \cite{Satten96} and
+computational details from Kalbfleisch and Lawless \cite{Kalbfleisch85}.
+
+Per Shokhirev there are 3 canonical problems for HMM models.
+
+\begin{enumerate}
+  \item Given the model parameters, compute the probability of a particular
+    output sequence.  This is solved by the Forward or Backwards algorithms.
+  \item Given the model parameters and an output sequence, compute the
+    most likely path for the hidden states (the true but unobserved path).
+    This is solved by the Viterbi algorithm.
+  \item Given an output sequence, find the most likely set of model
+    parameters.  This is solved by the Baum-Welch algorithm.
+\end{enumerate}
+We are focused on problem 1: an underlying search algorithm will choose
+parameters $\beta$, which map to rates, which in turn lead to a likelihood
+value.  The search algorithm uses this to find an MLE.
+Many references, e.g. Wikipedia, focus only on problem 2 to the exclusion of
+the others.  This led to much early confusion for this author, e.g., 
+the Viterbi algorithm involves a forward recursion and earns a 'forward'
+label there.
+It might look like 3 is our target, but that would only be true if there 
+were no covariates and we were directly estimating the rates.
+
+Symbol matching.  I'm a statistician and am attached to $X$ for a 
+predictor, $y$ for the observed response, $\beta$ for parameters,
+$i$ for subject and $t$ for time.  Many texts illustrate a single subject
+and so can use $i$ for something else, and almost all differ from my
+notational choices.  (There is fairly broad agreement on $s$ for the states,
+but not much else.)
+
+\begin{itemize}
+  \item Shokhirev is written in discrete time, $i=1, \ldots, N$ indexes time.
+    \begin{itemize}
+      \item $q_i$ is the path through the states, $o_i$ are the
+        observed outcomes.
+      \item $B$ is the emission matrix with $b_{ij} = b_i(o_j)$ the
+        probability that $j$ will be observed if $i$ is the true state.
+        (Yes, he reuses $i$ multiple times).
+    \end{itemize}
+  \item Jackson's msm manual
+    \begin{itemize}
+      \item $Q$ is the rate matrix, $P$ the transition probability matrix,
+        and $E$ the error matrix.
+      \item Subject $i$ progresses through true states $s_{ij}$ with
+        $j=1, \ldots, n_i$ and has observed values $y_{ij}$.
+    \end{itemize}
+\end{itemize}
+
+
+\section{Interval censored data}
+Start with the simpler case of interval censored or panel data.
+The second label comes from studies where a subject returns on a fixed
+schedule and a set or panel of measurements is obtained at each visit.
+If a given subject were found to be in state $s_1$ at the 1 year visit 
+and state $s_3$ at the year 2 visit, say,
+we do not know  when during that year they transitioned from 1 to 3, 
+or whether other states were visited in the interim.
+
+Let $S$ be the set of $m$ states, $p(0)$ the distribution of states at time
+0, often $(1, 0, \ldots)$, $P(s,t; \theta)$ the $m$ by $m$ transition
+ probability matrix from time $s$ to time $t$, depending on parameter
+vector $\theta$, and $p(t,\theta)= p(0) P(0,t)$ the probability in state
+vector at time $t$.
+
+Let $R$ be an $m$ by $m$ rate matrix, the $jk$ element is the rate of transition
+from state $j$ to state $k$, and assume that the rates are constant over a
+time window from $s$ to $t$.
+Set the diagonal of $R$ such that row sums are 0, then it is well known that 
+$P(s,t) = \exp[(t-s)R]$. 
+In every actual problem we will work with the rates will be a function of time,
+either time since enrollment, subject age, or often both.
+What is uniformly done is to break time into smaller segments and assume
+that $R$ is constant over each segment.
+Assume that $t_0, t_1, t_2, \ldots$ are the
+time points that partition the line, with often $t_0=0$.  
+Then
+\begin{equation*}
+  p(s) = p(0)\left[\prod_{t_k<s}e^{(t_k-t_{k-1}) R_{k-1}}\right] e^{(s-t_k)R_k}
+\end{equation*}
+
+Because we do not observe the transitions, the user needs to specify which
+elements of $R$ are non-zero.  So for instance in a simple model of
+\ref{fig:simple} below
+we might assume that events can only go forward from CU to MCI to Dementia.
+However, if the data contains any who were observed to be CU after an MCI
+visit, the likelhood of the data, under this model, is 0.
+A reasonable default, used in the coxph function, is that anything we didn't
+see couldn't happen and that anything we did see, could.
+The multi-state hazards (MSH) model in this case would add an MCI:CU arrow.
+
+\begin{figure}
+<<simple, echo=FALSE>>=
+states <- c("Cognitively\nUnimpaired", "Mild Cognitive\nImpairment",
+            "Dementia", "Death")
+smat <- matrix(0, 4, 4, dimnames=list(states, states))
+smat[1,2] <- smat[2,3] <- 1
+smat[1:3, 4] <- 1
+statefig(rbind(3,1), smat)
+@ 
+ \caption{Possible multi-state model}
+ \label{fig:simple}
+\end{figure}
+
+In the msm package the baseline hazard as a function of time is parametric
+with $t$ = the starting point of the interval. 
+If the baseline were increasing, for instance, we might worry about a bias
+from different length intervals;
+if Smith were observed at years 0,1,2,3,4 and Jones at 0, 2, 4 then from year
+1 to 2 Jones' computation would use a systmatically smaller rate.
+I have often added extra censored cutpoints
+at 1 or 2 year intervals in order to force an update of $t$.
+There is also a small nuisance of adding dummy observations for \emph{each}
+subject, so all share the same cutpoints, but survSplit does this easily.
+In the icmstate package the baseline is treated as non-parametric. 
+An advantage of this is that any given $R$ matrix may be very sparse. 
+The cutpoints will be a subset of the observed event times,
+and if time is measured in days
+it is likely that there is only one observed event at any given event time, and
+in that case the matrix exponential has a closed form.
+(Computing a lot of matrix exponentials can be a major part of the compute
+time.)
+A disadvantage is that an EM algorithm is needed at each time point to
+estimate the baseline rate.
+
+If subject $i$ is seen at times $t_{j}$, $j=0, \ldots, n_i$, with observed
+states $s_{j}$, where $t_{0}=0$ and $s_{0}$ is the starting state, then their
+contribution to the likelihood is
+$$ L_i = \sum_{j=1}^{n_i} P(t_{j-1}, t_j)_{s_{j-1}, s_j}$$
+At each observation after the first, compute the probability of transition
+from state $s_{j-1}$ to $s_{j}$ over that time interval.  
+The exception to this is a transition who occurence time is measured exactly, 
+e.g., death. 
+In that case that likelihood term is a sum of probabilities: for all states
+$k$ except death the probability of being in state $k$ just before death
+times the hazard rate for death from state $k$, which is the sum of $p(t)$
+times the death column of $R(t)$.
+If one subject is measured a lot more often than others, the $P$ matrices
+become close to the identity; they do not contribute a lot more to the
+loglik due to multiple measurements, i.e., this does not add a bias.
+(They do contribute a bit more information, since the time of any
+transition is more bounded.)
+
+As a simple example, assume three states and two subjects with the same
+$R$ matrix below, both of which transition from state 1 to state 2 at 6
+months and remain there until 2 years.
+However subject 1 is measured bi-monthly and subject 2 yearly.
+The compuation below shows that the probability of conversion at any given
+visit for subject 1 at each visit, along with the overall probability at
+one year.  The value for subject 2 is, as we would expect, close to the sum 
+over 
+subject 1 of ``in state 1 at 0, 2 at month 2, 4, 6, 8, 10, 12'', 
+``in state 1 at 0 and 2, state 2 at month 4, 6, 8, 10, 12'', etc.
+They are not identical, since the small probability of revision from 2:1
+means that the the single observation has a smidge larger space of possible
+paths.  If $R_{21}=0$ then they are identical; there is a single first visit
+when state 2 is observed.
+
+<<rateexample>>=
+R = rbind(c(-.15, .1, .05), c(.05, -.25, .2), c(0,0,0))
+P1 <- expm(R/6)  # bi-monthly, for subject 1
+P2 <- expm(R)    # yearly, for subject 2
+temp1 <- double(6)
+for (i in 1:6) 
+    temp1[i] <- P1[1,2] * P1[1,1]^(i-1) * P1[2,2]^(6-i)
+names(temp1) <- paste0("month", 1:6*2)
+round(temp1, 4)
+temp2 <- P2[1,2]
+round(c(temp2, sum(temp1)), 4) # probability some time during the year
+@ 
+
+A special case is the impact of censored observations.
+That is, assume an intermediate visit where it is only known that the patient 
+is still alive. 
+An example are extra observations that are added to a data set in order
+to update age.  For these, the matrix readout would be
+P(alive at $t_j | $ alive at $t_{j-1}$), i.e., a sum over all the states 
+except death. 
+But since P(alive at t) = P(alive at s)* P(alive at t, given alive at s),
+adding a term to the calcualtion at these intermediate points does
+not change the result. If $R$ changes at these points, of course, we have
+no choice but to do the computation piecemeal.
+(Minor note: the sum will be over all states that are not exact, i.e., one
+knows precisely when the state was entered, since a censored obs cannot be
+one of those.  Death is normally the only such state.)
+
+The rates in the hazard matrix $R$ will normally be functions of $X\beta$
+where $X$ is a matrix of per-subject covariates and $\beta$ is a matrix
+with one column for each possible transtion; again similar to coxph.
+Because the baseline is parametric $\beta$ will also include an intercept
+term, and often a spline for age.
+
+If we assume a Markov assumtion, then $P(s,t) = P(s,u)P(u,t)$ for any time
+point $u$ between $s$ and $t$. 
+(I had to write this out as a long sum in order to prove it to myself:
+the fact that matrix multiplication
+does exactly the right thing wrt the unknown state at time $u$ is still a
+bit magic.)
+
+\section{HMM likelihood}
+
+For a hidden Markov model (HMM) the likelihood has one more piece.  At each
+observation time there are one or more variables $y_{ijk}$ measured on a
+subject.  The number $k$ could be the same at any visit, or different,
+e.g. a particular test might not be done on all visits. 
+The second component of the models is a set of densities $f_k(y_k | m)$, 
+the probability such a measurement $y$ if the true state of the subject
+is $m$.
+In many cases the observed states $y$ will have the same labels as the
+true states, such duplicate labels mostly serve to generate confusion.  
+
+Let $S$ be the set of possible true states; 
+4 in our basic Alzheimer's model, with
+$s_1, s_2, \ldots, s_n$ a possible path through those true states for
+some subject who has $n$ observations.
+      
+The HMM probability is formally a very large sum:
+\begin{equation}
+  P(y_i | \beta, \pi) = \sum_{s_1, s_2, \ldots} Pr(y_{ij} | s_{ij}) 
+      Pr(s_{ij}; \beta, \pi)
+  \label{full}
+\end{equation}
+where $\pi$ is an initial probability distribution.
+The sum is over all possible paths through the states: if subject Jones
+had 7 observations and there are 4 states this would be a sum over
+$4^7 \approx 16,000$ terms.
+For each of those possible paths we have the probability of that path,
+given the coefficients of the model, times
+the probability of observing
+the vector of states $y_i$ for that true path.
+
+A big simplification comes from two assumptions: first that $y_{ij}$ depends
+only on the current true state $s_i(t_{ij})$ (subject $i$, $j$th observation)
+and the Markov property of the underlying
+chain, which means that the current state depends only 
+on the prior state.
+This allows the computation to be written as a nested sum:
+\begin{align}
+   P(y_i | \beta, \pi) &= \sum_{s_1} \left[f(y_{i1}| s_1)P(\pi,s_1, \beta) B_2 
+            \right] \nonumber \\
+    B_2  &= \sum_{s_2} \left[ f(y_{i2}| s_2)P(s_1,s_2, \beta) B_3 \right] 
+            \nonumber\\
+    B_3  &= \sum_{s_3} \left[P(y_{i3}| s_3)P(s_2,s_3, \beta) B_4 \right]
+            \nonumber \\
+    B_4  &=  \ldots     \label{recur}
+ \end{align}
+The above equivalent to equation 12 in the msm vignette.
+
+The references all now say ``thus calculating the probability reduces to
+matrix multiplication'', which was not at all obvious to me.
+The first trick is to remember that $P(t_0,t_1)P(t_1,t_2) = P(t_0, t_2)$,
+and likewise for multiplication of 3, 4 etc of the steps.
+Now, let $D_{im}$ be a diagonal matrix with $jj$ element 
+$f(y_{im} | s_m = j; \gamma)$, the probability of the observed $y$ at
+time $m$ for each possible true underlying state,
+possibly depending on some parameters $\gamma$.
+The $jk$ element of $T_{im} = P(t_{m-1}, t_m)D_{im}$ is the probability that 
+subject
+$i$ will be in true state $k$ \emph{and} observed status $y_{im}$ at time $m$
+given that they were in true state $j$ at time $m-1$.
+If there are multiple response measured at the time then use
+$P(t_{m-1}, t_m)D_{im1}D_{im2}\ldots$.  Multiplication of the diagonal matrices
+is the probability that all of the responses align.
+The matrix product $p(t) = p(0) \prod_{k=2}^m T_{ik}$ is the vector
+containing for each true state the probability that subject $i$ will
+will be in that state at observation $m$ and have the sequence $y_{i1},
+y_{i2}, \ldots y_{im}$ of observed measurements.
+For an observed death $T$ has the same form with $D$ a diagonal matrix 
+containing the entries in the death column of $R$.
+
+The probability for a subject is then a sum over states; the probability they
+are currently in state 1 given the observed outcomes + probability in state 2
+given the observed outcomes + \ldots;  
+which is the sum of elements of $p(t)$.
+The probability for the entire study is the product of per-subject values.
+(The msm package uses $\alpha$ instead of $p$).
+
+One important assumtion of the above is that the $y$ values are independent
+given $p$.
+A simple counter-example would be a study where most are measured yearly but
+subject 2 is measured daily. There is more information about subject 2, as
+we essentially no longer have any error with respect to their true state, 
+but not 365 times more information. 
+For instance, if the marker in question depended both on true state and some
+other umeasured covariate (blood type AB biases the biomarker assay high, say)
+then 365 repeated lab runs will not reduce absolute error by $\sqrt(1/365)$.
+The variation is shrunk but the bias remains.
+I don't think this is a serious problem in most studies, however.
+
+\section{Intial state}
+The very first step of the computation requires a bit more thought.
+The initial state is normally a reflection of the recruitment process, not
+the process of disease progression. 
+As such the considerations for this value are completely different than the
+HMM likelhood.
+Which subjects actually appear in the sampling frame, which of those 
+fullfill the eligiblity criterion of the study, and which were chosen?  
+There are four approaches available.
+
+The first is to use a single vector $p(0)= \pi$ for all subjects.
+This is the initialize step in Shokhirev for instance.
+Each subject is assumed to be randomly chosen from an underlying population with
+probability vector $\pi$.
+The parameter estimate $\pi$ may be fixed or estimated, and may involve 
+per-subject covariates.
+In some cases the estimated result will be of interest in
+itself, in others we might regard it as a nuisance parameter.
+
+In approach 2 every subject has a different entry probability.
+The simplest variant of this is if we assume the initial state is known
+for each subject, call this 2a.  
+For instance, the initial enrollment visit might involve a more complete
+evaluation, such that the underlying state is certain; each subject's
+initial $\pi$ will then have a single 1 and remaining elements of 0.
+The \code{cav} dat set of the msm manual is analysed in this way.
+One important consequence of this view is the error matrix for the first
+visit. Consider the cardiac allograph vasculopathy (CAV) data set in the msm
+package, with observed states of none/mild/severe/death and true states of 
+C1/C2/C3/death; for the visit at time 0 $D$ should be the identity, not an
+estimated missclassification matrix.  One way for the user to enforce this
+is to code the time 0 value of the measured response as NA.
+
+A second variant 2b is to estimate the per-subject $\pi$, external to
+the HMM fit.
+In the dementia example we might assume that Pr(CU/MCI/dementia) at enrollment
+is a function of age, and employ a simple multinomial model to estimate it, 
+using the initial visits as the data.
+The age specific predicted values from this fit will then be used as $\pi_i$
+for subject $i$.
+(No one enrolls in the death state, of course).
+We expect that method 1 will be more efficient since it uses all the information
+within the HMM fit.
+
+The third approach uses updated prevalence and is appropriate to the MCSA, 
+a study 
+in which the subjects are an age and sex stratified population sample. 
+In this special case the the distribution of enrollment states at each age is
+itself informative of the progression process. 
+Mechanically, it was done in the following way, using all subjects aged 50 or
+over
+\begin{itemize}
+  \item Assume a known, common distribution at age 50.
+  \item For someone who enters at age 82, say, use the current model estimates
+    to compute the prevalence of states in the population, at age 82, for
+    someone with the same covariates as the subject of interest.
+  \item Rescale that prevelence by an estimate of enrollment probability for
+    each state.
+\end{itemize}
+
+This creates an age specific $\pi$ vector for each subject.
+For the dementia example above we might assume that at age 50 all subjects 
+in the underlying population are cognitively unimpaired.
+If someone were recruited at age 82.2, the overall population prevalence
+at that age is $p(82.2)= \pi(50) P_i(50, 82.2 ;X_i,\beta)$, $P_i$ being the 
+transition matrix appropriate for the covariates $X_i$ of this subject.
+Pragmatically, this is obtained by adding dummy rows for the subject
+at age 50, 51, \ldots, 82, all censored, and adding an indicator variable that
+marks the onset of the ``real'' observations. The working vector $p(82)$ is then
+created automatically by the standard computations.
+However, the study did not randomly select subjects from the distribution
+just computed --- that would have meant enrolling a lot of dead people. 
+A non-renormalized value would discourage high death rates; the likelihood
+will see it as an
+unlikey event to have enrolled several living 82 year olds but no dead ones 
+if Pr(death) by age 82 is 50\%.
+We use a renormalized value for state $s$ of
+$$\pi_s(82.2) = p_s(82.2 | X_i) P(\mbox{enroll} | s) / \sum_s \pi_s(82.2) $$
+At present the conditional probability vector is set by the user, often to
+(1, 1, \ldots, 1, 0), i.e., success for any state but death. 
+
+
+One shortcoming of the above is that it cannot be implemented if the hazard
+includes time-dependent covariates; as the necessary $X_i$ values prior to 
+age 82 are not known to us.  If there are no TD covariates and recruitment
+is a true random sample from the population, however, this approach can lead
+to a substantial gain in information.
+The pattern of enrollment diagnoses, by age, is in this particular case  
+informative with respect to the underlying population progression.
+
+A last approach, not inplemented, is discussed in Satten and Longini.
+Use
+\begin{equation*}
+p(0) = \sum_{s_1} f(S=s_1| y_{i1}, \gamma) \pi(s_1)/ \sum p(0)
+\end{equation*}
+That is, $p(0)$ becomes a posterior distribution over the states given
+the first observation.  
+The distribution is allowed to depend on parameters of the misclassification
+process ($\gamma$) and on initial state, but not on the paramters of
+the transition probabilities $\beta$.
+They then choose a suitable prior for $\pi$ and integrate it out.
+I am not clear on whether this improves estimates or not.
+
+\section{Censoring and Death}
+Censoring in the hmm package is viewed somewhat differently than in the
+survival package.  
+A key idea for both is there may be a time point for a given subject $i$ 
+beyond which we have no information about future transitions.
+By definition, this does not occur if subject $i$ has entered an absorbing
+state, e.g., death.
+Death is (almost?) unique in that it is both absorbing and exact;
+we refer to an exact state as one which cannot be mistaken and for which the
+time at entry is known.
+For an exact absorbing state, a data observation after that time point is an
+error, one that the hmm code can screen for.
+(Multistate \code{survfit} and \code{coxph} can not since they do not have 
+external information on the valid transitions, and depend on the use to execute
+\code{survcheck} and examine the transition table.)
+
+Censoring in an HMM model corresponds to partial information, and is of one
+of three types.
+\begin{enumerate}
+  \item For a continuous reporter, for instance, there might be a lower threshold
+    $z$ on the assay for that reporter.  The proper element of $D$ for a
+    value below threshold would be $ \int_0^z f(x) dx$.
+    This is equivalent to left censoring in a parametric survival model, 
+    an upper threshold will correspond to right censoring.
+  \item For a categorical response censoring corresponds to knowing a subset of
+    response values. In the Mayo Clinic Study of Aging (MCSA) for instance, one
+    of the markers for cognition is assessment of congitively unimpaired,
+    mild cognitive impairment or dementia (CU/MCI/Dem).  Patients who have 
+    a partial assessment, e.g., phone or a record review, will lack the cognitive
+    testing battery and can be only be classed as non-demented (NC) or demented.
+    A missclassification matrix for this is shown in Table \ref{tab:missclass2}.
+    One subtle but important point is that observation of NC does not mean that
+    the \emph{true} state is CU or MCI, but that the \emph{observed} state is
+    CU or MCI.  To forstall such confusions we take care to use different labels
+    for true states and observed states.
+  \item For any data row not in the exact/absorbing (EA) set, we have
+    an implict $D$ matrix which is ``not EA at this time'', i.e.,
+    a diagonal matrix of zeros and ones. For the user code, this requires
+    both a declaration of which states are EA states, and variable in the
+    data that defines entry to an EA state. 
+    There are 3 ways to do this.
+    \begin{enumerate}
+      \item If the data has one or more categorical reporters, add death and
+        censor as two more categories, and create an extended missclassification
+        table as shown in the right of Table \ref{tab:missclass2}. Add the
+        \code{death} option to the call to identify the EA states.
+      \item Use the \code{otype} variable to identify rows in which death occurs,
+        and the \code{death} option to identify EA states.
+      \item Encode EA states using \code{Surv} on the left hand side of the
+        equation (not yet inplemented).
+    \end{enumerate}
+\end{enumerate}
+
+\begin{table} \centering
+  \begin{tabular}{rcccclcccccc}
+    &\multicolumn{4}{c}{Standard}& \qquad & \multicolumn{6}{c}{Extended} \\
+ State& CU & MCI & Dem & ND && CU & MCI & Dem & ND & Death & Censor \\ \hline
+ C0 & $1-a$& $a$ & 0   & $1$&& $1-a$&$a$& 0  & $a$ &  0    &  1 \\
+ C1 & $b$  & $1-(b+c)$& $c$& $1-c$ &&  $b$  & $1-(b+c)$ $c$& $1-c$ & 0 & 1 \\
+ C2 & 0    & $d$      &$1-d$&$d$ && 0    & $d$      &$1-d$&$d$& 0 & 1 \\
+Death&&&&& 0 & 0 & 0& 0& 0 & 1 & 0
+ \end{tabular}
+\caption{Left: Missclassification table with non demented (ND) = CU + MCI as
+  a censored category.  Right: Extended table including death.}
+\label{tab:missclass2}
+\end{table}
+
+One case that is not handled by 3i above is the (rare) case of a biomarker
+measured on the day of death, e.g., an auto accident at the end of a day of
+medical appointments.
+Two other rare but possible cases are
+\begin{itemize}
+  \item An exact state which is not aborbing, e.g., 
+    the surgical remission state that occurs after resection of an inflamed
+    bowel segment, in the managment of Chohn's disease.
+  \item A state which is ascertained without error but the time of
+    entry into said state is unknown, e.g., MAFLD.
+\end{itemize}
+
+
+As a final footnote, one of the many confusions that can arise 
+when the latent states and a response are given the same labels involves
+censoring, e.g., using the same labels on rows and columns of table
+\ref{tab:missclass2}. 
+If the latent states in the model had been
+labeled as CU, MCI, dementia and death; a user might incorrectly say that a 
+``CU/MCI'' observation indicates that the \emph{true} state is CU or MCI,
+when it is the \emph{observed} state that is CU/MCI.
+(For death, we can use the same label for true the state and observed state
+without confusion.)
+
+\section{Modeling cognitive decline}
+
+Suppose we have two parallel latent processes, call them the accumulation of
+amyloid/tau damage and the accumulation of cerebral vascular damage.
+We can think of them in the the following diagram.
+
+<<decline>>=
+opar <- par(mfrow=c(1,2), mar=c(1,1,1,1))
+aname <- c("A0", "A1", "A2", "death")
+amat <- matrix(0, 4,4, dimnames=list(aname, aname))
+amat[1,2] <- amat[2,3] <- 1
+amat[1:3,4] <- 1
+statefig(c(3,1), amat)
+
+vname <- c("CeV0", "CeV1", "CeV2", "death")
+vmat <- amat
+dimnames(vmat) <- list(vname, vname)
+statefig(c(3,1), vmat)
+
+par(opar)
+@ 
+
+This gives a 10 state model.  If we assume that two different transitions never
+happen at the same momement we have the following transition matrix.
+
+\begin{center}
+  \begin{tabular}{ccccc|ccc|cccc}
+    && \multicolumn{3}{c}{A0} & \multicolumn{3}{c}{A1} & 
+    \multicolumn{3}{c}{A2} \\
+    && CeV0& CeV1 & CeV2 & CeV0 & CeV1 & CeV2 &CeV0 &CeV1 &CeV2 & death\\ \hline
+   &V0   & r1 &    & r1 &    &    &    &    &    & d1 \\
+A0 &CeV1   &    & r3 &    & r4 &    &    &    &    & d2 \\
+   &CeV2   &    &    &    &    & r5 &    &    &    & d3 \\ \hline
+   &CeV0   &    &    &    & r6 &    & r7 &    &    & d4 \\
+A1 &CeV1   &    &    &    &    & r8 &    & r9 &    & d5 \\
+   &CeV2   &    &    &    &    &    &    &    & r10& d6 \\ \hline
+   &CeV0   &    &    &    &    &    &    & r11&    & d7 \\
+A2 &CeV1   &    &    &    &    &    &    &    & r12& d8 \\
+   &CeV2   &    &    &    &    &    &    &    &    & d9 \\
+&death
+  \end{tabular}
+\end{center}
+
+There are 12 different state to state transitions and 9 to death.
+If we don't want to fail from too many coefficients, then we might 
+assume that the effect of some covariate \code{zed} is additive.  We would have an
+formula lines such as
+\begin{verbatim}
+  A0CeV0:A1CeV0 + A0CeV1:A1CeV1 + A0CeV2:A1CeV2 ~ zed /common,
+  A1CeV0:A2CeV0 + A1CeV1:A2CeV1 + A1CeV2:A2CeV2 ~ zed /common,
+  A0CeV0:A0CeV1 + A1CeV0:A1CeV1 + A2CeV0:A2CeV1 ~ zed /common,
+  A0CeV1:A0CeV2 + A1CeV1:A1CeV2 + A2CeV1:A2CeV2 ~ zed /common,
+\end{verbatim}
+which says that there is an effect of zed on the A0:A1 transition, independent
+of the CeV state, and another for A1:A2. Likewise an independent effect for
+CeV0:CeV1, independent of the A state, and another for CeV1:CeV2.  
+Twelve transtions but only 4 coefficients for zed.
+One could collapse further and have a single effect of zed for an increase
+in A, with the same effect on either A0:A1 or A1:A2.
+
+This additive view is essentially the graph above, i.e., thinking of the
+two transitions as independent. 
+We can have the same discussion about transitions to death: do the A and
+CeV processes have additive contributions (6 coefficients) or interactive
+ones (9 coefficients).
+The design of our multistate models is backward from the usual glm model, say,
+in that for the coxph, msm, and hmm software covariate*transition interactions 
+are assumed and have to be explicityly removed,
+whereas in a glm model additivity is uniformly assumed and interactions are
+added with *.
+
+If we assume overall additivity for covariates, 
+then how do we model interactions between the processes themselves, 
+i.e., if the baseline rate of A1:A2 transition is affected by CeV damage?
+This is picked up by the intercept terms, which control baseline rates.
+We can make these terms additive as well, or not. 
+Say that x1= APOE positivity. The idea is that an e4 allele affects transition
+rates for A via biological paths not dependent on CeV state,
+while interactions in the intercept term capture that CeV itself also modifies the
+A process via other background processes.
+Sorting out whether ``A affects CeV'' or ``CeV affects A'' from the pattern of
+intercept terms will certainly be a challenge, one that I may not be
+up for.
+(Ignoring age for a moment, if the A1CeV1:A2CeV1 rate was smaller than
+A1CeV2:A2CeV2, but CeV1:CeV2 rates did not depend on A, that could 
+be an argument that
+CeV affects A but not vice-versa.
+Parsing out smooth age effects will be harder).
+For the dementia problems my intercept term will be a spline on age,
+and the discussion about shared intercepts is exactly parallel to that
+for separate, shared or proportional hazards in the multi-state hazard model.
+We might well assume for instance that $\beta(age)$ has the same shape for 
+A0:A1 and A1:A2, with a single constant of proportionality.
+Assuming the same shape for A0:A1 and CeV0:CeV1 would be a stretch.
+
+\subsubsection*{Move to the user guide}
+To make like easier wrt specifying covariate effects in HMM we can use the
+statedata option. This is a data frame with a required variable ``state'', but
+which can have multiple other columns.  For the above we would have the 9 row
+data frame below.
+
+<<statedata>>=
+A <- c("A0", "A1", "A2")
+CeV <- c("CeV0", "CeV1", "CeV2")
+sdata <- data.frame(state= c(t(outer(A,CeV, paste0))),
+                    A= rep(A, each=3), CeV=rep(CeV,3))
+sdata 
+@ 
+
+One can then use \code{A0:A1 ~ x1} in the formula as an alias for all 9 matching
+row pairs of statedata, only 3 of which are actual transitions.
+(The underlying code takes care of that part).
+
+
+
+\section{Parameters}
+
+Let $R$ be the matrix of underlying rates for some interval, then 
+the transition probability matrix is $P_{im} = \exp(R t)$ for the transition
+from time $m$ to time $m+1$, $t = t_{i,m+1}-t_{im}$
+is the length of
+time for the interval and $\exp$ is a matrix exponential.
+The $jk$ element of $P$ is the probability that the subject will be in
+state $k$ at the end of the interval given that they began the interval in
+state $j$. 
+The off diagonal elements of $R$ are our modeled rates, and each will depend
+on covariates and parameters via
+$r= \exp(X\beta)$, $r$ being the element in question;
+the exponential guarrantees that elements are positive.
+Those elements of $R$ that correspond to non-possible transitions are 0.
+The rows of $R$ are constrained
+to sum to zero and this determines the diagonal elements.
+
+For the matrix as a whole $\beta$ is an $p$ by $k$ matrix where $p$ is
+the number of columns of $X$ and $k$ is the number of non-zero transitions.
+
+
+\section{Fisher scoring}
+The hmm function allows ``Fisher scoring'' as a choice of algorithm for finding
+the maximum.  This is the union of four ideas.
+
+Let $U(\theta)$ be the matrix of first derivatives, one row per subject and
+one column per parameters, $1'U$ is the overall first derivative.
+At the solution $\hat\beta$ we have 
+\begin{align*}
+  E(U) &= 0 \\
+  E(U'U) &= {\rm var}{\hat\theta} \\
+         &= E(H^{-1}) \\
+  H_{jk} &= \frac{\partial \log(f)}{\theta_j \theta_k}
+\end{align*}
+$H$ is the second derivative matrix or Hessian. 
+
+The first idea in the code is to use the empirical value $U'U/n$ as a 
+replacement for $H$ in the Newton-Raphson algorithm.
+The first derivatives of all log-likelihood components are available
+analytically, including the matrix exponential, so are fairly economical to
+compute.  For modest problems ($< 50$ parameters) we have found the compute
+time to increase by 2-3 fold.  The Hessian matrix, on the other hand, needs to
+be computed analytically and so is much more expensive.  Update algorithms
+like BFGS reduce this considerably of course, but we have found each iteration
+optim to be much slower than the above.
+
+When we are far from the true maximum this approximation might not be accurate,
+of course, so the code adds an additional amount to the diagonal, resulting in
+the Levenburg-Marquardt algorithm.  It is only necessary that this approximate
+Hessian be \emph{accurate enough} to correctly step in the direction of the true
+maximum log-likelihood.
+We purposefully start with a more conserative (larger) diagonal
+addition than most texts, trading some speed for more safety.  
+Internally, the data has been centered and scaled, so addition of the same
+constant to all diagonal terms is reasonable.
+
+As a third component, the potential update from this LM step is subjected to a
+trust region argument based on chapter 9.7 of \cite{Press02}. 
+The LM step itself is based on an assumption that the log-likelihood is locally
+quadratic, it extrapolates from the current position to the next estimate
+based on that assumption.  
+The trust region addition compares the realized value of the
+loglik, at proposed new estimates, to what the predicted value of
+the function would be at that point if the quadratic were perfect.
+If these two values are far apart this is evidence that the Taylor series has
+reached too far, i.e., beyond the region where the series is accurate.
+The result is to take a smaller step, that is, stay within the span
+for which the Taylor series prediction is sufficiently good, where it can
+be ``trusted''.
+
+The last addition is to allow constraints. This is a matrix $C$, the solution
+is forced to satisfy $C\beta >0$, each row of $C$ is a separate constraint.
+This is accomplished by using quadratic programing, applied to the proposed
+LM step, to find an optimal solution to the LM function (a quadratic) that
+also obeys all of the constraints. What this means in practice is that none
+of the trial solutions will be outside the bounds.
+
+We have found the constraints to be very useful for sevaral of our fits.
+For complex problems, the final solution may well not lie on any of the
+constraint boundaries, and yet the presence of the constraint had kept
+the maximizer from taking a particulary bad step.  Some of these constraints
+will be simple, e.g. a higher amyloid burden cannot decrease the death rate.
+(Amyloid might not cause death, but it certainly can't help.)
+
+There are two caveats with our method for constraints. The first is that it is
+important to start at a solution which satisfies all of the constraints, e.g.,
+all coefficients of 0.  If starting in a region where the constraints are
+violated, there is no guarrantee that our simple QP approach will find
+*any* feasable solution.  It turns out to be harder to back out of an invalid 
+area of the solution space than to avoid such areaa from the first.
+A second issue with constrains is that if any of them are active at the 
+solution, then
+the estimated variance $\sum_i U_i'U_i /n$ may be an overestimate.
+Williams \cite{Williams20} addresses this issue by using an MCMC approach.
+
+\bibliographystyle{plain}
+\bibliography{refer}
+
+\end{document}
