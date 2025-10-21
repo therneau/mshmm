@@ -148,15 +148,19 @@ hmm <- function(formula, data, subset, weights, na.action,
     # If there are unmistakable states (death for instance is never latent),
     #  then they will be the status portion of a Surv() response
     if (inherits(Y, "Surv")) {
-        if (!(attr(Y, "type") == "mright" || (attr(y, "type") == mright &&
-            length(exact)==1 && exact %in% statenames)))
-            stop("response must be multistate, and not (start, stop)")
-        ystate <- attr(Y, "states")
-        efree <- (match(ystate, statenames))
-        if (any(is.na(efree)))
-            stop("response has a state not found in qmatrix")
+        if ((attr(y, "type") == "right") {
+            if (length(exact)==1 && exact %in% statenames) {
+                # special case: 0/1 status can be used if there is 1 exact state
+                efree <- match(exact, statenames)
+            } else stop("simple Surv() only allowed if there is exactly 1 exact state")
+        } else if (attr(Y, "type"== "mright") {
+            ystate <- attr(Y, "states")
+            efree <- (match(ystate, statenames))
+            if (any(is.na(efree)))
+                stop("response has a state not found in qmatrix")
+        }
         ytime <- Y[,1]
-        ystat <- Y[,2]
+        ystat <- Y[,2] # 0= censored, 1= state efree[1], 2= state efree[2], etc
     } else {
         # "time" will be the response, all states are latent
         efree <- NULL
@@ -169,7 +173,8 @@ hmm <- function(formula, data, subset, weights, na.action,
     # At this point 'efree' marks states that are measured without error,
     #  i.e. we know what state the subject was in at ytime; though not when
     #  they entered that state.  The 'exact' vector marks states where we
-    #  also know exact time of entry, this is most often death.
+    #  also know exact time of entry to that state. This is most often the 
+    #  death state.
     # In a full HMM death will be the only state known for certain
     X <- model.matrix(Terms, mf)
     xassign <- attr(X, "assign")
@@ -179,11 +184,10 @@ hmm <- function(formula, data, subset, weights, na.action,
     weights <- model.weights(mf)
     if (length(weights) >0) stop("weights are not yet supported")
 
-    # Finish assembling the formula and create the coefficient mapping 
-    #  matrices cmap. 
+    # Finish assembling the formula and create the mapping matrices
+    # tmap (terms) and cmap (coefficients)
     parse2 <- parsecovar2(covlist, statedata, dformula, Terms, qmatrix,
-                          statenames)
-   browser()
+                          statenames, colnames(X), xassign)
     
 
 

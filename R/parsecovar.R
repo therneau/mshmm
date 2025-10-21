@@ -229,21 +229,33 @@ hascommon <- function(options) {
 # The version of this code in survival is more complex, because it also
 #  needs to sort out strata, which are not a concept here
 parsecovar2 <- function(parse1, statedata, dformula, Terms, qmatrix,
-                        states) {
+                        states, Xname, Xassign) {
     nterm <- 1L + length(attr(Terms, "term.labels")) # +1 for (Intercept)
     nstate <- length(states)
     from <- row(qmatrix)[qmatrix>0]
     to   <- col(qmatrix)[qmatrix>0]
-    tran.id <- paste(from, to, sep=':')
+    tran.id <- paste(from, to, sep=':') # col labels for tmap and cmap
     ntran <- length(from)
-    
+    ncoef <- length(Xname)  # Xattr is the same length
+    Xindex <- split(1:ncoef, Xassign) 
+    # Xindex is a list, ith element = rows of cmap that arise from row i of tmap
+    Xcount <- sapply(Xindex, length)
+    Xoffset <- lapply(Xcount, function(i) 1:i -1L) # increment for coef id
+    Xhash <- max(Xcount) # used to give unique cmat values
+
     # Create tmap: a row for each term and a column for each transition.
     #  value of 0 = this term isn't used for this transition
     #  1, 2, etc = marks unique sets of coefficients
     #  dmap = a matrix of unique integers to draw from, so that we don't reuse 
     #  an index
+    # cmap: row for each coefficient, col for each transition.  A term like
+    #  ns(age, df=4) will map to 3  coefficients.
+    # Xattr points to the term (0 = intercept) each column of X descends from
+    # 
     tmap <- matrix(0L, nterm, ntran)
     dmap <- matrix(seq_len(length(tmap)), ncol= ntran) # term numbers
+    cmap <- matrix(0L, ncoef, ntran)
+    init <- matrix(NA, ncoef, ntran) # fill in user supplied initial values
 
     # initialize every column with the default formula, which cannot have a
     #  /common option
@@ -251,18 +263,30 @@ parsecovar2 <- function(parse1, statedata, dformula, Terms, qmatrix,
     dterm <- termmatch(attr(temp, "factors"), attr(Terms, "factors"))
     if (attr(Terms, "intercept") ==1) dterm <- c(1, 1L + dterm)
     else dterm <- dterm + 1L
-    for (i in 1:ntran) tmap[dterm,i] <- dmap[dterm,i]
-    
+    for (i in 1:ntran) {
+        tmap[dterm,i] <- dmap[dterm,i]
+        cmap[unlist(Xindex[dterm]), i] <- unlist(Xoffset[dterm]) + 
+            Xhash * rep(dmap[dterm,i], Xcount[dterm])
+    }
+    # In the above, assume for a moment that Xhash=10, dterm=c(1,5,6)= the
+    #  rows to be marked in tmap, Xcount[1,5,6] = 1,3,2, Xindex[1,5,6]=
+    #  {1}, {10,11,12}, {13,14}. Xoffset for these 3 will be 1, 1:3, and 1:2
+    # tmap row 1 is the intercept (almost certainly) and maps to cmap row 1,
+    # tmap row 5 maps to cmap rows 10:12 and tmap row 5 to 13:14.  
+    # If dmap[dterm,i] assigned coefs 8,12, 13 to the three elements in column i
+    # of tmap, then cmap[1,i] = 80+1, cmap[10:12, i] = 120 + 1:3, and
+    # cmap[13:14,i]= 130+ 1:2.  The goal is a set of unique labels.
     if (is.null(parse1)) {
         # only a default formula! We're done
         dimnames(tmap) <- list(c("(Intercept)", attr(Terms, "term.labels")),
                                tran.id)
-        return(list(tmap= tmap, mapid= rbind(from, to)))
+        dimnames(tmap) <- list(Xname, tran.id)
+        return(list(tmap= tmap, cmap= cmap, mapid= rbind(from, to)))
     }
                
-    # a list of formulas, one per transition. Elements will be updated with
-    # update.formula in order to keep track of -1 or -covariate deletions
-    # start with ntran copies dformula, without the response
+    # Process the list of formulas, one per transition. Elements will be updated
+    # with update.formula in order to keep track of -1 or -covariate deletions
+    # Start with ntran copies dformula, without the response
     formlist <- lapply(1:ntran, function(i) dformula[-2])  
 
     # the transitions targeted by each formula.  The result will be a list,
@@ -304,6 +328,8 @@ parsecovar2 <- function(parse1, statedata, dformula, Terms, qmatrix,
         d <- dmap[i,j, drop=FALSE]  # the "is part of the model" marker
         if (kcommon) d <- d[,1] # single set of coefs
         tmap[i,j] <- d  # make additions to tmap
+        cmap[unlist(Xindex[i]), j] <- unlist(Xoffset[i])+ 
+            Xhash* rep(d, Xcount[i])
 
         # Update the running formula for each transition using update.formula
         # To do this temporarily paste "~ . " on the front if the addition
@@ -325,61 +351,51 @@ parsecovar2 <- function(parse1, statedata, dformula, Terms, qmatrix,
         for (jj in j) { # for each affected term:
             # update the transition's formula
             formlist[[jj]] <- update.formula(formlist[[jj]], tform)
-            # remove unused
+            # was any term dropped?
             ii <- 1L + termmatch(attr(terms(formlist[[jj]]), "factors"),
-                                   attr(Terms, "factors"))
-            tmap[-c(1L,ii), jj] <- 0
+                                   attr(Terms, "factors")) # are in the formula
+            ii <- c(1L, ii) # also leave the intercept alone
+            if (any(tmap[-ii,jj]) > 0) {
+                # some variable "x" was dropped using "-x"
+                tmap[-ii, jj] <- 0   # -1L = 'leave the intercept alone'
+                cmap[-unlist(Xindex[ii]), jj] <- 0
+            }
         }
     }
     
-    # reset the values in tmap to 0,1,2,3,...
+    # reset the values in tmap to 0,1,2,3,...,  ditto for cmap
     tmap[,] <- match(c(tmap), sort(unique(c(0, tmap)))) -1L
+    cmap[,] <- match(c(cmap), sort(unique(c(0, cmap)))) -1L
     dimnames(tmap) <- list(c("(Intercept)", attr(Terms, "term.labels")),
                            tran.id)
+    dimnames(cmap) <- list(Xcol, tran.id)
     mapid <- rbind(from, to)
     colnames(mapid) <- tran.id
     list(tmap= tmap, mapid= mapid)
 }
-                          
-parsecovar3 <- function(tmap, Xcol, Xassign, phbaseline=NULL) {
-    # sometime X will have an intercept, sometimes not; cmap never does
-    hasintercept <- (Xassign[1] ==0)
-    ph.coef <- (phbaseline !=0)  # any proportional baselines?
-    ph.rows <- length(unique(phbaseline[ph.coef])) #extra rows to add to cmap
-    cmap <- matrix(0L, length(Xcol) + ph.rows -hasintercept, ncol(tmap))
-    uterm <- unique(Xassign[Xassign != 0L])  # terms that will have coefficients
-    
+ 
+# The last step, which is to transform the map of terms, tmap, into the
+#  map of coefficients cmap.  Translation is driven by the assign attribute
+#  of the X matrix.                       
+parsecovar3 <- function(tmap, optlist, Xcol, Xassign) {
+    hasintercept <- any(Xassign ==0) # almost always true
+    cmap <- matrix(0L, length(Xcol), ncol(tmap),
+                   dimnames= list(Xcol, dimnames(tmap)[[2]]))
+    opt1 <- matrix(FALSE, length(Xcol), ncol(tmap))  # was a value filled in
+    opt2 <- matrix(0    , length(Xcol), ncol(tmap))  # the initial value
+    # number of covariates for each term
     xcount <- table(factor(Xassign, levels=1:max(Xassign)))
     mult <- 1L+ max(xcount)  # temporary scaling
 
     ii <- 0
-    for (i in uterm) {
+    for (i in 1:nrow(tmap)) {
         k <- seq_len(xcount[i])
         for (j in 1:ncol(tmap)) 
-            cmap[ii+k, j] <- if(tmap[i+1,j]==0) 0L else tmap[i+1,j]*mult +k
+            cmap[ii+k, j] <- if(tmap[i,j]==0) 0L else tmap[i,j]*mult +k
         ii <- ii + max(k)
     }
 
-    if (ph.rows > 0) {
-        temp <- phbaseline[ph.coef] # where each points
-        for (i in unique(temp)) {
-            # for each baseline that forms a reference
-            j <- which(phbaseline ==i)  # the others that are proportional to it
-            k <- seq_len(length(j))
-            ii <- ii +1   # row of cmat for this baseline
-            cmap[ii, j] <- max(cmap) + k  # fill in elements
-        }
-        newname <- paste0("ph(", colnames(tmap)[unique(temp)], ")")
-    } else newname <- NULL
-
     # renumber coefs as 1, 2, 3, ...
     cmap[,] <- match(cmap, sort(unique(c(0L, cmap)))) -1L
-    
-    colnames(cmap) <- colnames(tmap)
-    if (hasintercept) rownames(cmap) <- c(Xcol[-1], newname)
-    else rownames(cmap) <- c(Xcol, newname)
-
-#    nonzero <- colSums(cmap) > 0  # there is at least one covariate
-#    if (!all(nonzero)) cmap <- cmap[, nonzero, drop=FALSE]
     cmap
 }
