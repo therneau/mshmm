@@ -150,9 +150,9 @@ picks off the variables that should be pasted together to make a master
 formula from a list of formulas.
 However, it doesn't work for something like 1:2 on the lhs, since '1' and '2'
 are not valid variable names. 
-More fatally, terms considers A:B and B:A to be the same, which means that
+More fatally, terms() considers A:B and B:A to be the same, which means that
 both never appear in the same terms object, and which label gets used can
-be rather arbitrary. But of course an
+be rather arbitrary. But in truth an
 A$\rightarrow$B transition is not the same as B$\rightarrow$A.
 Nor does terms() work for splitting off the options, which involves finding the 
 last '/' on the line.  So for both the options and the states we will need to
@@ -193,3 +193,38 @@ data set.
    \item c(1,2):3 is legal, (1,2):3 is not; the second flagged as invalid
      by the R parser
 \end{enumerate}
+
+The markers are a somewhat more complex beast.Here are some valid ones
+\begin{itemize}
+  \item \code{log(amyloid) ~ A / gaussian}
+  \item \code{pzmemory ~ N + practice / gaussian(par='mean')}
+  \item \code{pzmemory ~ N / gaussian(par='std')}
+  \item \code{dx ~ state / multinomial(pattern = pmat)}
+\end{itemize}
+
+What is going on here? 
+\begin{itemize}
+ \item The first thing is tha in an HMM the value of a marker is
+   predicted from the state, not vice versa, thus the marker is coded as the
+   response. The state must be the first predictor, often the only one. Use of
+   ``A'' above says to use the ``A'' column of the state data.  Subjects in the
+   A0N0, A0N1 and A0N2 states is assumed to have the same distribution of 
+   amyloid.
+ \item The specified distribution will have multiple parameters, the mean
+   and std for a Gaussian for example. As in lines 2 and 3 we can specify
+   different formulae for the mean and std, mean memory scores are influenced 
+   both by the true state and a practice effect, but we assumed no practice
+   effect for the std.  As a convenience, the default is to use the same
+   equation for both (the default is par=both).
+ \item The multinomial distribution requires a pattern matrix which specifies
+   the mapping between linear predictors and states.
+\end{itemize}
+
+Behind the scenes, the coefficient map \code{rmap} for the markers starts 
+with a row
+for each state, and will often have no others.
+The will be a column for log(amyloid)1 and log(amyloid)2, the linear predictors
+for the first and second parameters of the gaussian. 
+
+
+

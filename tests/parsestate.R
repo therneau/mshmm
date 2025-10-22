@@ -29,19 +29,35 @@ tform <- list(Surv(time, status) ~ 1+ age,
 dform <- tform[[1]]  # the default formula
 test1 <- parsecovar1(tform[-1])
 
+# Build the new right hand side, in the way that hmm does
 tlab <- lapply(test1$rhs, function(x) {
               attr(terms(x), "term.labels")
           })
 newform <- reformulate(c(attr(terms(dform), 'term.labels'), unlist(tlab)))
 
-test2 <- parsecovar2(test1, statedata, dform, terms(newform), qmat, states)
+# For testing, assume that x1 was a factor with 4 levels of A, B, C, D
+#  This is what the column names and assign values would be
+Xname <- c("(Intercept)", "age", "sex", "x1B", "x1C", "x1D", "x2", "x3", "x4")
+Xassign <- c(0,1,2,3,3,3,4,5,6)
+
+test2 <- parsecovar2(test1, statedata, dform, terms(newform), qmat, states,
+                     Xname, Xassign)
 
 vars <-  c("(Intercept)", "age", "sex", "x1", "x2", "x3", "x4")
 tran <- paste(row(qmat), col(qmat), sep=':')[qmat>0]
-check3 <- matrix(0, length(vars), length(tran), dimnames=list(vars, tran))
+check2 <- matrix(0, length(vars), length(tran), dimnames=list(vars, tran))
 indx <- cbind(c(1,4,5,7, 1,2,6,7, 1,2,6, 1,5, 1,2,6, 1,2,6, 1,5, rep(1:3, 6)),
               c(1,1,1,1, 2,2,2,2, 3,3,3, 4,4, 5,5,5, 6,6,6, 7,7, 
                 rep(8:13, each=3))) 
-check3[indx] <- 1:39
-check3[4,2] <- 2
-all.equal(check3, test2$tmap)
+check2[indx] <- 1:39
+check2[4,2] <- 2
+all.equal(check2, test2$tmap)
+
+# expand x1 to 3 rows
+check3 <-check2[c(1,2,3,4,4,4,5,6,7),]
+check3[5,1:2] <- check3[5, 1:2] + .1
+check3[6,1:2] <- check3[6, 1:2] + .2
+rownames(check3) <- Xname
+# change to integer
+check3[,] <- match(c(check3), sort(unique(c(0, check3)))) -1L
+all.equal(check3, test2$cmap)

@@ -29,6 +29,21 @@ palette("Okabe-Ito")
 \begin{document}
 \maketitle
 
+\section{Introduction}
+The \code{hmm} function, the central function of this package, can deal
+with multi-state models which have any mixture of three types of states:
+latent, interval censored, and exact.
+Exact states are those where the entry to the state is known exactly, both
+the state and the time. The death state is the most common example. Death is
+never mistaken for another state, and the time of death is known.
+If all states are exact, then the hmm fit will be very similar to a
+multi-state hazards fit using survival::coxph,
+but with a parametric rather than non-parametric baseline hazard.
+Though such a model could be fit, it is not the target of the mshmm
+pacakge. (An hmm fit is likely to much slower, as well.)
+Interval censored states are also not the primary focus of the function, but
+will be illustrated in examples.
+
 \section{What is a hidden Markov model (HMM)?}
 The answer to this is that HMM is a general technique, and we see the
 label applied to many different problems in many different subfields.
@@ -66,7 +81,7 @@ study participant transitioned to that state.  This leads to a more complex
 likelihood than a MSH model, but also more realistic for data such as this.
 
 The second difference is that an HMM treats the states as latent factors.
-The model will have both standard covariates, things
+The model will have standard covariates, things
 like age, sex and genotype which affect the transition rates from state to
 state, and also reporter or biomarker variables on the states themselves.
 In this case, we might have the following misclassification matrix.
@@ -120,6 +135,7 @@ Further math and computational details are found in a mathematical vignette.
 
 \section{Design}
 Specification of an HMM model is complex, because the model is complex.
+We need to specify
 \begin{itemize}
   \item The underlying Markov model: the states, state names, and the
     allowable transitions.
@@ -134,8 +150,9 @@ Specification of an HMM model is complex, because the model is complex.
     if any, are fixed.
 \end{itemize}
 
-Another issue to consider is that the hmm and the survival functions require
-different input data.  
+Another issue to consider is that the hmm function requires a different shape
+of input data than the multistate survfit and coxph functions in the survival
+package.
 The survival functions use data that has been cast into the counting process
 form:
 \begin{itemize}
@@ -157,20 +174,22 @@ It also may be easier to create.
 It is however different than our usual practice.
 For instance, for ordinary survival, a Kaplan-Meier say,
 data in timeline form requires two observations per subject.
-The first observation at time 0 will have baseline covariates along with 
-status= alive.  A second
+The first observation at time 0 will have baseline covariates along with a
+status of alive.  A second
 observation at the death or last follow-up date will have the status at that
 time point (alive/dead). 
 That second observation will also have many missing values, e.g., blood
-pressure would not be known at that time point.
+pressure would not normally be known at the death date, especially if
+death date is gathered from other sources.
 
 One of the attractions of the HMM likelihood is that reporter
 variables need not all be present.  In the MCSA for instance, visits are
 scheduled every 15 months, but PET imaging is only gathered on a subset,
 and for many of those PET is done every 30 months. For the HMM likelihood there
-is no need to ``fill in'' those other measurement using imputation, special
+is no need to ``fill in'' those other measurement using imputation or 
+other special
 missing value computations, etc.  Each measured reporter adds to the likelihood
-and those which are not measured at this visit don't.  Simple.
+and, those which are not measured at this visit don't.  Simple.
 
 
 \section{Time dependent covariates}
@@ -179,7 +198,8 @@ that affect the rates can not be missing, the same restriction that applies
 in a MSH model.  
 If cerebral vascular disease (CeVD) were the state, for instance, with an 
 intermittently observed predictor of the disease rate such as systolic blood
-pressure, this would commonly be filled in wrt continuous time by using the most
+pressure, the SBP would commonly be filled in wrt continuous time by using 
+the most
 recently measured value, also called last value carried forward; see the 
 \code{lcvf} function. 
 
@@ -187,8 +207,7 @@ recently measured value, also called last value carried forward; see the
 Data from a study that monitors the progression of coronary allograft
 vasculopathy (CAV) is provided in the msm package. 
 CAV is a post-transplant deterioration of the aterial walls in patients who
-have recieved a heart transplant. We will first make a few changes to
-the data set to set it up for our hmm function.
+have recieved a heart transplant. 
 
 The \code{hmm} and \code{msm} packages solve the same problem, so why create
 the hmm package?  There are currently three primary differences between the
@@ -203,7 +222,8 @@ two packages.
     Expermentation with more robust approaches, along a need for these models 
     within our dementia research program, was the primary driver for the hmm
     package.  Some aspects of the msm code made such extension of the 
-    optimization more difficult, e.g., the addition of constraints.
+    optimization more difficult, e.g., the addition of constraints. It was easier
+    to start fresh.
   \item Follow-up summaries of the model, e.g., mean time in state, are more
     fully fleshed out in the msm package.
 \end{enumerate}
@@ -211,12 +231,23 @@ As a user, 1 and 2 might recommend hmm, while item 3, a longer history, and
 a deserved reputation for reliability would recommend msm.  
 We emphatically do not claim that hmm is superior. Use what works for you.
 Christopher Jackson, the author of msm, has provided invaluable feedback
-about techincal aspects of the models, and fits to particular data sets,
+about techincal aspects of the models, along with comments about fits and issues
+with particular data sets; both of which have been a key to the success of this
+work. 
 that allowed this work to succeed.
+
+That said, we first make a few changes to
+the data set to set it up for our hmm function.  Also show some summaries. 
+This first fits treat the CAV outcome as interval censored. 
+For hmm, left hand side of the formula will normally be a multistate
+\code{Surv(time, state)} call, where state is a factor variable whose levels
+encode the interval censored + exact states.  
+Data rows where neither death nor the outcome was measured will have a
+status of ``censor''. There are none such in this data set.
 
 <<newcav>>=
 cav2 <- cav
-names(cav2) <- casefold(names(cav2))  # personal preference
+names(cav2) <- casefold(names(cav2))  # lower case (personal preference)
 
 #  multi-state status for Surv(), first level has to be "no event at this time"
 cav2$cstate <- factor(cav2$state, 0:4,  
@@ -224,33 +255,33 @@ cav2$cstate <- factor(cav2$state, 0:4,
 table(cav2$cstate)       # no off study FU
 table(table(cav2$ptnum)) # everyone has at least 1 follow-up visit
 hist(cav2$years[cav2$cstate != "death"], breaks=c(0:18),
-     xlab="Year of visit", main=NULL)
+     xlab="Visit year (post enrollment)", main=NULL)
 
 # what are the inter-visit intervals?
 interval <- c(0, diff(cav2$years))
 igroup <- with(cav2, ifelse(duplicated(ptnum), 1*(cstate=="death"), 2))
 #between visits
-round(quantile(interval[igroup==0], c(0,.25, .5, .75, .9, .95,1)),2)
+round(quantile(interval[igroup==0], c(0,.25, .5, .75, .9, .95,1)), 1)
 #last visit to death
-round(quantile(interval[igroup==1], c(0,.25, .5, .75, .9, .95,1)),2)
+round(quantile(interval[igroup==1], c(0,.25, .5, .75, .9, .95,1)), 1)
 
 if (FALSE) {
-d1 <- density(interval[igroup==0]) # visit intervals
-d2 <- density(interval[igroup==1]) # last vist to death
-matplot(cbind(d1$x, d2$x), cbind(d1$y, d2$y), type='l', lwd=2, 
-        xlab="Visit intervals (years)", ylab="Density")
-abline(v=1:4, lty=3)
-legend(7, .6, c("Between visits", "Last visit to death"), lty=1:2, lwd=2,
-       col=1:2)
+    d1 <- density(interval[igroup==0]) # visit intervals
+    d2 <- density(interval[igroup==1]) # last vist to death
+    matplot(cbind(d1$x, d2$x), cbind(d1$y, d2$y), type='l', lwd=2, 
+            xlab="Visit intervals (years)", ylab="Density")
+    abline(v=1:4, lty=3)
+    legend(7, .6, c("Between visits", "Last visit to death"), lty=1:2, lwd=2,
+           col=1:2)
 
-opar <- par(mfrow=c(2,1), mar=c(5,5,1,1))
-temp <- table(round(interval[igroup==0]*4)/4)
-plot(as.numeric(names(temp)), c(temp), type='h',
-     xlab="Years since last visit", ylab="Visits by quarter")
-temp2 <- table(round(interval[igroup==1]*4)/4)
-plot(as.numeric(names(temp2)), c(temp2), type='h',
-     xlab="Years since last visit", ylab="Deaths by quarter")
-par(opar)
+    opar <- par(mfrow=c(2,1), mar=c(5,5,1,1))
+    temp <- table(round(interval[igroup==0]*4)/4)
+    plot(as.numeric(names(temp)), c(temp), type='h',
+         xlab="Years since last visit", ylab="Visits by quarter")
+    temp2 <- table(round(interval[igroup==1]*4)/4)
+    plot(as.numeric(names(temp2)), c(temp2), type='h',
+         xlab="Years since last visit", ylab="Deaths by quarter")
+    par(opar)
 }
 @ 
 
@@ -260,9 +291,13 @@ The 622 subjects have betwen 2 and 15 assessments,
 less than 1/2 have more than 4.
 
 For either interval censored or HMM data we need to specifiy the set of
-valid transitions $Q$. For hmm this is a matrix of 0/1 value, which can
-also be used by the statefig routine.
-We also want initial estimates for the rates, we will use the values from
+valid transitions $Q$. For hmm this is a matrix of 0/1 values, which can
+also be used by the statefig routine. 
+(A transition can be any positive value; other values than 1 are used to
+draw curved lines in statefig. This allows us to use the same matrix for both.)
+The row/column names of the transition matrix are the names of the states,
+levels in the Surv object need to match these.
+As initial estimates for the rates we will use the values from
 the msm vignette.
 
 <<cavstates>>=
@@ -274,28 +309,34 @@ cqmat[1:3,4] <- 1
 statefig(rbind(3,1), cqmat, offset=.02)
 
 init <- c(.166, .25, .25, .166, .25, .166, .25))
-# the coefs are in the same order as the non-zero entries in cqmat; remember 
+# The coefs are in the same order as the non-zero entries in cqmat; remember 
 #  that R matrices are stored in column major order.
-
+# It might seem more natural to read across, like a book (msm does), but in the 
+#  underlying we found that this quickly becomes an exercise in swimming upstream
 hfit0 <- hmm(Surv(years, cstate) ~ 1, data= cav2, id= ptnum,
-               qmatrix= cqmat, exact="death")
+               qmatrix= cqmat, exact="death", irate= exp(init))
 hfit0
 @ 
 
 There are 3 kinds of states in the hmm fitter:
 latent states, which are not observed precisely but for which we have observed
-but imperfect \emph{markers} of the current state, known states, where the
+but imperfect \emph{markers} of the current state, interval censored states,
+where the
 state a subject is in at the observation time is certain, but not when they
 entered the state, and exact states where both the state and its time of entry
-is known. Known states appear as levels in the in the \code{cstate} argument
-above, which should be a factor whose first level corresponds to ``not a known
-state at this time'' and remaining levels will match the state labels in the
+is known. Both interval censored and exact states should appear as levels 
+in the in the second argument to Surv, \code{cstate} above,
+which should be a factor whose first level corresponds to ``no observed state
+at this time'' and remaining levels will match the state labels in the
 $Q$ matrix. (Common labels for first level are ``censor'' or ``none'').
 Death is the most common exact state, so much so that ``death'' is the default 
-value of the \code{exact} argument, we could have omitted \code{exact='death'}
-from the above call.  Also, if there is only one exact state, then as a
-convenience to the user 0/1 is allowed as
+value of the \code{exact} argument; we could have omitted it
+from the above call.  Also, if there is only one exact state, with all others
+latent, then as a convenience to the user 0/1 or FALSE/TRUE is allowed as
 the second argument of \code{Surv}, and is assumed to refer to said state.
+
+
+
 
 \section{Example data}
 We will use the included \code{dementia} data set as a running example for

@@ -268,6 +268,7 @@ parsecovar2 <- function(parse1, statedata, dformula, Terms, qmatrix,
         cmap[unlist(Xindex[dterm]), i] <- unlist(Xoffset[dterm]) + 
             Xhash * rep(dmap[dterm,i], Xcount[dterm])
     }
+
     # In the above, assume for a moment that Xhash=10, dterm=c(1,5,6)= the
     #  rows to be marked in tmap, Xcount[1,5,6] = 1,3,2, Xindex[1,5,6]=
     #  {1}, {10,11,12}, {13,14}. Xoffset for these 3 will be 1, 1:3, and 1:2
@@ -355,10 +356,10 @@ parsecovar2 <- function(parse1, statedata, dformula, Terms, qmatrix,
             ii <- 1L + termmatch(attr(terms(formlist[[jj]]), "factors"),
                                    attr(Terms, "factors")) # are in the formula
             ii <- c(1L, ii) # also leave the intercept alone
-            if (any(tmap[-ii,jj]) > 0) {
+            if (any(tmap[-ii,jj] > 0)) {
                 # some variable "x" was dropped using "-x"
-                tmap[-ii, jj] <- 0   # -1L = 'leave the intercept alone'
-                cmap[-unlist(Xindex[ii]), jj] <- 0
+                tmap[-ii, jj] <- 0L   # -1L = 'leave the intercept alone'
+                cmap[-unlist(Xindex[ii]), jj] <- 0L
             }
         }
     }
@@ -371,7 +372,7 @@ parsecovar2 <- function(parse1, statedata, dformula, Terms, qmatrix,
     dimnames(cmap) <- list(Xcol, tran.id)
     mapid <- rbind(from, to)
     colnames(mapid) <- tran.id
-    list(tmap= tmap, mapid= mapid)
+    list(tmap= tmap, cmap= cmap, mapid= mapid)
 }
  
 # The last step, which is to transform the map of terms, tmap, into the

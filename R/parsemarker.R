@@ -1,73 +1,58 @@
 # Parse the list of markers for latent states.  This will be a list of
-#  formulas, each left hand side a state:marker pair, a formula which is
-#  usually ~1 but can have other covariates, and / followed by options.
-# The code partially mimics parsecovar.
-#
+#  formulas, each left hand side a marker, predicted by a state and possibly
+#  other covariates, with the options after a /
 # Separate out the states, markers, and options.
-parsemarker <- function(flist, statedata) {
+parsemarker1 <- function(flist, statedata) {
     if (inherits(flist, "formula")) flist <- list(flist) # only one marker
     if (any(sapply(flist, function(x) !inherits(x, "formula"))))
         stop("an element of the marker list is not a formula")
     if (any(sapply(flist, length) != 3))
         stop("all formulas must have a left and right side")
     
-    # split the formulas into a right hand and left hand side
-    lhs <- lapply(flist, function(x) x[-3])   # keep the ~
-    rhs <- lapply(flist, function(x) x[[3]])  # don't keep the ~
+    # some clever soul will use "log(pib) + log(tau) ~ A /gaussian" to specify
+    # that both pib and tau are markers for A.  Deal with this by breaking the
+    # above into two formulas.
+    formbreak <- function(x) {
+        if (as.name(x)== '('
     
-    rhs <- rightslash(rhs) # defer parsing the options until later 
+
+    temp <- lapply(flist, function(x) rightslash(x[[3]])
+    options <- lapply(temp, function(x) x[[2]]) # the list of options
     
+    #  Save out the state information, which is the first term on the right hand
+    # side of each formula.  It must be a column name in statedata.
+    #  The reformulate call in the parent hmm routine works best if the response
+    # (the marker) is moved to the right hand side of the formula.
+    # is moved to the right hand side of the formula, which is simple.
+    nform <- length(flist)
+    statecol <- integer(nform)
+    scol <- colnames(statedata)
+    for (i in 1:nform) {
+        rhs <- temp[[i]][[1]]
+        if (length(rhs)==1) { # usual case, only a state name on the right
+            first <- rhs[[1]]
+            if (is.name(first)) jcol <- match(as.character(first), scol)    
+            else if (is.character(first)) jcol <- match(first, scol)
+            else stop("unrecognized state vector: ", deparse(first))
 
-    # deal with the left hand side of the formula
-    # the next routine cuts at '+' signs
-    pcut <- function(form) {
-        if (length(form)==3) {
-            if (form[[1]] == '+') 
-                c(pcut(form[[2]]), pcut(form[[3]]))
-            else if (form[[1]] == '~') pcut(form[[2]])
-            else list(form)
+            if (is.na(jcol)) stop("unrecognized state vector: ", deparse(first))
+            statecol[i] <- j
+            flist[[i]][[3]] <- NULL  # left hand side is now right hand
+        } else {
+            # the rhs has state + covariates
+            if (!is.call(rhs[[1]]) && rhs[[1]]== as.name("+"))
+                stop("unrecognized state vector")
+            first <- rhs[[2]]
+            if (is.name(first)) jcol <- match(as.character(first), scol)    
+            else if (is.character(first)) jcol <- match(first, scol)
+            else stop("unrecognized state vector: ", deparse(first))
+
+            if (is.na(jcol)) stop("unrecognized state vector: ", deparse(first))
+            statecol[i] <- j
+            rhs[[2]] <- flist[[i]][[2]]  # replace state with the lhs
+            flist[[i]] <- rhs   #keep the right
         }
-        else list(form)
     }
-
-    # cut the LHS into parts
-    lcut <- lapply(lhs, function(x) pcut(x[[2]]))
-    env1 <- new.env(parent= parent.frame(2))
-    env2 <- new.env(parent= env1)
-
-    # We allow people to say "state('dementia', 'death'), so make
-    # "state" a function that is a variant of c()
-    if (missing(statedata)) {
-        assign("state", function(...) list(stateid= "state", 
-                                           values=c(...)), env1)
-        assign("state", list(stateid="state"))
-    }
-    else {
-        # if there is statedata, then every column becomes such a function
-        for (i in statedata) {
-            assign(i, eval(list(stateid=i)), env2)
-            tfun <- eval(parse(text=paste0("function(...) list(stateid='"
-                                           , i, "', values=c(...))")))
-            assign(i, tfun, env1)
-        }
-    }
-    lterm <- lapply(lcut, function(x) {
-        lapply(x, function(z) {
-            if (length(z)==1) {
-                eval(z, envir= env2)
-            }
-            else if (length(z) ==3 && z[[1]]==':') {
-                # The right hand side of a colon should be a single variable
-                #   name
-                if (!is.name(z[[3]])) 
-                    stop("marker does not map to a unique variable name: ",
-                         deparse(z))
-                list(states = eval(z[[2]], envir=env2), 
-                     marker = z[[3]])
-            }
-            else stop("invalid term: ", deparse(z))
-        })
-    })
-
-    list(lhs= lterm, rhs=rightslash(rhs))
+        
+    list(formula = flist, statecol=statecol, options=options)
 }

@@ -90,8 +90,8 @@ hmm <- function(formula, data, subset, weights, na.action,
     # grab markers for any hidden states
     if (!missing(markers)) {
         if (!missing(statedata)) markerlist <- parsemarker(markers)
-        else markerlist <- parsemarker(markers, statedata)
-    } else markerlist <- NULL
+        else marker1 <- parsemarker1(markers, statedata)
+    } else marker1 <- NULL
               
     # create the master formula, used for model.frame
     # the term.labels + reformulate + environment trio is used in [.terms;
@@ -101,9 +101,10 @@ hmm <- function(formula, data, subset, weights, na.action,
         if (!is.null(covlist))
             tlab <- unlist(lapply(covlist$rhs, function(x){
                 attr(terms.formula(x), "term.labels")}))
-        if (!is.null(markerlist)) 
-            tlab <- c(tlab, markerlist$marker)      
-        newform <- reformulate(tlab, dformula[[2]])
+        if (!is.null(marker1)) 
+            tlab <- c(tlab, unlist(lapply(tlab$formula, function(x) {  
+                attr(terms.formula(x), "term.labels")})))   
+        newform <- reformulate(unique(tlab), dformula[[2]])
         environment(newform) <- environment(dformula)
         formula <- newform
     }
@@ -189,53 +190,6 @@ hmm <- function(formula, data, subset, weights, na.action,
     parse2 <- parsecovar2(covlist, statedata, dformula, Terms, qmatrix,
                           statenames, colnames(X), xassign)
     
-
-
-    qcoef2 <- data.frame(state1 = row(qmatrix)[qmatrix>0],
-                         state2 = col(qmatrix)[qmatrix>0],
-                         term   = 0,    #intercept
-                         coef  = 1:ntransitions + 100,
-                         init   = log(qmatrix[qmatrix>0]),
-                         lp     = 1:ntransitions,
-                         stringsAsFactors=FALSE)
-    qtest <- function(x, allowed, e1, e2, label="qcoef") {
-         if (is.numeric(x)) {
-            if (any(x != floor(x)) || any(x < 1))
-                stop(paste(label, "numeric", e2, "must be integers greater than 0"))
-            if (any(x > length(allowed))) 
-                stop(label, ": numeric", e1, "that is > number of", e2)
-            x
-        }
-        else {
-            temp <- match(x, allowed, nomatch=0)
-            if (any(temp==0)) stop(paste(label, ": unrecognized", e1, "name"))
-            temp
-        }
-    } 
-
-    has.qcoef <- !(missing(qcoef) || is.null(qcoef))
-    has.rcoef <- !(missing(rcoef) || is.null(rcoef))
-    has.pcoef <- !(missing(pcoef) || is.null(pcoef))
-
-    if (has.qcoef) {
-        if (!is.data.frame(qcoef)) stop("qcoef must be a data frame")
-        index <- match(c("state1", "state2", "term", "coef"),
-                       names(qcoef), nomatch=0)
-        if (any(index==0)) 
-            stop("qcoef must contain variables named state1, state2, term, and coef")
-        qcoef$state1 <- qtest(qcoef$state1, statenames, "state", "states")
-        qcoef$state2 <- qtest(qcoef$state2, statenames, "state", "states")
-        itemp <- as.matrix(qcoef[, index[1:2]])
-        if (any(qmatrix[itemp] ==0)) 
-            stop("qcoef contains an invalid state1 to state2 transition")
-        qmatrix[qmatrix >0] <- 1:ntransitions  # the transition number
-        qcoef$lp <- qmatrix[itemp]
-        if (is.null(qcoef$init)) qcoef$init <- 0.0
-        if (is.character(qcoef$term)) qcoef2$term <- "(Intercept)"
-        qcoef <- rbind(qcoef, qcoef2)  # initial values from the qmatrix
-        qcoef <- qcoef[!duplicated(qcoef[,1:3]),]
-    }
-    else qcoef <- qcoef2
     if (has.rcoef) {
         if (!is.data.frame(rcoef)) stop("rcoef must be a data frame")
         index <- match(c("response", "lp", "term", "coef"), 
