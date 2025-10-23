@@ -2,6 +2,8 @@
 #  formulas, each left hand side a marker, predicted by a state and possibly
 #  other covariates, with the options after a /
 # Separate out the states, markers, and options.
+# It is possible to have multiples on the left, e.g. "pib + tau ~ A/lognormal"
+#
 parsemarker1 <- function(flist, statedata) {
     if (inherits(flist, "formula")) flist <- list(flist) # only one marker
     if (any(sapply(flist, function(x) !inherits(x, "formula"))))
@@ -9,50 +11,74 @@ parsemarker1 <- function(flist, statedata) {
     if (any(sapply(flist, length) != 3))
         stop("all formulas must have a left and right side")
     
-    # some clever soul will use "log(pib) + log(tau) ~ A /gaussian" to specify
-    # that both pib and tau are markers for A.  Deal with this by breaking the
-    # above into two formulas.
-    formbreak <- function(x) {
-        if (as.name(x)== '('
+    rhs2 <- lapply(flist, function(x) rightslash(x[[3]]))
+    options <- lapply(rhs2, function(x) x[[2]]) # the list of options
     
-
-    temp <- lapply(flist, function(x) rightslash(x[[3]])
-    options <- lapply(temp, function(x) x[[2]]) # the list of options
-    
-    #  Save out the state information, which is the first term on the right hand
-    # side of each formula.  It must be a column name in statedata.
+    # The state information is saved simple vector, each element points to the
+    #  column of statedata associated with the marker.  Markers are saved
+    #  as a vector of names.  A list of formulas, appropriate for the the
+    #  parent routine to create the model frame + the list of options rounds
+    #  out the result.
     #  The reformulate call in the parent hmm routine works best if the response
     # (the marker) is moved to the right hand side of the formula.
-    # is moved to the right hand side of the formula, which is simple.
     nform <- length(flist)
-    statecol <- integer(nform)
-    scol <- colnames(statedata)
+    sname    <- colnames(statedata)
+    statecol <- nleft <- integer(nform)
+    extraterm <- vector("list", nform) # extra predictors for the
+    marker <- NULL
     for (i in 1:nform) {
-        rhs <- temp[[i]][[1]]
+        rhs <- rhs2[[i]][[1]]
+        lhs <- flist[[i]][1:2] # keep the ~, so it looks like a 1 sided formula
+        # grab the marker names
+        temp <- attr(terms(lhs), "term.labels")
+        nleft[i] <- length(temp)
+        marker <- c(marker, temp)
         if (length(rhs)==1) { # usual case, only a state name on the right
-            first <- rhs[[1]]
-            if (is.name(first)) jcol <- match(as.character(first), scol)    
-            else if (is.character(first)) jcol <- match(first, scol)
+            first <- rhs
+            if (is.name(first)) jcol <- match(as.character(first), sname)    
+            else if (is.character(first)) jcol <- match(first, sname)
             else stop("unrecognized state vector: ", deparse(first))
 
             if (is.na(jcol)) stop("unrecognized state vector: ", deparse(first))
-            statecol[i] <- j
+            statecol[i] <- jcol
             flist[[i]][[3]] <- NULL  # left hand side is now right hand
         } else {
-            # the rhs has state + covariates
-            if (!is.call(rhs[[1]]) && rhs[[1]]== as.name("+"))
-                stop("unrecognized state vector")
+            if (!(is.call(rhs) && rhs[[1]]== as.name("+")))
+                stop("unrecognized right hand side of marker formula")
+            dummy <- ~ x
+            #environment(dummy) <- environment(rhs)
+            dummy[[2]] <- rhs[[3]]
+            extraterm[[i]] <- dummy # save it as a 1 sided formula
+
             first <- rhs[[2]]
-            if (is.name(first)) jcol <- match(as.character(first), scol)    
-            else if (is.character(first)) jcol <- match(first, scol)
+            if (is.name(first)) jcol <- match(as.character(first), sname)    
+            else if (is.character(first)) jcol <- match(first, sname)
             else stop("unrecognized state vector: ", deparse(first))
 
             if (is.na(jcol)) stop("unrecognized state vector: ", deparse(first))
-            statecol[i] <- j
+            statecol[i] <- jcol
+            
+            # this is a bit sneaky
+            #  rhs is state + rest of covariates, element 1 is '+', 2 the state,
+            #   3 the rest
+            #  replace element 2 with flist[[[i]][[2]], which is the left hand
+            #   side of the formula in flist
+            #  replace flist[[i]][[2]] with rhs
+            #  set flist[[i]][[3]] to NULL, making it a 1 sided formula
+            # All this so that flist[[i]] is in the right form for the parent to
+            #  use, so as to build a model.frame.
+            #
             rhs[[2]] <- flist[[i]][[2]]  # replace state with the lhs
-            flist[[i]] <- rhs   #keep the right
+            flist[[i]][[2]] <- rhs   #keep the right
+            flist[[i]] <- flist[[i]][1:2]  # make it 1 sided
         }
     }
-        
-    list(formula = flist, statecol=statecol, options=options)
+      
+    # nleft = number of markers on the left, in each equation
+    # The statecol vector and options list need to replicate as well
+    # extraterm contains any extra predictors, besides state
+
+    list(formula = flist, marker= marker, statecol= rep(statecol, nleft), 
+         options=options[rep(1:nform, nleft)], 
+         extraterm= extraterm[rep(1:nform, nleft)])
 }
