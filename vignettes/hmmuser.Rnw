@@ -312,10 +312,23 @@ init <- c(.166, .25, .25, .166, .25, .166, .25))
 # The coefs are in the same order as the non-zero entries in cqmat; remember 
 #  that R matrices are stored in column major order.
 # It might seem more natural to read across, like a book (msm does), but in the 
-#  underlying we found that this quickly becomes an exercise in swimming upstream
+#  code, both as a user and within the package, we found that this quickly 
+#  becomes an exercise in swimming upstream.
 hfit0 <- hmm(Surv(years, cstate) ~ 1, data= cav2, id= ptnum,
                qmatrix= cqmat, exact="death", irate= exp(init))
-hfit0
+hfit0  # no iteration
+hfit0b <- hmm(Surv(years, cstate) ~ 1, data= cav2, id= ptnum,
+              qmatrix= cqmat, exact="death", irate= hfit0,
+              mfun = hmmscore, mpar= list(gr="hmmboth"))
+hfit0b  # msm vignette, 2.5, model 1
+
+hfit1 <- hmm(list(Surv(years, cstate) ~ sex, 
+                  1:2 + 2:3 ~ sex / common,
+                  2:1 + 3:2 ~ sex / common,
+                  0:death   ~ sex / common),  data=cav2, id= ptnum,
+             qmatrix= cmat, exact="death", irate= exp(init))
+hfit1$cmap
+hfit1   # msm vignette, 2.7, model 3
 @ 
 
 There are 3 kinds of states in the hmm fitter:
@@ -326,15 +339,44 @@ state a subject is in at the observation time is certain, but not when they
 entered the state, and exact states where both the state and its time of entry
 is known. Both interval censored and exact states should appear as levels 
 in the in the second argument to Surv, \code{cstate} above,
-which should be a factor whose first level corresponds to ``no observed state
+which must be a factor whose first level corresponds to ``no observed state
 at this time'' and remaining levels will match the state labels in the
-$Q$ matrix. (Common labels for first level are ``censor'' or ``none'').
+$Q$ matrix. (Common labels for this first level are ``censor'' or ``none'').
 Death is the most common exact state, so much so that ``death'' is the default 
-value of the \code{exact} argument; we could have omitted it
-from the above call.  Also, if there is only one exact state, with all others
-latent, then as a convenience to the user 0/1 or FALSE/TRUE is allowed as
-the second argument of \code{Surv}, and is assumed to refer to said state.
+value of the \code{exact} argument, and so we could have omitted it
+from the above call.
 
+The above fits have no latent states, so the observed outcome is captured in
+the Surv argument.  
+The formula argument specifies the models for the between state transitions,
+and has the same form as in the coxph function of the survival package.
+It is a list where the first formula is the default, the left hand side is the
+response and the right the covariates.  Further elements of the list have
+the form of one or more state:state transitions on the left and covariates on
+the right.  Behind the scense there is a formula for each transition, each
+starts as the default and is modified by each later addition or subtraction,
+using the same logic as \code{update.formula}.  
+The \code{common} option states that the specified transitions share a
+common \code{sex} coefficient.
+The result of the formulas is captured in \code{cmap} component of the fit,
+each positive integer is an index into the overall coefficient vector.
+The following are valid specifications of transitions:
+\begin{itemize}
+  \item \code{0:death}, \code{0:state('death')}, \code{0:4}: transition from
+    any other state to death.  Illegal transition are silently removed, i.e.,
+    this does not include death:death.
+  \item \code{c(1:3):4}, \code{state('no CAV', 'mild/mod', 'severe'):death}:
+    same as the above
+  \item \code{''no CAV'':''mild/mod'' + ''mild:mod'':''severe''}:
+    same as \code{1:2 + 2:3}
+\end{itemize}
+    
+The default for hmm is to not maximize, returning the result at
+the initial parameters.  The second two calls use what we have found to be
+the most robust option for general practice, which is based on a 
+Levenburg-Marquart algorith along with a trust region, and uses the outer
+product of the score vectors $U_i$ per subject as an approximate Hessian
+matrix. 
 
 
 
