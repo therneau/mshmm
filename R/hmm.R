@@ -73,33 +73,31 @@ hmm <- function(formula, data, subset, weights, na.action,
         if (length(formula)==1 && is.formula(formula[[1]])) {
             # a list with only one formula
             multiform <- FALSE
-            covlist <- NULL
+            parse1 <- NULL
             dformula <- formula[[1]]
         } else {  
             multiform <- TRUE
             dformula <- formula[[1]]   # the default formula for transitions   
-            if (missing(statedata)) covlist <- parsecovar1(formula[-1])
-            else covlist <- parsecovar1(formula[-1])
+            parse1 <- parsecovar1(formula[-1])
         }
     } else {
         multiform <- FALSE   # formula is not a list of expressions
-        covlist <- NULL
+        parse1 <- NULL
         dformula <- formula
     }
 
     # grab markers for any hidden states
     if (!missing(markers)) {
-        if (!missing(statedata)) markerlist <- parsemarker(markers)
-        else marker1 <- parsemarker1(markers, statedata)
+        marker1 <- parsemarker1(markers)
     } else marker1 <- NULL
               
     # create the master formula, used for model.frame
     # the term.labels + reformulate + environment trio is used in [.terms;
     #  if it's good enough for base R it's good enough for me
-    if (!is.null(covlist) || !is.null(markerlist)) {
+    if (!is.null(parse1) || !is.null(markerlist)) {
         tlab <- attr(terms(dform), "term.labels")
-        if (!is.null(covlist))
-            tlab <- unlist(lapply(covlist$rhs, function(x){
+        if (!is.null(parse1))
+            tlab <- unlist(lapply(parse1$rhs, function(x){
                 attr(terms.formula(x), "term.labels")}))
         if (!is.null(marker1)) 
             tlab <- c(tlab, unlist(lapply(tlab$formula, function(x) {  
@@ -187,7 +185,7 @@ hmm <- function(formula, data, subset, weights, na.action,
 
     # Finish assembling the formula and create the mapping matrices
     # tmap (terms) and cmap (coefficients)
-    parse2 <- parsecovar2(covlist, statedata, dformula, Terms, qmatrix,
+    parse2 <- parsecovar2(parse1, statedata, dformula, Terms, qmatrix,
                           statenames, colnames(X), xassign)
     
     if (has.rcoef) {

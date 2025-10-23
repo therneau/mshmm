@@ -4,6 +4,14 @@
 #  parsecovar routine
 ptplot <- function(x, depth=0, ...) {
     if (class(x) == 'call' || class(x)=='formula') {
+        if (length(x) ==1) { 
+            # special case of a function with no arguments
+            # treat it like a constant
+            return(list(pos= 1    , depth=depth, 
+                        string= paste("call: ", deparse(x)),
+                        connect.n = 0))
+        }
+
         temp <- lapply(x[-1], ptplot, depth=depth+1)
         ypos <- lapply(temp, function(x) x$pos)
         offset <- c(0, cumsum(unlist(lapply(ypos, max))))
