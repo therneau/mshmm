@@ -60,29 +60,69 @@ fixed the .Rnw source file instead of the .R file derived from it.  This means
 that I can't merge a suggested change automatically, but have to replicate it
 myself.
 
-This is my current idea. This latex document will contain an index, and the R
-source code can have comments pointing to the index of the code vignette.
+This package does not use noweb.
+Instead, this latex document will contain an index, and the R
+source code has comments pointing to the index of the code vignette.
+(The R code can't refer to ``figure 3.2 in the vignette'' because figure
+numbers and labels change).
+
 
 \section{Parsing the formulas}
-The set of models for each transition rate are represented by a list
-of formulas.
+\subsection{Overview}
+Here is the transition matrix for a moderately complex model.
+We have two latent amyloisis states, and 3 latent cognitive states.
+
+<<qplus>>=
+states <- c(outer(paste0("A", 0:1), paste0("C", 0:2), paste, sep=':'), "death")
+statedata <- data.frame(state= states,
+                        A=c(0,1, 0,1, 0,1, 2),
+                        N=c(0,0, 1,1, 2,2, NA),
+                        D=c(0,0, 0,0 ,0,0, 1))
+statedata
+qmat <- qplus(statedata, death= "death")
+statefig(cbind(2,2,2,1), qmat, alty=rep(1:2, c(7,8)))
+@ 
+
+And here is an example call using this data.
+<<echo=TRUE, eval=FALSE>>=
+mfit <- hmm(list(Surv(time, death) ~ male,
+                 0:death ~ iage
+                 A(0):A(1) ~ apoe + ns(iage,4)/ common,
+                 N(0):N1(1) + N(1):N(2) ~ iage + cmc),
+            marker = list(dx ~ N/ multinomial(pattern= pmat),
+                           memory~ N + practice/ gaussian,
+                           centiloid + sqrt(p.tau181) ~ A(1:2) /gaussian)
+            data= dementia, id=ptnum, qmatrix = qmat, 
+            statedata = statedata)
+@ 
+
+The first argument of hmm is \code{formula}, as with most modeling functions,
+and in this case it is a list. 
+The 13 separate transitions (arrows) may each have different predictors.
 The first element of the list is the default formula, later elements
-are of the form \code{transitions ~ formula/options}, where the left hand side
-denotes one or more transitions, and the right hand side is used to augment
-the basic formula for the specified transition(s).  
-Here is an example for a 4 state model, it uses a second list of formulas
-for the markers.
+augment this for specified transitons.
+The marker argument is also a list that maps each marker to the state(s)
+for which it is a read-out.
 
-\begin{verbatim}
-mfit1 <- hmm(list(Surv(time, death) ~ male + apoe + cmc,
-                  1:2 + 2:3 ~ male*apoe / common,
-                  1:4 ~ yearc),
-             marker = list(C(1:3):dx ~ 1 / mutlinomial(pattern= pmat),
-                           C(1:3):memory ~ practice / gaussian),
-             data= dementia, id=ptnum, ...)
-\end{verbatim}
+The first goal in parsing this is to create an overall master formula:
+Surv(time, death) ~ male + iage + apoe + ns(iage,4) + cmc + dx + memory + 
+practice + centiloid + sqrt(p.tau181). This will be used as
+an argument to the model.frame() call use to create the analysis data set.
+This master formula isn't used again.
 
-Step 1 is to break the formula into parts.  The first formula is
+After dealing with missing values, the code will
+use model.reponse() to obtain y, pull the 3 marker variables into a
+\code{ymarker} matrix of responses, and create a second master formula,
+without the markers, as the argument to model.matrix.
+
+Given the X matrix and it terms and assign attributes, we can the tackle the
+second stage of parsing, and create the tmap and cmap matrices.
+The tmap matrix has a row per term, so we need the terms first.
+
+\subsection{First pass}
+Step 1 is to break the formula into parts, using \code{parsecovar1} for
+the formula and \code{parsemarker1} for the marker list.
+  The first formula is
 the default formula \code{dformula}, the rest become a 3 component list
 containing the left sides, the right sides and the options.
 The marker argument becomes a list with 4 components of state, marker,
@@ -98,14 +138,16 @@ is in hand.
 
 What if the default formula has sex, and
 one of the sub-formulas has -sex in it? 
-If we just paste together the character form, then if -sex were at the end
-sex would not appear in the data frame. 
-But since we paste together terms.labels attributes, the -sex term does not
-appear and all is well.
+If we just paste together the character form, then if -sex were in the very last
+formula, then sex would not appear in the data frame, and formulas that used
+sex would fail.
+But we paste together terms.labels attributes, which only contain the terms that
+do appear (no - signs) and all is well.
 One special case would be if sex appeared in the default formula, and then was
 removed from every transition in the formula list: sex would then be in the
-data frame though we don't need it. 
-This requires almost malicous intent on the part of the user, so we have
+data frame though we don't need it. If sex also had missing values you could lose
+rows we don't intend to.
+This error requires almost malicous intent on the part of the user, so we have
 decided not to worry about it.
 
 Should we walk the parse tree of the formula, or convert it to character and use
@@ -141,28 +183,70 @@ length(test[[3]])
 test[[3]][[1]]
 test[[3]][[2]]
 @ 
+
 Extrapolating from the above, the way one walks a parse tree is to simply
 step along the nested list.
+Nested functions can be quite efficient, and look simple, but also be
+difficult to get ones arms around, and an absolute bear to debug.
+Here is a simple function from the parsemarker.R code, whose job it is to
+pluck off the leftmost object in the right hand side of a formula, and
+return a list containing that object as the first item, and the updated formula
+without that item as the second.  
+Here is a listing of the function, along with a test formula.
+<<r, >>=
+grableft <- function(x) {
+    if (is.call(x) && x[[1]]== as.name('+')) {
+        if (is.name(x[[2]])) list(x[[2]], x[[3]])
+        else {
+            temp <- grableft(x[[2]])
+            x[[2]] <- temp[[2]]
+            list(temp[[1]], x)
+        }
+    } else stop("state identifier can only be followed by '+'")
+}
+
+test <- (~ N + practice+ sex)[[2]]
+ptplot(test)
+@ 
+
+The execution sequence looks like below, each indent a recursive call to 
+grableft, executed statements listed seqentially within the indent.
+\begin{itemize}
+  \item grableft(N + practice + sex)
+    \begin{itemize}
+      \item temp <- grableft(N + practice)  (+ N practice)
+        \begin{itemize}
+          \item list(N, practice)
+        \end{itemize}
+      \item x[[2]] <- temp[[2]] (x = + practice sex)
+      \item list(N, practice + sex)
+    \end{itemize}
+\end{itemize}
 
 One useful ideas is to use the terms() function to much of the work for
 us. For the right hand size the resulting \code{term.names} attribute nicely
 picks off the variables that should be pasted together to make a master
-formula from a list of formulas.
-However, it doesn't work for something like 1:2 on the lhs, since '1' and '2'
-are not valid variable names. 
+formula from a list of formulas, which is exactly how we create the master
+formula.
+However, it doesn't work for something like 1:2 on the left hand side of
+a formula, since '1' and '2' are not valid variable names. 
 More fatally, terms() considers A:B and B:A to be the same, which means that
-both never appear in the same terms object, and which label gets used can
-be rather arbitrary. But in truth an
-A$\rightarrow$B transition is not the same as B$\rightarrow$A.
+both never appear in the same terms object, and which label is used can
+be rather arbitrary. In truth an
+A$\rightarrow$B transition is not the same as B$\rightarrow$A, and we might
+even have both in the same formula line.
 Nor does terms() work for splitting off the options, which involves finding the 
-last '/' on the line.  So for both the options and the states we will need to
-walk the tree.
+last '/' on the line.  So for many of the operations we will need to
+walk the tree. 
 
-Starting simple,
+In the code, 
 the parsecovar1 routine accepts the list of formulas and returns 3 lists:
 left hand sides, right hand sides (less options), and options, which are the
 things like ``common'' and ``init'' that live after the last /.
-The list of right hand sides is used to build the master formula.
+The list of right hand sides is used to build the master formula,
+which is used to create the model frame and the X matrix.
+
+Once the model
 
 The left hand side of each formula specifies the set of transitions to which
 the covariates apply, and is more complex.
@@ -177,7 +261,7 @@ data set.
     A1N1 &  1&  1 & 0\\
     A0N2 &  0&  2 & 0\\
     A1N2 &  1&  2 & 0\\
-    Death&  NA & NA& 1 
+    Death&  2 & NA& 1 
 \end{tabular}
 \end{center}
 
@@ -194,37 +278,146 @@ data set.
      by the R parser
 \end{enumerate}
 
+
+
 The markers are a somewhat more complex beast.Here are some valid ones
 \begin{itemize}
-  \item \code{log(amyloid) ~ A / gaussian}
-  \item \code{pzmemory ~ N + practice / gaussian(par='mean')}
-  \item \code{pzmemory ~ N / gaussian(par='std')}
+  \item \code{log(amyloid) + log(tau) ~ A(0:1) / gaussian}
+  \item \code{pzmemory ~ N + practice / gaussian(param='mean')}
+  \item \code{pzmemory ~ N / gaussian(param='std')}
   \item \code{dx ~ state / multinomial(pattern = pmat)}
 \end{itemize}
 
 What is going on here? 
 \begin{itemize}
- \item The first thing is tha in an HMM the value of a marker is
+ \item The first thing is that in an HMM the value of a marker is
    predicted from the state, not vice versa, thus the marker is coded as the
-   response. The state must be the first predictor, often the only one. Use of
+   response. The state must be the first predictor, and is often the only one. 
+   We always treat it as a factor, e.g., an intercept per state.
    ``A'' above says to use the ``A'' column of the state data.  Subjects in the
-   A0N0, A0N1 and A0N2 states is assumed to have the same distribution of 
+   A0N0, A0N1 and A0N2 states are assumed to have the same distribution of 
    amyloid.
  \item The specified distribution will have multiple parameters, the mean
    and std for a Gaussian for example. As in lines 2 and 3 we can specify
    different formulae for the mean and std, mean memory scores are influenced 
    both by the true state and a practice effect, but we assumed no practice
    effect for the std.  As a convenience, the default is to use the same
-   equation for both (the default is par=both).
+   equation for both (the default is both parameters).
  \item The multinomial distribution requires a pattern matrix which specifies
    the mapping between linear predictors and states.
 \end{itemize}
 
-Behind the scenes, the coefficient map \code{rmap} for the markers starts 
-with a row
-for each state, and will often have no others.
-The will be a column for log(amyloid)1 and log(amyloid)2, the linear predictors
-for the first and second parameters of the gaussian. 
+What we must have out of parsemarker1 is the set of terms that will be needed
+in the model frame.
+These are passed back as the equations which will be used via the term.labels
+attribute of a terms() result.
+It turns out that putting two things on the left of ~ does not work, they
+don't end up as separate character strings in the term.labels attribute.
+This complicates the code for the first marker equation somewhat.
+The routine also sends back various bits that will be useful for the second
+routine.
 
+For the second step of parsing, what we need from parsecovar2 and parsecovar3
+is the coefficient map cmap. Given this, there is a simple transformation from
+the total coefficent vector \code{coef} to a matrix form B (it will have lots of
+zeros) with one column per transition, such that \verbzX%*% Bz gives the
+matrix of linear predictors; one row per observation, one column per transition.
+A matrix \code{tmap} with one row per term is an intermediate step: a factor 
+or ns() term has multiple coefficients.  The term() function (and users) work
+with terms, the assign attribute of the X matrix translates this to coefficients.
+
+Assume there were three markers a, b, c.  The likelihood 
+for any given subject can be written as
+$$\pi_0 \left[D_a(y_{1a}, t_1)D_b(y_{1b}t_1) D_c(y_{1c}, t_1)\right] P(t_1,t_2) 
+\left[D_a(y_{2a},t_2) D_b(y_{2b},t_2) D_c(y_{2c},t_2)) \right] P(t_2,t_3)  \ldots, 
+\left[D_a(y_{na},t_n) D_b(y_{nb},t_n) D_c(y_{nc}, t_n) \right]
+$$
+with $pi$ the initial distribution over states,
+$P$ an nstate by nstate transition matrix, and $D$ a diagnoal response matrix
+for each marker.
+Each row of $XB$ for a subject generates a transition matrix $P$ except the
+last, and row of data with markers generates a set of $D$ matrices, 
+otherwise $D$ is the identity matrix.
+
+For the transition matrices, the overall $XB$ matrix is exactly what we need.
+The likelihood computation for an hmm is separate for each subject; the parallel
+routine for a subject can be handed the rows of $XB$ for that subject.
+For the markers it is useful to think about the compuation piecewise.
+\begin{enumerate}
+  \item For many data sets, in particular those which treat current age as a
+    time-dependent covariate, the will be many rows of data which only update
+    age: most rows won't have markers measured.  Even for data rows that 
+    correspond to a regular visit, not every marker will bet measured on every
+    subject.  Thus it is useful to have a separate
+    y vectors for each marker, to avoid spurious NA.
+  \item The linear predictor(s) for each parameteter of a distribution/marker 
+    pair, e.g., the mean of a gaussian, can be decomposed into two parts:
+    \begin{itemize}
+      \item The portion due to state, which will be a vector of length nstate,
+        idential for all subjects
+      \item The portion due to any extra variables, such as \code{practice} in
+        the example above.  These can be incorporated into $XB$. Very often
+        there will be none.
+    \end{itemize}
+\end{enumerate}
+
+
+Start with a simple case. For a gamma distribution there will be 2 parameters
+per peak, the mean and std.  The number of peaks is taken from the relevant
+column of statedata: 2 for A, 3 for N.  The total number of linear predictors
+for the log(tau):A(0:1) mapping will be 4 with names of ``log(tau):mean.A0'',
+``log(tau):mean.A1'', ``log(tau):log(std).A0'' and ``log(tau):log(std).A1''.
+The density routine will be passed a vector $y$ of log(tau) values, a
+4 column matrix of parameters, and the mapping of the two peaks to the 7 states.
+It will return an nstate by $m$ matrix of
+probabilities where $m$ is the number or rows of $y$.  
+The associated cmap will have 4 columns and rows for the intercept and practice.
+
+A multinomial outcome will have labels that are not quite as obvious. Say that
+we have the following pattern matrix.
+<<pattern>>=
+pmat <- rbind(c(-1, 1, 0), c(2, -1, 3), c(0, 4, -1))
+dimnames(pmat) <- list(true=c("C0", "C1", "C2"), 
+                       obs =c("CU", "MCI", "dementia"))
+pmat
+@ 
+
+This has declared that we will never mistakenly apply a ``dementia'' label to
+someone who is in the C0 state, nor a ``cognitively unimpaired'' label to
+one who is in dementia. Thus the multinomial distribution for true C0 has
+only 1 parameter (it is binomial) and likewise for C2, C1 has 2 parameters.
+The -1 codes the cell that should be thought of as the reference.
+In this case labels will be ``diag:eta1'', ``diag:eta2'', ``diag:eta3'', and
+``diag:eta4''; there is not a nice 1:1 relationship between any parameter and 
+the entries in the probability matrix. 
+It is possible, though I would find it odd, to force parameters to be
+equal.  A second row of 2, -1, 2 for instance would force the probability of
+classifiying true C1 as unimpaired or demented to be identical.
+
+One important note is the use of A(0:1) in the formula, which says that there
+is no gaussian peak for death.  For N the use of NA for death accomplishes the
+same thing.
+If death is the true state, there is no tau measurement, and the associated D 
+matrix has a 0 in the last position. 
+Put another way, having a tau measurement means that you weren't dead.
+
+
+To facilitate this we want parsemarker2 to return the following components.
+First is a data frame with one row for each linear predictor, that gives
+the marker, distribution, parameter id and linear predictor within parameter
+id. 
+For the markers, think about the end goal and work backwards. The likelihood
+is trivially parallel since each subject's contribution can be computed in
+isolation. 
+Second is the list of marker functions.  Each will be called with a matrix of
+transition matrix, and a vector with one element per state of f(y| state, x).
+For many data sets, in particular where current age is a covariate that has been
+expanded to have a row per year of age, only a fraction of the data rows will
+have an observed marker value.
+In fact, all the values of $f$ for a given state, can be computed for all 
+subjects at once.  
+What will be needed for each marker is a matrix containing a column for each
+linear predictor eta and a row for each subject/time with a marker.  For a
+gaussian response and 4 states, that will be 8 columns.
 
 

@@ -147,12 +147,12 @@ hmm <- function(formula, data, subset, weights, na.action,
     # If there are unmistakable states (death for instance is never latent),
     #  then they will be the status portion of a Surv() response
     if (inherits(Y, "Surv")) {
-        if ((attr(y, "type") == "right") {
+        if (attr(y, "type") == "right") {
             if (length(exact)==1 && exact %in% statenames) {
                 # special case: 0/1 status can be used if there is 1 exact state
                 efree <- match(exact, statenames)
             } else stop("simple Surv() only allowed if there is exactly 1 exact state")
-        } else if (attr(Y, "type"== "mright") {
+        } else if (attr(Y, "type") == "mright") {
             ystate <- attr(Y, "states")
             efree <- (match(ystate, statenames))
             if (any(is.na(efree)))

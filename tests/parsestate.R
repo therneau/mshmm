@@ -6,13 +6,19 @@
 #parsecovar1 <- mshmm:::parsecovar1
 #parsecovar2 <- mshmm:::parsecovar2
 #parsemarker1 <- mshmm:::parsemarker1
+
+ library(survival)
+ source("ptplot.R")
+ source("parscovar.R")
+ source("parsemarker.R")
+
 states <- c("A0N0", "A1N0", "A0N1", "A1N1", "A0N2","A1N2", "death")
 qmat <- matrix(0, 7,7, dimnames=list(states, states))
 qmat[1,2] <- qmat[3,4] <- qmat[5,6] <- 1  # A0 to A1
 qmat[1,3] <- qmat[2,4] <- 1 # N0 to N1
 qmat[3,5] <- qmat[4,6] <- 1 # N1 to N2
 qmat[1:6,7] <- 1
-# statefig(cbind(2,2,2,1), qmat)
+# statefig(cbind(2,2,2,1), qmat, alty= rep(1:2, c(7,6)))
 
 statedata <- data.frame(state= states,
                         A=c(0,1,0,1,0,1,2),
@@ -64,19 +70,24 @@ check3[,] <- match(c(check3), sort(unique(c(0, check3)))) -1L
 all.equal(check3, test2$cmap)
 
 
-# Now look at the marker list
+# Now look at a marker list
 mlist <- list(log(pib) + log(tau) ~ A /gaussian,
-              sqrt(p.tau181) ~ A/gaussian(cstd),
-              whm ~ N + icvol+ sex/ gamma)
+              sqrt(p.tau181) ~ A/gaussian,
+              sqrt(p.tau181) ~ A/gaussian(param="std") + common,
+              wmh ~ N + icvol+ sex/ gamma)
 
-test <- parsemarker1(mlist, statedata)
+test1 <- parsemarker1(mlist, statedata)
 
 # formula = the bits that need to pasted up so as to all variable in the
 #  model frame
-all.equal(test$formula, list(~log(pib) + log(tau), ~sqrt(p.tau181), 
-                             ~whm + icvol))
-all.equal(test$marker, c("log(pib)", "log(tau)", "sqrt(p.tau181)", "whm"))
-all.equal(test$statecol, c(2,2,2,3))
-all.equal(test$options, list(as.name("gaussian"), as.name("gaussian"),
-                          expression(gaussian(cstd))[[1]], as.name("gamma")))
+all.equal(test1$formula, list(~log(pib) + log(tau), ~sqrt(p.tau181), 
+                             ~ sqrt(p.tau181), wmh ~  icvol+ sex))
+all.equal(test1$marker, c("log(pib)", "log(tau)", "sqrt(p.tau181)", 
+                         "sqrt(p.tau181)", "wmh"))
+all.equal(test1$statecol, c(2,2,2,3))
+all.equal(test1$options, list(as.name("gaussian"), as.name("gaussian"),
+                          expression(gaussian(param="std") +common)[[1]], 
+                          as.name("gamma")))
 
+
+test2 <- parsemarker2(test1, statedata)

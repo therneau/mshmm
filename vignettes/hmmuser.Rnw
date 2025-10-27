@@ -53,25 +53,69 @@ in our analyses of data from the Mayo Clinic Study of Aging (MCSA).
 Our models can be thought of having two levels.  Level 1 is a multi-state
 hazards model, much like those addressed by multistate hazard (MSH) models
 fit using the coxph function in the survival library.
-Here for instance is the state space for model used with long term cognitive
-outcomes.
-Subjects progress from cognitively unimpaired (CU), through mild cognitive
-impairment (MCI) and on to dementia, with death as a competing risk.
-
+Here is a moderately complex model for illustration, based on a dementia study. 
 <<states>>=
-state1 <- c("CU", "MCI", "dementia", "death")
-smat <- matrix(0, 4, 4, dimnames=list(from=state1, to=state1))
-smat[1,2] <- smat[2,3] <-1
-smat[1:3,4] <- 1
-#opar <- par(mfrow=c(1,2), mar=c(1,1,1,1))
-statefig(cbind(c(3,1)), smat)
-
-#smat2 <- smat
-#state2 <- c("A0", "A1", "A2", "death")
-#dimnames(smat2) <- list(state2, state2)
-#statefig(c(3,1), smat2)
-#par(opar)
+states <- c(outer(paste0("A", 0:1), paste0("C", 0:2), paste, sep=':'), "death")
+statedata <- data.frame(state= states,
+                        A=c(0,1, 0,1, 0,1, 2),
+                        N=c(0,0, 1,1, 2,2, NA),
+                        D=c(0,0, 0,0 ,0,0, 1))
+statedata
+qmat <- qplus(statedata, death= "death")
+statefig(cbind(2,2,2,1), qmat, alty=rep(1:2, c(7,8)))
 @ 
+
+The above model assumes two latent processes, amyloid accumulation in the brain,
+and cognitive decline from no impairment to high.
+The premise of an HMM is that the states are not directly observed, rather
+what we see are biomarkers that indicate, imperfectly, the underlying process.
+The latent or ``hidden'' states operate in continuous time, so transitions in
+the figure will be a change in A or N, never both at once.  
+Because of intermittent observation a subject might well be in A0:N0 at one
+visit and A1:N2 at the next, but the unobserved continuous process would not
+have made an instaneous multistate jump.
+
+Here is a possible specification for a model.  
+It is purposely a very general one.
+
+<<echo=TRUE, eval=FALSE>>=
+mfit <- hmm(list(Surv(time, death) ~ male,
+                 0:death ~ iage,
+                 A(0):A(1) ~ apoe + male + ns(iage,4)/ common,
+                 C(0):C1(1) + C(1):C(2) ~ iage + cmc),
+            marker = list(diag ~ N/ multinomial(pattern= pmat),
+                          memory~ N + practice/ gaussian,
+                          centiloid + sqrt(p.tau181) ~ A(1:2) /gaussian)
+            data= dementia, id=ptnum, qmatrix = qmat, 
+            statedata = statedata)
+@ 
+
+Full estimation includes 13 transition rates (arrows), along with the 
+relationship
+of 4 biomarkers (diag, memory, centloid, and p.tau181) to the underlying
+states. It is a complex model, with a lot of parameters, and the 
+specification is also complex. The statedata makes specification a bit 
+easier by setting up aliases, e.g., A(0) is shorthand for A0:C0, A0:C1 and
+A0:C2. It has one row per state, in the same order as they are found in
+the transition matrix \code{qmat}.
+
+First, each of the 13 transition rates is modeled as $\exp(\beta X)$, in the
+same manor as a Cox model, each transition has it's own equation.
+The formula argument, the first argument of the hmm function, is a list
+whose first element is the default formula for each transiton, subsequent lines
+each update the formula for selected transitions.
+Here is a sample from the above:
+\begin{itemize}
+  \item All 6 transitons to death are of the form \code{~ male + iage}; each 
+    has separate coefficients
+  \item The A0C0:A1C0, A0C1:A1C1 and A0C2:A1C2 transitions, the three vertical
+    arrows in the figure, have the form \code{~ male + apoe + ns(iage,4)};
+    these three transitions have the same coefficients.
+  \item The four C transitions (horizontal arrow) have form \code{~ iage + cmc}
+\end{itemize}
+Behind the scenes the A(0):A(1) specification translates as any valid transition
+from a state where the A column of statedata is 0, to one where the A
+column is 1.  The valid transitions are specified in the transition matrix.
 
 The first major difference between the MSH and HMM models is that observations
 on each state come from interval censored data, also known as panel data. 
