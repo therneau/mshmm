@@ -1,28 +1,62 @@
 # Material for response functions
+# initial functions are called with the state map as the first argument, whose
+#  length = number of states
+#  unique peak for each unique value, no peak for NA values (usually death)
+# marker arg = name of marker, used to create labels
 
 # Gaussian
-igauss <- function(map, param= c("mean", "std")) {
+# return a list with 
+#   args: will be passed to hmmgauss
+#   pname: will be used to make labels for the linear predictors
+#   npar: the number of parameters for this dist
+#   param: the parameters dealt with by the initialize call
+igauss <- function(map, marker, param) {
+    umap <- unique(map[!is.na(map)])
+    npeak <- length(umap)
+    newmap <- ifelse(is.na(map), 0, match(map, umap))
+
+    if (missing(param)) {
+        # the usual case
+        par <- c(paste0(marker, ".mean", umap, sep=''), 
+                     paste0(marker, ".log(std)", umap))
+        args <- list(map=newmap, npeak= npeak)
+        list(args= args, pname= par, npar=2, param=1:2)
+    }
+    else {
+        check <- match(param, c("mean", "std"), nomatch=0)
+        if (any(check==0)) stop("unrecognized param argument: ", param)
+        if (length(check)==2) {
+            par <- c(paste0(marker, ".mean", umap, sep=''), 
+                     paste0(marker, ".log(std)", umap))
+            args <- list(map=newmap, npeak= npeak)
+            list(args= args, pname=par, npar=2, param=1:2)
+        } else if (check==1) {
+            par <- paste0(marker, ".mean", umap, sep='')
+            args <- list(map= newmap, npeak= npeak)
+            list(ars=args, pname=par, npar=1, param=1)
+        } else {
+            par <- paste0(marker, ".log(std)", umap, sep='')
+            args <- list(map= newmap, npeak= npeak)
+            list(args= args, pname= par, npar=1, param=2)
+        }
+    }   
+}                                     
     
-hmmgauss <- function(y, nstate, eta, gradient=FALSE, statemap, weight=1) {
-    hcheck(nstate, statemap)
-    ngroup <- max(statemap)
-    if (!is.matrix(eta)) stop("eta must be a matrix for hgauss")
+hmmgauss <- function(y, eta, args, gradient=FALSE) {
+    npeak <- args$npeak
+    map   <- args$newmap  # for each state, newmap has 0 or the peak number
+    nstate <- length(map)
+
     yprob <- matrix(0., nstate, length(y))
     if (gradient) ygrad <- array(0, dim=c(nstate, length(y), ncol(eta)))
-    if (ncol(eta) == (ngroup +1)) {
-        # common std for all, follows the means columns
-        std <- exp(eta[,ngroup+1])
-        for (i in which(statemap >0)) {
-            j <- statemap[i]
-            yprob[i,] <- weight* dnorm(y, eta[,j], sd=std, log=TRUE)
-            if (gradient) {
-                ygrad[i,,j] <- weight * (y-eta[,j])/std^2 # deriv wrt eta
-                ygrad[i,,ngroup+1] <- weight * ((y-eta[,j])^2/std^2 -1)
-            }
-        }
-    }
-    else if (ncol(eta) == 2*ngroup) {
-        # eta has the means for each, flllowed by std for each
+
+    # eta will have 2*npeak columns
+    mcount <- table(map[map!=0])
+    for (i in 1:npeak) {
+        j <- i+ npeak  # npeak means followed my npeak std
+        yprob[map==i,] <- rep(dnorm(y, eta[,i], exp(eta[,j]), log=TRUE),
+                              each= mcount[i])
+        if (gradient) 
         for (i in which(statemap>0)) {
             j <- statemap[i]
             std <- exp(eta[, ngroup+j])
