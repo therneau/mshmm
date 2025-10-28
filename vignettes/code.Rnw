@@ -394,30 +394,48 @@ It is possible, though I would find it odd, to force parameters to be
 equal.  A second row of 2, -1, 2 for instance would force the probability of
 classifiying true C1 as unimpaired or demented to be identical.
 
-One important note is the use of A(0:1) in the formula, which says that there
+How we handle this is to have a triad of functions for each distribution.
+\begin{itemize}
+ \item An initialization function is given the number of peaks, e.g., the
+relevant column of statedata, along with any optional parameters. It returns
+the number of linear predictors along with names for them, along with optional
+data to pass to the compuatation function.
+ \item The compuatation function recieves the vector y, the matrix of linear
+   predictors, and the optional information.  It returns a nstate x n matrix
+   of density values.
+ \item A reporting function can transform results to a user scale.  This is
+   trivial for the gaussian, just turn log(std) into std.  For the multinomial
+   produce the misclassification matrix.
+\end{itemize}
+This allows for some freedom, for instance the gaussian setup could allow an
+\code{std=2} argument, which would fix the standard devation for the distribution
+at 2. That would also reduce the number of linear predictors.
+
+The user can write either \code{gaussian} or \code{gaussian(param=std)}, as
+an example. The parsecovar routine picks up the name, puts the parametes in
+a list along with the state data, and calls the initialzation function. The
+fact that the code uses log(std) is something the user need not even know.
+
+One important foonote is the use of A(0:1) in the formula, which says that there
 is no gaussian peak for death.  For N the use of NA for death accomplishes the
 same thing.
 If death is the true state, there is no tau measurement, and the associated D 
 matrix has a 0 in the last position. 
 Put another way, having a tau measurement means that you weren't dead.
 
+One thing that confused me in this process was that if a model has at least
+one categorical predictor, it is possible to bundle the death state into
+that outcome, e.g., treat CU/MCI/dementia/death as the categorical outcome.
+That is how some examples in the msm documentation are set up. One can then
+set the pattern matrix for the multinomial to have a final row ``true death''
+and final colum ``observed death'' that are both 0 except for a lower right
+corner of 1.  In the hmm function death is handled via the status variable
+instead, and adding a death to the in-office-diagnosis would be a mistake.
+(This came to a head the first time I had an msm model without any categorical
+markers and wondered ``where do I put death''.)
+In an hmm, we computation at any given time point purposely does death last,
+to accomodate the admittedly strange case of a subject who had a clinical 
+evaluation in the morning and died in the afternoon.
 
-To facilitate this we want parsemarker2 to return the following components.
-First is a data frame with one row for each linear predictor, that gives
-the marker, distribution, parameter id and linear predictor within parameter
-id. 
-For the markers, think about the end goal and work backwards. The likelihood
-is trivially parallel since each subject's contribution can be computed in
-isolation. 
-Second is the list of marker functions.  Each will be called with a matrix of
-transition matrix, and a vector with one element per state of f(y| state, x).
-For many data sets, in particular where current age is a covariate that has been
-expanded to have a row per year of age, only a fraction of the data rows will
-have an observed marker value.
-In fact, all the values of $f$ for a given state, can be computed for all 
-subjects at once.  
-What will be needed for each marker is a matrix containing a column for each
-linear predictor eta and a row for each subject/time with a marker.  For a
-gaussian response and 4 states, that will be 8 columns.
 
 
