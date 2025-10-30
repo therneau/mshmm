@@ -1,5 +1,7 @@
-Title: Multi-state hidden Markov models
-Description: Hidden Markov models for time to event data.
+Title: Multi-state hazard and multi-state hidden Markov models
+Description: Models multi-state time to event data.
+The icmsh function fits an interval censored multi-state hazard model, 
+the hmm function extends this to hidden Markov models (HMM)
 Package: mshmm
 Version: 2.0-0
 Depends: survival, expm
