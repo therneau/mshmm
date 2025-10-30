@@ -465,3 +465,57 @@ evaluation in the morning and died in the afternoon.
 
 
 
+\section{Response functions}
+\subsection{Continuous}
+For the derivative of a normal use the identity that
+$df(x)/dx = f(x) d(log(f))/dx$.  The second term on the right is easier.
+For a normal
+\begin{align*}
+  f(x) &= \frac{1}{\sqrt{2\pi} \sigma} e^{-.5\left((x-\mu)/\sigma\right)^2} \\
+  \log(f) &= -.5\log(2\pi) - \log(\sigma) - .5\left((x-\mu)/\sigma\right)^2 \\
+  \frac{\partial log(f)}{\partial \eta_1} &= 
+       \frac{\partial log(f)}{\partial\mu}\frac{\partial \mu}{\partial \eta_1}\\
+      &(x-\mu)/\sigma^2 1 \\
+  \frac{\partial log(f)}{\partial \eta_2} &= 
+       \frac{\partial log(f)}{\partial\sigma} 
+       \frac{\partial \sigma}{\partial \eta_2}\\
+     & = \left(-1/\sigma + \frac{(x-\mu)^2}{\sigma^3} \right) \sigma
+\end{align*}\
+
+Since $\sigma = \exp(\eta_2)$ the derivative wrt $\eta_2$ is $\sigma$ times the
+derivative wrt $\sigma$.
+
+The code is set up such that the hmmgauss routine returns the derivative of
+each state's prediction with respect to the parameters
+$\eta_1$ (mean) and $\eta_2$ (log sigma) for that state. The parent routine,
+which has the key for $\eta$ as a function of the coefficients, then finishes
+the derivative. Say there were 5 states and 2 gaussian peaks, e.g., states
+1 and 2 share a peak, and 3 and 4 share one, which state 5 (death) has none.
+(There are no paramters for death, because the marker isn't measured on
+dead people.)
+The response
+
+
+\section{Rescaling and constraints}
+The code rescales X internally, largely to avoid issues with any extreme
+X values. This is possible if each column if every linear predictor has
+an intercept term. The first column of $X$ is an intercept, and let
+$m_j$ be the mean and $s_j$ the scale for column $j$, with $m_1=0$ and 
+$s_1$= 1
+Then 
+\begin{align*}
+ Z_{ij}  &= \left(X_{ij}- m_i)/s_i \\
+ Z &= XT \\
+ T_{ij}&= \left\{ \begin{array}{cc}
+       1 & j=1 \\
+       -m_j/s_j & i=1, j>1 \\
+       1/s_j    & i=j, j>1  \end{array} \\
+ T^{-1}_{ij} &=  \left\{ \begin{array}{cc}
+            s_j & i=j \\
+            m_j & i=1, j>1 \end{array}
+\end{align*}
+
+
+
+   
+If B is the matrix of coefficients, $XB = (XT)(T^

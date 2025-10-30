@@ -1,25 +1,23 @@
 # The main function
 hmm <- function(formula, data, subset, weights, na.action, 
                 id, qmatrix, markers,
-                pfun= hmminit, pcoef, entry, iprob, 
+                pfun= hmminit, pcoef, entry, istate, 
                 mfun=hmmtest, mpar= list(), 
                 mc.cores= getOption("mc.cores", 2L),
-                icoef, scale=c(FALSE, FALSE), penalty, constraint,
+                icoef, intercept, scale=TRUE, penalty, constraint,
                 statedata, exact= "death",
-                cutoff=0, debug=0, makefork=FALSE) {
+                debug=0, fork=.Platform$OS.type=="unix") {
     Call <- match.call()
     time0 <- proc.time()
+    # create a call to model.frame() that contains the formula (required)
+    #  and any other of the relevant optional arguments
+    #  but don't evaluate it just yet
     indx <- match(c("formula", "data", "subset", "weights", "na.action",
                     "id", "istate"), names(Call), nomatch=0)
     if (indx[1] ==0) stop("a formula argument is required")
     if (indx[6] ==0) stop("an id argument is required")
-
-    # create a call to model.frame() that contains the formula (required)
-    #  and any other of the relevant optional arguments
-    #  but don't evaluate it just yet
-    indx <- match(c("formula", "data", "weights", "subset", "id"),
-                  names(Call), nomatch=0)
     tform <- Call[c(1,indx)]  # only keep the arguments we wanted
+    tform$na.action <- quote(stats::na.pass)  # NA done by hand, later
     tform[[1L]] <- quote(stats::model.frame)  # change the function called
 
     # The transitions matrix qmatrix should be square, non-negative, with
@@ -33,7 +31,7 @@ hmm <- function(formula, data, subset, weights, na.action,
       stop("the dimnames of qmatrix must be the state names")
     else{
         statenames <- temp[[1]]
-        if (length(temp[[2]]) > 0 && any(temp[[2]] != temp[[1]]))
+       if (length(temp[[2]]) > 0 && any(temp[[2]] != temp[[1]]))
             stop("row and column names for qmatrix must be identical")
     }
     if (any(diag(qmatrix) != 0))
@@ -90,7 +88,9 @@ hmm <- function(formula, data, subset, weights, na.action,
     if (!missing(markers)) {
         marker1 <- parsemarker1(markers)
     } else marker1 <- NULL
-              
+    # and deal with an initial formula (not yet done)
+    iformula <- NULL
+        
     # create the master formula, used for model.frame
     # the term.labels + reformulate + environment trio is used in [.terms;
     #  if it's good enough for base R it's good enough for me
@@ -99,27 +99,122 @@ hmm <- function(formula, data, subset, weights, na.action,
         if (!is.null(parse1))
             tlab <- unlist(lapply(parse1$rhs, function(x){
                 attr(terms.formula(x), "term.labels")}))
-        if (!is.null(marker1)) 
-            tlab <- c(tlab, unlist(lapply(tlab$formula, function(x) {  
-                attr(terms.formula(x), "term.labels")})))   
+        if (!is.null(marker1)) {
+            temp <- unlist(lapply(tlab$formula, function(x) {  
+                attr(terms.formula(x), "term.labels")}))
+            if (any(temp %in% tlab))
+                stop("a variable can not be both a marker and a predictor")
+            tlab <- c(tlab, temp)
+        }
         newform <- reformulate(unique(tlab), dformula[[2]])
         environment(newform) <- environment(dformula)
         formula <- newform
     }
 
-    # Now, evaluate the expanded formula to create the model frame
+    # Evaluate the expanded formula to create the model frame
     tform$formula <- formula
-    if (!is.null(markerlist))
-        tform$na.action <- quote(stats::na.pass) # deal with NA later
     mf <- eval(tform, parent.frame())
     Terms <- terms(mf)
     if (nrow(mf) ==0) stop("data has 0 rows")
-
     termnames <- attr(Terms, 'term.labels')
 
+    # check that the data is sorted by time within subject, all rows for a
+    # subject need to be contiguous. 
+    Y <- model.response(mf)
+    id <- model.extract(mf, "id")
+    id2 <- match(id, unique(id))
+    if (is.matrix(Y)) index <- order(id, Y[,1])
+    else index <- order(id, Y)
+    if (any(diff(index) != 1)) stop("data not sorted by time within each id")
+
+    # Get the first pass of the X matrix, and from that information create
+    # cmap and tmap
+    X <- model.matrix(Terms, mf)
+    xassign <- attr(X, "assign")
+    if (FALSE) { # do I need these?
+        xlevels <- .getXlevels(delete.response(Terms), mf)
+        contrasts <- attr(X, "contrasts")
+    }
+    parse2 <- parsecovar2(parse1, statedata, dformula, Terms, qmatrix,
+                          statenames, colnames(X), xassign)
+    cmap <- parse2$cmap # coefficients for the transitions
+    tmap <- parse2$tmap # terms for the transitions
+
+    # Now deal with missings, which we couldn't do before
+    # Y and id can't be missing
+    # markers can be missing
+    # rate variables can't be missing, except the last row of a patient
+    indx <- (rowSums(cmap >0) >0) # this variable is used in a rate
+    xmiss <- (rowSums(is.na(X[,indx])) >0) # a missing in this row
+    last <- !duplicated(id, fromLast=TRUE)
+    xmiss <- xmiss & !last     # don't worry about a missing in a last row
+    ymiss <- is.na(Y)
+    
+    # To do, check for missing istate as well
+    if (FALSE) {
+        first <- !duplicated(id)
+        pmiss <- first & (rowSums(is.na(X) %*% cmap[,b3]) > 0)
+        if (any(pmiss))  # toss out the entire subject
+            pmiss <- (id %in% id[pmiss])
+    }
+    
+    # we are cruel: anyone with a hole is not longer a valid timeline
+    #  toss em
+    tossid <- unique(id[ymiss | xmiss])
+    if (length(tossid) >0 ) {
+        keep <- !(id %in% tossid)
+        na.action <- which(!keep)
+        class(na.action) <- "omit"
+        Y <- Y[keep,, drop=FALSE]
+        X    <- X[keep,, drop=FALSE]
+        id   <- id[keep]
+        # message for printout
+        removed <- c(subjects= length(toss), y= sum(ymiss), rate=sum(xmiss))
+    }
+    else {
+        na.action <- NULL
+        removed <- NULL
+    }
+
+    # If there are unmistakable states (death for instance is never latent),
+    #  then they will be the status portion of a Surv() response
+    if (inherits(Y, "Surv")) {
+        if (attr(y, "type") == "right") {
+            if (length(exact)==1 && exact %in% statenames) {
+                # special case: 0/1 status can be used if there is 1 exact state
+                efree <- match(exact, statenames)
+            } else stop("simple Surv() only allowed if there is 1 exact state")
+        } else if (attr(Y, "type") == "mright") {
+            ystate <- attr(Y, "states")
+            efree <- (match(ystate, statenames))
+            if (any(is.na(efree)))
+                stop("response has a state not found in qmatrix")
+        }
+        ytime <- Y[,1]
+        ystat <- Y[,2] # 0= censored, 1= state efree[1], 2= state efree[2], etc
+    } else {
+        # "time" will be the response, all states are latent
+        efree <- NULL
+        exact <- NULL
+        if (!is.numeric(Y)) stop("response must be numeric or Surv")
+        ytime <- Y
+        ystat <- rep(0, nrow(mf))
+    }   
+
+    # At this point 'efree' marks states that are measured without error,
+    #  i.e. we know what state the subject was in at ytime; though not when
+    #  they entered that state.  The 'exact' vector marks states where we
+    #  also know exact time of entry to that state. This is most often the 
+    #  death state.
+    # In a full HMM death will be the only state known for certain
+ 
+    removed.obs <- c(y=sum(ymiss), rate =sum(xmiss), p0 = sum(pmiss), 
+                     oneobs = sum(f2&l2))  # for the printout
+    ytime <- c(diff(Y[,1]), 0)  # time to next obs, ignored for last
+    X <- ifelse(is.na(X), 0, X) # avoid future NA in the linear predictors
     # if there were markers, then deal with removing NA values
     #  markers can be NA, other variables not
-    if (!is.null(markerlist) && 
+    if (!is.null(marker1) && 
         ((missing(na.action) && .Options$na.action != "na.pass") ||
          (is.function(na.pass) && identical(na.action, na.pass)) ||
          na.action == "na.pass")) {
@@ -144,209 +239,135 @@ hmm <- function(formula, data, subset, weights, na.action,
     uid <- unique(id)
 
     Y <- model.response(mf)
-    # If there are unmistakable states (death for instance is never latent),
-    #  then they will be the status portion of a Surv() response
-    if (inherits(Y, "Surv")) {
-        if (attr(y, "type") == "right") {
-            if (length(exact)==1 && exact %in% statenames) {
-                # special case: 0/1 status can be used if there is 1 exact state
-                efree <- match(exact, statenames)
-            } else stop("simple Surv() only allowed if there is exactly 1 exact state")
-        } else if (attr(Y, "type") == "mright") {
-            ystate <- attr(Y, "states")
-            efree <- (match(ystate, statenames))
-            if (any(is.na(efree)))
-                stop("response has a state not found in qmatrix")
-        }
-        ytime <- Y[,1]
-        ystat <- Y[,2] # 0= censored, 1= state efree[1], 2= state efree[2], etc
-    } else {
-        # "time" will be the response, all states are latent
-        efree <- NULL
-        exact <- NULL
-        if (!is.numeric(Y)) stop("response must be numeric or Surv")
-        ytime <- Y
-        ystat <- rep(0, nrow(mf))
-    }
-
-    # At this point 'efree' marks states that are measured without error,
-    #  i.e. we know what state the subject was in at ytime; though not when
-    #  they entered that state.  The 'exact' vector marks states where we
-    #  also know exact time of entry to that state. This is most often the 
-    #  death state.
-    # In a full HMM death will be the only state known for certain
-    X <- model.matrix(Terms, mf)
-    xassign <- attr(X, "assign")
-    xlevels <- .getXlevels(delete.response(Terms), mf)
-    contrasts <- attr(X, "contrasts")
 
     weights <- model.weights(mf)
     if (length(weights) >0) stop("weights are not yet supported")
 
-    # Finish assembling the formula and create the mapping matrices
-    # tmap (terms) and cmap (coefficients)
-    parse2 <- parsecovar2(parse1, statedata, dformula, Terms, qmatrix,
-                          statenames, colnames(X), xassign)
+
+    if (is.null(marker1)) {
+        # the istate argument only applies for multistate
+        if (!missing(istate)) 
+            stop("istate argument only applies if there are latent states")
+        mmap <- NULL  # second cmap, for markers and initial
+        bcount <- c(q=ncol(cmap), m=0, p=0)
+        nparam <- max(cmap)
+    } else {
+        marker2 <- parsemarker2(marker1, statedata, Terms, colnames(X), xassign)
+        mmap <- ifelse(marker2$cmap==0, 0, marker2$mmap+ max(cmap))
+        cmap <- cbind(cmap, mmap)
+        nparam <- max(mmap)
+       # more to do
+    }
+
+    # Initialize the coefficients.  We do this before scaling X, since the
+    #  user's view of coefficients is always on the original scale.
+    # First icoef, then any overrides from options
+    #  We allow initial values from a prior model that has fewer terms
+    # 
+    B <- 0*cmap
+    if (!missing(icoef)) {
+        if (!missing(intercept)) stop("only one of intercept or icoef allowed")
+        if (is.matrix(icoef)) {
+            # allow for partial matching, so that a smaller model can feed a 
+            #  larger
+            rmatch <- match(row.names(icoef), row.names(imat))
+            cmatch <- match(col.names(icoef), col.names(imat))
+            if (any(is.na(rmatch))) 
+                stop("icoef has covarates not in the model")
+            if (any(is.na(cmatch)))
+                stop("icoef has linear predictors not in the model")
+            B[rmatch, cmatch] <- icoef
+        } else if (is.numeric(icoef)) {
+            if (length(icoef) != nparam) stop("wrong length for icoef")
+            B <- coef.to.B(icoef, cmap)
+        } else stop("icoef must be a numeric vector or matrix")
+    }
+
+    # Import any init() or fixed() from the options
+    # not yet done
+
+    # Standardize the X matrix.  In the extrememly rare case that there
+    # is a linear predictor that does not involve the intercept, e.g. a user had
+    # factor(group)-1, we can't do so.
+    #  Markers are not scaled
+    rcol <- 1:bcount[1] # all of the rates
+    if (Xassign[1]!=0 || any(cmap[1,rcol] ==0)) {
+        if (!missing(scale) && scale)
+            warning("not possible to scale the data")
+        scale <- FALSE
+    }
+    if (scale) {
+        rterm <- rowSums(parse1$tmap[-1,scol]>0) >0 # terms used in the rates
+        # rterm will be TRUE if this term appears in at least one rate
+        rvar  <- which(Xassign %in% which(rterm)) # columns of X used in a rate
+        # first col of X in intercept and Xassign[1] will be 0, rvar= cols of
+        #  X that appear in a rate.
+        Xmean <-        rep(0, nparm)
+        Xscale <- rep(1, nparm)
+        Xmean[rvar] <- colMeans(X[,rvar])
+        Xscale[rvar] <- apply(X[,rvar], 2, sd)
+        for (i in rvar) X[,i] <- (X[,i]- Xmean[i])/Xscale[i]
+        # we have XB = (X T^{-1}) (T B) where T is a transformation matrix
+        #  don't forget the markers were exempt, only rvar cols transformed
+        # see rescaling in the code vignette for more detail
+        btrans <- diag(Xscale)   # T matrix, transforms B
+        btrans[1, rvar] <- Xmean[rvar]
+        xtrans <- diag(1/Xscale)      # T inverse, transforms X
+        xtrans[1, rvar] <- -(Xmean/Xscale)[rvar]
+        B <- btrans %*% B  # the coefs were in terms of unscaled X
+    }
     
-    if (has.rcoef) {
-        if (!is.data.frame(rcoef)) stop("rcoef must be a data frame")
-        index <- match(c("response", "lp", "term", "coef"), 
-                       names(rcoef), nomatch=0)
-        if (ny > 1 && any(index==0) )
-            stop("rcoef must contain variables named response, lp, term, and coef")
-        else if (ny ==1 && any(index[-1] ==0))
-            stop("rcoef must contain variables named lp, term, and coef")
-        if (index[1]==0) rcoef <- cbind(rcoef, response=1) # easier labels, later
-
-        if (!all(rcoef$response %in% 1:ny))
-            stop("rcoef$response is out of range")
-        if (any(is.na(rcoef$lp))) stop("missing lp value in rcoef")
-        if (ny >1) {  # renumber the linear predictors so as to be unique
-            maxlp <- max(rcoef$lp)
-            newlp <- rcoef$lp + rcoef$response * maxlp
-            newlp <- match(newlp, sort(unique(newlp)))
-            rcoef$lp <- newlp
-            b2map <- vector("list", ny)
-            for (i in 1:ny) b2map[[i]] <- unique(newlp[rcoef$response==i])
+    if (!missing(intercept)) {
+        # I expect this to be a common option for a new fit
+        #  If intercepts start at a sensible value, the iteration usually
+        # succeeds.
+        if (!is.null(names(intercept))) {
+            # match by name
+            indx <- match(names(intercept), colnames(cmap), nomatch=0)
+            if (any(indx==0)) 
+                stop("intercept name not found: ",
+                     paste(names(intercept)[indx==0], collapse=' '))
+            B[1, indx] <- intercept
+        } else {
+            # either the rates, or all, is allowed
+            if (length(intercept) == bcount[1]) 
+                B[1, 1:bcount[1]] <- intercept
+            else if (length(intercept= ncol(cmap)))
+                B[1,] <- intercept
+            else stop("wrong length for intercept")
         }
-        else {
-            rcoef$lp <- match(rcoef$lp, sort(unique(rcoef$lp)))
-            b2map <- list(sort(unique(rcoef$lp)))
-        }
-    }
-    if (has.pcoef) {
-        if (!is.data.frame(pcoef)) stop("pcoef must be a data frame")
-        index <- match(c("lp", "term", "coef"), 
-                       names(pcoef), nomatch=0)
-        if (any(index==0)) 
-            stop("pcoef must contain variables named lp, term, and coef")
-        if (any(is.na(pcoef$lp))) stop("missing lp value in pcoef")
-    }
-    termvars <- table(xassign)  #max coefficients for a term
-    testterm <- function(tcoef, tlab) {
-        if (is.numeric(tcoef$term)) {
-            if (any(tcoef$term != floor(tcoef$term)) || any(tcoef$term < 0))
-                stop(paste(tlab, ": numeric terms must be integers greater >= 0"))
-            if (any(tcoef$term > length(termnames)-1)) 
-                stop(tlab, ": numeric term that is > number of terms in the model")
-        }
-        else {
-            temp <- match(gsub(" ", "", tcoef$term), 
-                          gsub(" ", "", termnames) , nomatch=0) #drop blanks
-            if (any(temp==0)) stop(paste(unique(tcoef$term[temp==0]), sep=", "), 
-                                   ": unrecognized term name")
-            tcoef$term <- temp-1
-        }
-        if (!is.numeric(tcoef$coef) || any(tcoef$coef != floor(tcoef$coef)))
-            stop(tlab, ": param variable must contain non-negative integers")
-        
-            
-        tcoef$lp  <- match(tcoef$lp, sort(unique(tcoef$lp)))
-        
-        beta <- matrix(0., nrow=ncol(X), ncol=max(tcoef$lp))
-        cmap <- matrix(0L, nrow(beta), ncol(beta))
-        ucoef <- unique(tcoef$coef)
-        ucoef <- sort(ucoef[ucoef>0])  # user may not have used 1, 2, 3,..
-        # It is not legal to have two rows with the same coef param that
-        #  point to different terms.
-        # cpar = parameter numbers for each coef param
-        cpar <- vector("list", length(ucoef))
-        k <- 0
-        for (i in seq_along(ucoef)) {
-            j <- which(tcoef$coef == ucoef[i])
-            if (any(tcoef$term[j] != tcoef$term[j[1]]))
-                stop(tlab, ": the same coefficient param points to two terms")
-            indx <- 1:termvars[tcoef$term[j[1]] +1] +k
-            cpar[[i]] <- indx 
-            k <- max(indx)
-        }
-        for (i in 1:nrow(tcoef)) {
-            j <- (xassign == tcoef$term[i]) #columns of X for this term
-            k <- 1:sum(j)  #how many coefs for this term
-            if (any(init[i, k] !=0)) beta[j, tcoef$lp[i]] <- init[i, k]
-            if (tcoef$coef[i] >0) # fixed coefs don't appear in cmap
-               cmap[j, tcoef$lp[i]] <- cpar[[match(tcoef$coef[i], ucoef)]]
-        }
-
-        # It is easier for users if cmap values are monotone
-        cmap[,] <- match(cmap, unique(c(0, cmap))) -1L
-        list(beta=beta, cmap=cmap)
     }
 
-    temp <- testterm(qcoef, "qcoef")
-    beta <- temp$beta
-    cmap <- temp$cmap
-    bcount <- c(q = ncol(cmap), m=0, p=0) # number of columns of beta and cmap
-    pcount <- c(length(unique(cmap[cmap>0])), 0L, 0L) #number of parameters
-    if (has.rcoef) {
-        temp <- testterm(rcoef, "rcoef")
-        bcount[2] <- ncol(temp$cmap)
-        pcount[2] <- length(unique(temp$cmap[temp$cmap>0]))
-        beta <- cbind(beta, temp$beta)
-        cmap <- cbind(cmap, temp$cmap + ifelse(temp$cmap>0, max(cmap), 0))
-    } 
-    if (has.pcoef) {
-        temp <- testterm(pcoef, "rcoef")
-        bcount[3] <- ncol(temp$cmap)
-        pcount[3] <- length(unique(temp$cmap[temp$cmap>0]))
-        beta <- cbind(beta, temp$beta)
-        cmap <- cbind(cmap, temp$cmap + ifelse(temp$cmap>0, max(cmap), 0))
-    }
     b1 <- 1:bcount[1]
     b2 <- seq(bcount[1]+1, length=bcount[2])  #might be nothing
     b3 <- seq(bcount[1] + bcount[2] +1, length=bcount[3])
-    nparm <- max(cmap)
-    if (!missing(icoef)) {
-        if (is.matrix(icoef)) {
-            bcol <- paste0(row(qmatrix)[qmatrix!=0], ":",
-                           col(qmatrix)[qmatrix!=0])
-            if (bcount[2]>0) {
-                temp <- unique(rcoef[, c("response", "lp")])
-                lp <- temp$lp + 1 - temp$lp[match(temp$response, temp$response)]
-                bcol <- c(bcol, paste0("R", paste(temp$response, lp, sep='.')))
-            }
-            if (bcount[3]>0) bcol <- c(bcol, paste0("p", 1:bcount[3]))
-            
-            dname <- dimnames(icoef)
-            cindex <- match(dname[[2]], bcol)
-            rindex <- match(dname[[1]], dimnames(X)[[2]])
-            if (any(is.na(cindex)) || any(is.na(rindex)))
-                stop("row and column names for icoef don't match the model")
-            beta[rindex, cindex] <- icoef
-        }
-        else {
-            if (length(icoef) != nparm) 
-                stop("icoef is the wrong length")
-            beta[cmap>0] <- icoef[c(cmap)]  # if cmap were 2 column [cmap]= fail
-        }
-    }  
-    if (!is.null(xtrans)) beta <- btrans %*% beta
+    param <- B.to.coef(B, cmap)  # don't use "coef" as variable name
 
-    param <- double(nparm)
-    temp <- (cmap>0)
-    param[cmap[temp]] <- beta[temp]   #load it with the initial parameters
+    # preprocess constraint and penalty
+    if (!missing(constraint)) {
+        constraint <- hmmconstraint(constraint, Terms)
+        constraint <- constraint %*% xtran # the are written for untransformed X
+    } else constraint <- NULL
+    if (!missing(penalty)) {
+        penalty <- hmmconstraint(penalty, Terms)
+        penalty <- penalty %*% xtran # the are written for untransformed X
+        penmat <- crossprod(penalty)
+    } else penmat <- NULL
+    
+
     rindex <- which(qmatrix > 0)
 
     if (missing(entry)) entry <- rep(1.0, nstate)  # so it has no effect
     tempfun <- function(x) length(unique(x[x>0]))
     parmcount <- c(tempfun(cmap[,b1]), tempfun(cmap[,b2]), tempfun(cmap[,b3]))
-    if (ny ==1 && !is.list(rfun)) rfun <- list(rfun)  # make it a list of length 1
-    if (ny != length(rfun))
-        stop("must have one modeling function per respsonse")
 
-    if (bcount[2]) b2map <- lapply(b2map, function(x) x+ bcount[1])
-    else b2map <- vector("list", ny)
-    if (any(xmean !=0 | xscale !=1)) {
-        temp <- tapply(row(cmap), cmap, function(x) length(unique(x)))
-        if (any(cmap==0)) temp <- temp[-1]
-        if (any(temp!=1))
-            stop("more than one X variable maps to parameter(s) ",
-                 which(temp!=1), ": scaling is not allowed")
-        ptrans <- btrans[temp,temp]
-        }
+    # initial probabilities for each subject
     if (missing(iprob)) iprob <- NULL
-    else {
-        if (!is.numeric(iprob) || any(iprob<0) || any(iprob >1))
+    else if (!is.null(marker1)) {
+        warning("no markers, iprob ignored")
+        iprob <- NULL
+    } else {
+         if (!is.numeric(iprob) || any(iprob<0) || any(iprob >1))
             stop("iprob must contain values between 0 and 1")
         if (is.vector(iprob)) {
             if (length(iprob) != nstate) stop("wrong length for iprob")
@@ -374,74 +395,7 @@ hmm <- function(formula, data, subset, weights, na.action,
             }
         }
     }  
-    if (missing(penalty)) penmat <- NULL  #this will be used as a flag
-    else {
-        if (ncol(penalty) != nparm)
-            stop("penalty matrix has incorrect number of columns")
-        penmat <- penalty
-        if (!is.null(xtrans)) {
-            index <- row(cmap)[match(1:nparm, cmap)]
-            penmat <- penmat %*% xtrans[index, index]
-            }
-        penmat <- crossprod(penmat)
-    }
 
-    if (missing(constraint)) conmat <- NULL
-    else {
-        if (ncol(constraint) != nparm)
-            stop("constraint matrix has incorrect number of columns")
-        conmat <- constraint
-        if (!is.null(xtrans)) {
-            index <- row(cmap)[match(1:nparm, cmap)]
-            conmat <- conmat %*% xtrans[index, index]
-            }
-        conmat <- cbind(0, conmat)  # future: allow for a constant
-    }
-    # variables needed for rates
-    xmiss <- (rowSums(is.na(X) %*% cmap[,b1]) > 0)
-    last <- !duplicated(id, fromLast=TRUE)
-    xmiss <- xmiss & !last     # don't worry about a missing in a last row
-
-    ymiss <- is.na(Y[,1])
-
-    first <- !duplicated(id)
-    pmiss <- first & (rowSums(is.na(X) %*% cmap[,b3]) > 0)
-    if (any(pmiss))  # toss out the entire subject
-        pmiss <- (id %in% id[pmiss])
-
-    yobs <- Y[,-1, drop=FALSE]
-    # now the response functions, one by one.  
-    rmiss <- matrix(FALSE, nrow(yobs), ny)
-    for (i in 1:ny) 
-        rmiss[,i] <- ((rowSums(is.na(X) %*% cmap[,b2map[[i]]]) > 0) & 
-                      !is.na(yobs[,i]) )  #not already missing the response
-    if (any(rmiss)) yobs <- ifelse(rmiss, NA, yobs)  # treat response as missing
-
-    keep <- !(ymiss | xmiss | pmiss)
-    # anyone with only 1 obs remaining?
-    f2 <- !duplicated(id[keep])
-    l2 <- !duplicated(id[keep], fromLast=TRUE)
-    if (any(f2&l2)) {   #obs is both a first and a last
-        temp <- (1:nrow(yobs))[keep]
-        keep[temp[f2&l2]] <- FALSE
-    }
-
-    if (!all(keep)) {
-        na.action <- which(!keep)
-        class(na.action) <- "omit"
-        # message for the printout
-        Y <- Y[keep,, drop=FALSE]
-        yobs <- yobs[keep,, drop=FALSE]
-        X    <- X[keep,, drop=FALSE]
-        id   <- id[keep]
-        otype <- otype[keep]
-        last <- !duplicated(id, fromLast=TRUE)
-    }
-    else na.action <- NULL
-    removed.obs <- c(y=sum(ymiss), rate =sum(xmiss), p0 = sum(pmiss), 
-                     oneobs = sum(f2&l2))  # for the printout
-    ytime <- c(diff(Y[,1]), 0)  # time to next obs, ignored for last
-    X <- ifelse(is.na(X), 0, X) # avoid future NA in the linear predictors
 
     if (any(ytime[!last] <=0)) {
         temp <- seq(along=ytime)[!last]
@@ -824,8 +778,8 @@ hmm <- function(formula, data, subset, weights, na.action,
     #  routines.  It is updated farther down the calling chain.
     hmm_count_of_calls <- c(0, 0)  #total calls to expm, number with tied eigens
 
-    if (mc.cores > 1 && makefork)
-        hmm_cluster <- makeForkCluster(mc.cores) #start up parallel
+    if (mc.cores > 1 && !fork)
+        hmm_cluster <- makeCluster(mc.cores) #start up parallel
 
     # get a component from a list, but don't fail if it isn't there
     grab <- function(x, what) 
@@ -834,7 +788,7 @@ hmm <- function(formula, data, subset, weights, na.action,
     hmmloglik <- function(param, ...) {
         beta[cmap>0] <- param[c(cmap)]   # param[cmap] =bad if cmap has 2 columns
         if (mc.cores > 1) {
-            if (makefork)
+            if (!fork)
                 mcfit <- parLapply(hmm_cluster, 1:nid, hmm1, beta=beta)
             else mcfit <- mclapply(1:nid, hmm1, beta=beta, 
                                    mc.set.seed=FALSE, mc.cores=mc.cores)
@@ -873,7 +827,7 @@ hmm <- function(formula, data, subset, weights, na.action,
     hmmdb <- function(param, ...) {
         beta[cmap>0] <- param[c(cmap)]
         if (mc.cores > 1) {
-            if (makefork)
+            if (!fork)
                 mcfit <- parLapply(hmm_cluster, 1:nid, hmm2, beta=beta)
             else mcfit <- mclapply(1:nid, hmm2, beta=beta, 
                                    mc.set.seed=FALSE, mc.cores=mc.cores)
@@ -918,7 +872,7 @@ hmm <- function(formula, data, subset, weights, na.action,
     hmmboth <- function(param, ...) {
         beta[cmap>0] <- param[c(cmap)]
         if (mc.cores > 1) {
-            if (makefork)
+            if (!fork)
                 mcfit <- parLapply(hmm_cluster, 1:nid, hmm2, beta=beta)
             else mcfit <- mclapply(1:nid, hmm2, beta=beta, 
                                    mc.set.seed=FALSE, mc.cores=mc.cores)
@@ -975,7 +929,7 @@ hmm <- function(formula, data, subset, weights, na.action,
     hmmgrad <- function(param, ...) {
         beta[cmap>0] <- param[c(cmap)]
         if (mc.cores > 1) {
-            if (makefork)
+            if (!fork)
                 mcfit <- parLapply(hmm_cluster, 1:nid, hmm2, beta=beta)
             else mcfit <- mclapply(1:nid, hmm2, beta=beta, 
                                    mc.set.seed=FALSE, mc.cores=mc.cores)
@@ -1046,7 +1000,7 @@ hmm <- function(formula, data, subset, weights, na.action,
         fit <- do.call(mfun, mpar)
     }
         
-    if (mc.cores > 1 & makefork) stopCluster(hmm_cluster)
+    if (mc.cores > 1 & !fork) stopCluster(hmm_cluster)
     time2 <- proc.time() 
     # find the fitted coefs in the output, and the loglik
     nfit <- names(fit)
@@ -1133,14 +1087,3 @@ hmm <- function(formula, data, subset, weights, na.action,
     final
 }
 
-hbind <- function(...) {
-    temp <- list(...)
-    tlevel <- lapply(temp, function(x) {
-                     if (!is.numeric(x)) levels(as.factor(x))
-                     else NULL })
-    new <- do.call("cbind", lapply(temp, function(x) {
-          if (is.numeric(x)) x  else as.numeric(as.factor(x))}))
-    attr(new, "levels") <- tlevel
-    class(new) <- "hbind"
-    new
-}
