@@ -55,10 +55,11 @@ hmm <- function(formula, data, subset, weights, na.action,
     if (!missing(statedata)) { # check that it is okay
         if (!inherits(statedata, "data.frame"))
             stop("statedata must be a data frame")
-        if (is.null(statedata$state)) 
-            stop("statedata data frame must contain a 'state' variable")
-        indx <- match(statedata$state, statenames)
-        if (any(is.na(indx))) stop("statedata does not contain all the states")
+        if (names(statedata)[1] != "state" || !is.character(statedata$state))
+            stop("first variable in statedata must be a character variable named 'state'")
+        indx <- match(statename, statedata$state, nomatch=0)
+        if (any(indx==0))
+            stop("statedata$state does not contain all the states")
         statedata <- statedata[indx,]  # same row order as the states
         # Statedata might have rows for states that are not in the data set,
         #  for instance if the hmm call had used a subset argument.  Any of
@@ -84,38 +85,43 @@ hmm <- function(formula, data, subset, weights, na.action,
         dformula <- formula
     }
 
-    # grab markers for any hidden states
-    if (!missing(markers)) {
-        marker1 <- parsemarker1(markers)
-    } else marker1 <- NULL
-    # and deal with an initial formula (not yet done)
+    # grab markers for the hidden states
+    if (missing(markers)) stop("hmm model must have markers")
+    marker1 <- parsemarker1(markers, statedata)
+    nmarker <- length(marker1$marker)  # number of markers
+    # the result has a separate list of markers (character) and covariates 
+    #  for markers (list of NULL or char))
+    
+    # Deal with an initial formula (not yet done)
     iformula <- NULL
         
     # create the master formula, used for model.frame
     # the term.labels + reformulate + environment trio is used in [.terms;
     #  if it's good enough for base R it's good enough for me
-    if (!is.null(parse1) || !is.null(markerlist)) {
-        tlab <- attr(terms(dform), "term.labels")
-        if (!is.null(parse1))
-            tlab <- unlist(lapply(parse1$rhs, function(x){
-                attr(terms.formula(x), "term.labels")}))
-        if (!is.null(marker1)) {
-            temp <- unlist(lapply(tlab$formula, function(x) {  
-                attr(terms.formula(x), "term.labels")}))
-            if (any(temp %in% tlab))
-                stop("a variable can not be both a marker and a predictor")
-            tlab <- c(tlab, temp)
-        }
-        newform <- reformulate(unique(tlab), dformula[[2]])
-        environment(newform) <- environment(dformula)
-        formula <- newform
+    tlab <- attr(delete.response(terms(dform)), "term.labels") #rhs of dform
+    if (!is.null(parse1))
+        tlab <- c(tlab, unlist(lapply(parse1$rhs, function(x){
+            attr(terms.formula(x), "term.labels")})))
+    if (any(marker1$marker %in% tlab)) {
+        stop("a variable can not be both a marker and a predictor")
+        # The above test can be fooled: use log(pib) as a marker and pib for 
+        #  a rate.
     }
+    tlab <- c(tlab, unlist(marker1$mterm), marker1$marker) #markers last
+    newform <- reformulate(unique(tlab), dformula[[2]])
+    environment(newform) <- environment(dformula)
+    formula <- newform  # used for model.frame, not reported to user
 
     # Evaluate the expanded formula to create the model frame
     tform$formula <- formula
     mf <- eval(tform, parent.frame())
-    Terms <- terms(mf)
     if (nrow(mf) ==0) stop("data has 0 rows")
+
+    # create a new Terms that doesn't have the marker variables, they don't
+    #  become part of the X matrix 
+    dummy <- tlab[seq(from=1, to=length(tlab)- nmarker)]
+    dummyform <- reformulate(unique(dummy), dformula[[2]])
+    Terms <- terms(dummyform)
     termnames <- attr(Terms, 'term.labels')
 
     # check that the data is sorted by time within subject, all rows for a
@@ -128,39 +134,51 @@ hmm <- function(formula, data, subset, weights, na.action,
     if (any(diff(index) != 1)) stop("data not sorted by time within each id")
 
     # Get the first pass of the X matrix, and from that information create
-    # cmap and tmap
+    # cmap and tmap (remove missings later)
     X <- model.matrix(Terms, mf)
     xassign <- attr(X, "assign")
-    if (FALSE) { # do I need these?
-        xlevels <- .getXlevels(delete.response(Terms), mf)
-        contrasts <- attr(X, "contrasts")
-    }
+    # next 2 will be saved as part of the hmm object, and used by later
+    # model.frame or model.matrix calls with new data
+    xlevels <- .getXlevels(delete.response(Terms), mf)
+    contrasts <- attr(X, "contrasts")
+    
+    # Do the second pass on the formula and markers
     parse2 <- parsecovar2(parse1, statedata, dformula, Terms, qmatrix,
-                          statenames, colnames(X), xassign)
+                          colnames(X), xassign)
     cmap <- parse2$cmap # coefficients for the transitions
     tmap <- parse2$tmap # terms for the transitions
 
+    # for categorical markers we will want to know the number of categories
+    markerlevels <- sapply(marker1$marker, function(x) 
+        length(levels(mf[[x]])))
+    marker2 <- parsemarker2(marker1, stateddata, Terms, colnames(X), xassign,
+                            markerlevels)
+    bcount <- c(ncol(cmap), ncol(marker2$cmap), 0)
+    cmap <- cbind(cmap,
+                   ifelse(marker2$cmap==0, 0, marker2$cmap +max(cmap))#+ markers
+    nparam <- max(cmap) # total estimated parameters
+    # For transitions we will want only the first bcount[1] columns of cmap
+    #  sometimes the marker columns or initial state cols, other times 
+    #  we will want them all. Hence bcount.
+                           
     # Now deal with missings, which we couldn't do before
-    # Y and id can't be missing
+    # Y and id can't be missing: toss those rows
     # markers can be missing
-    # rate variables can't be missing, except the last row of a patient
+    # rate variables can only be missing for the last obs of a subject
     indx <- (rowSums(cmap >0) >0) # this variable is used in a rate
     xmiss <- (rowSums(is.na(X[,indx])) >0) # a missing in this row
+    idmiss <- is.na(id)
     last <- !duplicated(id, fromLast=TRUE)
     xmiss <- xmiss & !last     # don't worry about a missing in a last row
     ymiss <- is.na(Y)
     
-    # To do, check for missing istate as well
-    if (FALSE) {
-        first <- !duplicated(id)
-        pmiss <- first & (rowSums(is.na(X) %*% cmap[,b3]) > 0)
-        if (any(pmiss))  # toss out the entire subject
-            pmiss <- (id %in% id[pmiss])
-    }
+    # Check for missing values in istate as well, they are fatal
+    if (!missing(istate) && any(missing(istate))
+        stop("the istate argument cannot contain missing values")
     
-    # we are cruel: anyone with a hole is not longer a valid timeline
+    # we are cruel: anyone with a hole is no longer a valid timeline
     #  toss em
-    tossid <- unique(id[ymiss | xmiss])
+    tossid <- unique(id[ymiss | xmiss | idmiss])
     if (length(tossid) >0 ) {
         keep <- !(id %in% tossid)
         na.action <- which(!keep)
@@ -169,95 +187,45 @@ hmm <- function(formula, data, subset, weights, na.action,
         X    <- X[keep,, drop=FALSE]
         id   <- id[keep]
         # message for printout
-        removed <- c(subjects= length(toss), y= sum(ymiss), rate=sum(xmiss))
+        removed <- c(subjects= length(toss), y= sum(ymiss), rate=sum(xmiss),
+                     id= sum(idmiss))
     }
     else {
         na.action <- NULL
         removed <- NULL
     }
 
-    # If there are unmistakable states (death for instance is never latent),
-    #  then they will be the status portion of a Surv() response
+    # If there are exact states, e.g., death, they are marked by the status 
+    #  portion of a Surv() response
     if (inherits(Y, "Surv")) {
         if (attr(y, "type") == "right") {
             if (length(exact)==1 && exact %in% statenames) {
                 # special case: 0/1 status can be used if there is 1 exact state
-                efree <- match(exact, statenames)
+                iexact <- match(exact, statenames)
+                ystat <- Y[,2]* iexact  # make it  0/exact instead of 0/1
             } else stop("simple Surv() only allowed if there is 1 exact state")
         } else if (attr(Y, "type") == "mright") {
             ystate <- attr(Y, "states")
-            efree <- (match(ystate, statenames))
-            if (any(is.na(efree)))
+            iexact <- (match(ystate, statenames))
+            if (any(is.na(iexact)))
                 stop("response has a state not found in qmatrix")
+            ystat <- c(0, iexact)[Y[,2]] # recode
         }
         ytime <- Y[,1]
-        ystat <- Y[,2] # 0= censored, 1= state efree[1], 2= state efree[2], etc
     } else {
         # "time" will be the response, all states are latent
-        efree <- NULL
+        # if the user didn't specify an exact argument, ignore our default
+        if (!missing(exact)) # user specified one
+            stop("the response must be a Surv object if there are exact states")
         exact <- NULL
         if (!is.numeric(Y)) stop("response must be numeric or Surv")
         ytime <- Y
         ystat <- rep(0, nrow(mf))
     }   
-
-    # At this point 'efree' marks states that are measured without error,
-    #  i.e. we know what state the subject was in at ytime; though not when
-    #  they entered that state.  The 'exact' vector marks states where we
-    #  also know exact time of entry to that state. This is most often the 
-    #  death state.
-    # In a full HMM death will be the only state known for certain
- 
-    removed.obs <- c(y=sum(ymiss), rate =sum(xmiss), p0 = sum(pmiss), 
-                     oneobs = sum(f2&l2))  # for the printout
-    ytime <- c(diff(Y[,1]), 0)  # time to next obs, ignored for last
-    X <- ifelse(is.na(X), 0, X) # avoid future NA in the linear predictors
-    # if there were markers, then deal with removing NA values
-    #  markers can be NA, other variables not
-    if (!is.null(marker1) && 
-        ((missing(na.action) && .Options$na.action != "na.pass") ||
-         (is.function(na.pass) && identical(na.action, na.pass)) ||
-         na.action == "na.pass")) {
-        markercol <- match(markerlist$markers, termnames)
-        if (!missing(na.action)) temp <- na.action(mf[,!markercol])
-        else temp <- do.call(.Options$na.action, mf[,!markercol])
-
-        # The result of na.action on a model.frame is not a model.frame,
-        #  some attributes are lost. But na.action tells us what rows were
-        #  removed, and we can do the correct modification of mf ourselves
-        temp2 <- attr(temp, "na.action")
-        if (!is.null(temp2)) {
-            # something was removed
-            mf <- mf[-temp,]
-            attr(mf, "na.action") <- temp
-        }
-    }       
-
-    # extract objects from the data frame
-    id <- model.extract(mf, "id")
-    if (length(id)==0) stop("an id variable is required")
-    uid <- unique(id)
-
-    Y <- model.response(mf)
+    ytime <- c(diff(Y[,1]), 0)  # time to next obs
 
     weights <- model.weights(mf)
     if (length(weights) >0) stop("weights are not yet supported")
-
-
-    if (is.null(marker1)) {
-        # the istate argument only applies for multistate
-        if (!missing(istate)) 
-            stop("istate argument only applies if there are latent states")
-        mmap <- NULL  # second cmap, for markers and initial
-        bcount <- c(q=ncol(cmap), m=0, p=0)
-        nparam <- max(cmap)
-    } else {
-        marker2 <- parsemarker2(marker1, statedata, Terms, colnames(X), xassign)
-        mmap <- ifelse(marker2$cmap==0, 0, marker2$mmap+ max(cmap))
-        cmap <- cbind(cmap, mmap)
-        nparam <- max(mmap)
-       # more to do
-    }
 
     # Initialize the coefficients.  We do this before scaling X, since the
     #  user's view of coefficients is always on the original scale.
@@ -265,6 +233,10 @@ hmm <- function(formula, data, subset, weights, na.action,
     #  We allow initial values from a prior model that has fewer terms
     # 
     B <- 0*cmap
+    temp <- rbind(cmap, mmap)
+    indx <- match(1:nparam, temp)
+    param.names <- paste(rownames(temp)[indx], colnames(temp)[indx], sep='.')
+    param <- rep(0, nparam)
     if (!missing(icoef)) {
         if (!missing(intercept)) stop("only one of intercept or icoef allowed")
         if (is.matrix(icoef)) {
@@ -278,8 +250,17 @@ hmm <- function(formula, data, subset, weights, na.action,
                 stop("icoef has linear predictors not in the model")
             B[rmatch, cmatch] <- icoef
         } else if (is.numeric(icoef)) {
-            if (length(icoef) != nparam) stop("wrong length for icoef")
-            B <- coef.to.B(icoef, cmap)
+            if (!is.null(names(icoef))) {
+                index <- match(names(icoef), param.names)
+                if (any(is.na(index)))
+                    stop("icoef has an coefficient not found in the model: ",
+                         (names(icoef)[is.na(index)])[1])
+                else param[index] <- icoef
+            } else {
+                if (length(icoef) != nparam) stop("wrong length for icoef")
+                else param <- icoef
+            }
+            B <- coef.to.B(param, cmap, mmap)
         } else stop("icoef must be a numeric vector or matrix")
     }
 
@@ -289,21 +270,16 @@ hmm <- function(formula, data, subset, weights, na.action,
     # Standardize the X matrix.  In the extrememly rare case that there
     # is a linear predictor that does not involve the intercept, e.g. a user had
     # factor(group)-1, we can't do so.
-    #  Markers are not scaled
-    rcol <- 1:bcount[1] # all of the rates
-    if (Xassign[1]!=0 || any(cmap[1,rcol] ==0)) {
+    #  Markers are not in the X matrix, so not scaled
+    if (Xassign[1]!=0 || any(cmap[1,] ==0)) {
         if (!missing(scale) && scale)
             warning("not possible to scale the data")
         scale <- FALSE
     }
     if (scale) {
-        rterm <- rowSums(parse1$tmap[-1,scol]>0) >0 # terms used in the rates
-        # rterm will be TRUE if this term appears in at least one rate
-        rvar  <- which(Xassign %in% which(rterm)) # columns of X used in a rate
-        # first col of X in intercept and Xassign[1] will be 0, rvar= cols of
-        #  X that appear in a rate.
-        Xmean <-        rep(0, nparm)
-        Xscale <- rep(1, nparm)
+        rvar <- 2:ncol(X) # don't scale the intercept!
+        Xmean <-  rep(0, ncol(X))
+        Xscale <- rep(1, ncol(X))
         Xmean[rvar] <- colMeans(X[,rvar])
         Xscale[rvar] <- apply(X[,rvar], 2, sd)
         for (i in rvar) X[,i] <- (X[,i]- Xmean[i])/Xscale[i]
@@ -318,6 +294,7 @@ hmm <- function(formula, data, subset, weights, na.action,
     }
     
     if (!missing(intercept)) {
+        if (!scale) stop("intercept initialization requires scale=TRUE")
         # I expect this to be a common option for a new fit
         #  If intercepts start at a sensible value, the iteration usually
         # succeeds.
@@ -339,8 +316,8 @@ hmm <- function(formula, data, subset, weights, na.action,
     }
 
     b1 <- 1:bcount[1]
-    b2 <- seq(bcount[1]+1, length=bcount[2])  #might be nothing
-    b3 <- seq(bcount[1] + bcount[2] +1, length=bcount[3])
+    b2 <- seq(bcount[1]+1, length=bcount[2])  
+    b3 <- seq(bcount[1] + bcount[2] +1, length=bcount[3]) #might be none
     param <- B.to.coef(B, cmap)  # don't use "coef" as variable name
 
     # preprocess constraint and penalty
@@ -387,7 +364,7 @@ hmm <- function(formula, data, subset, weights, na.action,
                     stop("id values not found in iprob:", 
                          paste(badid, collapse=' '))
                     }
-                # if anyone was removed due to missing, this makes sure that
+                # if anyone was removed due to missing, above makes sure that
                 #  the right initial prob is used
                 iprob <- iprob/rowSums(iprob)
                 iprob <- iprob[indx,]
@@ -397,14 +374,8 @@ hmm <- function(formula, data, subset, weights, na.action,
     }  
 
 
-    if (any(ytime[!last] <=0)) {
-        temp <- seq(along=ytime)[!last]
-        indx <- min(temp[ytime[!last] <=0])
-        stop("the rows for each subject must be in time order, with no duplicate times (id=", id[indx], ")")
-    }
-    doresponse <- (otype==1 | otype==3)  # the rows for a response function
-    if (!any(doresponse))
-        stop("all observations are exact or censored")
+    
+
     # Do a dummy call to the response function(s), and make sure they
     #  return an object of the right shape.
     eta <- X%*% beta

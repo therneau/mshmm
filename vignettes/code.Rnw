@@ -467,6 +467,7 @@ evaluation in the morning and died in the afternoon.
 
 \section{Response functions}
 \subsection{Continuous}
+\index{response function: gaussian}
 For the derivative of a normal use the identity that
 $df(x)/dx = f(x) d(log(f))/dx$.  The second term on the right is easier.
 For a normal
@@ -479,7 +480,8 @@ For a normal
   \frac{\partial log(f)}{\partial \eta_2} &= 
        \frac{\partial log(f)}{\partial\sigma} 
        \frac{\partial \sigma}{\partial \eta_2}\\
-     & = \left(-1/\sigma + \frac{(x-\mu)^2}{\sigma^3} \right) \sigma
+     & = \left(-1/\sigma + \frac{(x-\mu)^2}{\sigma^3} \right) \sigma \\
+     & = -1 + \left(\frac(x-\mu)}{sigma}\right)^2
 \end{align*}\
 
 Since $\sigma = \exp(\eta_2)$ the derivative wrt $\eta_2$ is $\sigma$ times the
@@ -489,11 +491,105 @@ The code is set up such that the hmmgauss routine returns the derivative of
 each state's prediction with respect to the parameters
 $\eta_1$ (mean) and $\eta_2$ (log sigma) for that state. The parent routine,
 which has the key for $\eta$ as a function of the coefficients, then finishes
-the derivative. Say there were 5 states and 2 gaussian peaks, e.g., states
-1 and 2 share a peak, and 3 and 4 share one, which state 5 (death) has none.
-(There are no paramters for death, because the marker isn't measured on
-dead people.)
-The response
+the derivative for subject $i$ using the chain rule 
+\begin{align*}
+ \frac{\partial L}{\partial \beta} &= \sum_j \frac{\partial L}{\partial \eta_j}
+   \frac{\partial \eta_j}{\partial \beta} \\
+ &= \sum_j \frac{\partial L}{\partial \eta_j} X_{ij}
+\end{align*}
+
+\index{response function: logistic}
+The logistic distribtion is parameterized by mean and scale $(/mu, s)$ where
+the $s= \sigma \sqrt(3)/pi$, or conversely $\sigma^2= s^2\pi^2/3$. 
+We parameterize by mean and std for the user.
+\begin{align*}
+  \log(f) = -log(s) +(y-\mu)/s - log(1+ e^{(y-\mu)/s}) \\
+  \frac{\partial log(f)}{\partial \mu} &= -\frac{\mu}{s} \left[
+    1+ \frac{ e^{(y-\mu)/s}}{1+  e^{(y-\mu)/s}} \right] \\
+  \frac{\partial log(f)}{\partial s} &= -1/s -(y-\mu)/s^2\left[ 
+    1+ \frac{ e^{(y-\mu)/s}}{1+  e^{(y-\mu)/s}} \right] \\
+   \frac{\partial log(f)}{\partial \eta} &= \frac{\partial log(f)}{\partial s}
+                    \frac{\partial{s}}{\partial \eta} \\
+        &= \frac{\partial log(f)}{\partial s} s             
+\end{align*}
+
+\index{response function: beta}
+The beta distribution is paramerized by shapes $a=\exp(eta_1)$ and 
+$b= exp(\eta_2)$, and $0\le y \le 1$ must be between 0 and 1.
+The mean is $\mu= a/(a+b)$ and the variance is $\sigma^2= ab/[(a+b)^2(a+b+1)]$,
+so though it might be nice to think in terms of mean and variance for the
+user, doing so directly is impractical.
+The function and derivatives don't play nicely on log scale for $y$ of 
+exactly 0 or 1, one end up with 0* infinity.
+R has the \code{psi} function, which is the derivative of $\log(\Gamma(y))$.
+Think of $f(y,a,b) = g(a,b)h(y,a,b)$ where $g$ are the $\Gamma$ terms, and use
+the identity $dg/da = g d(log(g))/da$ along with the product rule.
+
+\begin{align*}
+  f(y) &= \frac{\Gamma(a+b)}{\Gamma(a)\Gamma(b)} y^{a-1}(1-y)^{b-1} \\
+  \frac{\partial g(y,a,b)}{\partial a} h(y,a,b) &=  f(y,a,b))
+                   \left[\psi(a+b)- \psi(a)] \\
+   \frac{\partial g(y,a,b)}{\partial b} h(y,a,b) &=  f(y,a,b))
+                   \left[\psi(a+b)- \psi(b)] \\
+   g(y,a,b) \frac{partial h(y,a,b)}{\partial a) = g(y,a,b)
+     \left[(a-1)y^{a-2} (1-y)^{b-1} \right]
+   g(y,a,b) \frac{partial h(y,a,b)}{\partial b) = -g(y,a,b)
+     \left[y^{a-1} (b-1)(1-y)^{b-2} \right]
+  \frac{\partial f}{\partial \eta_1} &= a \left[
+     \frac{\partial g(y,a,b)}{\partial a} h(y,a,b) + 
+      g(y,a,b) \frac{partial h(y,a,b)}{\partial a) \right]
+     \frac{\partial f}{\partial a} \\
+  \frac{\partial f}{\partial \eta_2} &= b   \left[
+     \frac{\partial g(y,a,b)}{\partial b} h(y,a,b) + 
+      g(y,a,b) \frac{partial h(y,a,b)}{\partial b) \right]
+\end{align*}
+
+\index{response function: multinomial}
+
+If the marker variable is categorical, then we model the response as a
+multinomial.  If there are $m$ possible outcomes, then for each true state
+$s$ we have probabilitites $p_{s1}$, $p_{s2}$, \ldots, $p_{sm}$, with the
+natrual constraints the probabilities lie between 0 and 1, and that they sum
+to 1.
+One of the easiest ways to do this is 
+\begin{equation*}
+  p_{sj} =  e^{\eta_{sj}}/\sum_{k=1}^m e^{\eta_{sk}}
+\end{equation*}
+where wlog $\eta_{s1}$ is assumed to be 0. There will be $s(k-1)$ linear 
+predictors in total, $k-1$ for each state.
+Derivatives for any given state $s$ are (suppressing the $s$ subsript)
+\begin{align*}
+  \frac{\partial p_j}{\eta_k} &= 
+       e^{\eta_j}\left[\frac{I_{(j=k)}}{\sum_k e^{\eta_{k}}} -
+        \frac{e^{\eta_{j}}}{\left(\sum_k e^{\eta_{ik}}\right)^2} \right] \\
+       &= \left\{ \begin{array}{rl}
+           p_{j}(1-p_{j}) & j=k \\
+           -p_{j}p_{k} & j\ne k  \end{array} \right. \\
+\end{align*} 
+which is a standard multinomial variance matrix, one for each true state.
+The derivative wrt $\eta_1$ is 0 by definition, so column 1 of the 
+matrix will be discrared, retaining dervative wrt $\eta_2$, $\eta_3$, etc. 
+Nevertheless the values in row 1, which make use of $p_1$, are correct.
+
+Recognize that there is no grand biologic rationale behind this transformation.
+Using $\exp(\eta)$ terms in this no more than a simple computational strategy
+that yields 3 important properties: $\eta$ is unconstrained, $0 <p<1$ and
+$\sum_k p_{sk}=1$; and is one of the simpler ways to do so. 
+ Do not fall into the trap of overinterpeting individual
+terms or coefficients in the linear predictor.
+Another trap, which this author fell into, is to confuse the first derivative
+matrix above.  The formula looks just like the multinomial variance, making
+for a compact and easy to remember compuation, but the result is just a first
+derivative. It has the simple additivity properties of first derivatives, i.e.,
+the derivative of $\phat_1 + 2\phat_2$ is column 1 + 2 times column 2 of
+the first derivative matrix. Don't start thinking about covariance.
+
+The multinomial routine in the code also allows for a pattern matrix, zero
+values in the matrix mark state/marker values that never occur in practice.
+This may be do to a priori knowlege, or practical experience: if this pair is
+never observed to happen the maximun for the $\eta$ will be $-\infty$ and there
+is not good reason to waste time and energy estimating such a parameter.
+
 
 
 \section{Rescaling and constraints}

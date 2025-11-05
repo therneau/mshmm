@@ -1,120 +1,200 @@
-# Material for response functions
-# initial functions are called with the state map as the first argument, whose
-#  length = number of states
-#  unique peak for each unique value, no peak for NA values (usually death)
-# marker arg = name of marker, used to create labels
-
-# Gaussian
+# Marker distribution functions
+# hmm(...  marker= list(log(pib) ~ gaussian, 
+#                             dx ~ multinomial(pattern=pmat)),..
+# The parsemarker2 routine will create a call of
+#           gaussian(stateinfo, ...) where 'gaussian' is the function below that
+#              sets and returns a gaussian response function + other info
+# likewise  multinomial(statepattern, nclass, pattern)
+#
+# The stateinfo has name and level information that is use to create labels
+#  for the linear predictors, plus an index matching gaussian densities to
+#  states, 
+#  the nclass argument is used by categorical methods, pattern by multinomial,
+#  the param option is used for return information.
 # return a list with 
-#   args: will be passed to hmmgauss
-#   pname: will be used to make labels for the linear predictors
-#   npar: the number of parameters for this dist
-#   param: the parameters dealt with by the initialize call
-igaussian <- function(map, marker, param) {
-    umap <- unique(map[!is.na(map)])
-    npeak <- length(umap)
-    newmap <- ifelse(is.na(map), 0, match(map, umap))
-
-    if (missing(param)) {
-        # the usual case
-        par <- c(paste0(marker, ".mean", umap, sep=''), 
-                     paste0(marker, ".log(std)", umap))
-        args <- list(map=newmap, npeak= npeak)
-        list(args= args, pname= par, npar=2, param=1:2)
-    }
+#   rfun: the response function
+#   pname: labels for the parameters
+#   subset: which subset are referred to by the param argument
+gaussian <- function(stateinfo, nclass, param) {
+    npeak <- length(stateinfo$levels)
+    pname <- makedistlabels(stateinfo, c("mean", "std"))
+    if (missing(param)) subset= seq(along=pname)
     else {
-        check <- match(param, c("mean", "std"), nomatch=0)
-        if (any(check==0)) stop("unrecognized param argument: ", param)
-        if (length(check)==2) {
-            par <- c(paste0(marker, ".mean", umap, sep=''), 
-                     paste0(marker, ".log(std)", umap))
-            args <- list(map=newmap, npeak= npeak)
-            list(args= args, pname=par, npar=2, param=1:2)
-        } else if (check==1) {
-            par <- paste0(marker, ".mean", umap, sep='')
-            args <- list(map= newmap, npeak= npeak)
-            list(ars=args, pname=par, npar=1, param=1)
-        } else {
-            par <- paste0(marker, ".log(std)", umap, sep='')
-            args <- list(map= newmap, npeak= npeak)
-            list(args= args, pname= par, npar=1, param=2)
-        }
-    }   
-}                                     
-
-# say that there were 5 states and 2 peaks, the first applies to states 1 and 2,
-#  the second to 3 and 4, which state= death has no parameters for this 
-#  biomarker (it's not measured on dead people). Then npeak =2, map will be
-#  1,1,2,2,0, and eta will have 4 columns for mean, mean, log(std), log(std).
-#  yprob will have 5 rows, one per state; 1 and 2 the same, 3 and 4 the same,
-#  containing the probability for each observation in the columns.
-#  Row 5 will be 0.
-# The gradient will have dimensions of state, obs, eta, and returns the 
-#  derivative of the density with respect to each eta. Again, in this case
-#  margins (1:2,,) and (3:4,,) are duplicates, and ygrad[5,,] =0. The parent
-#  hmm routine uses the chain rule (d f/ d eta)(d eta/ d beta) to get 
-#  derivatives for the parameters beta.
-# The code does computations on the log density scale until the last step.
-#  (The parent routine needs density).
-hmmgaussian <- function(y, eta, args, gradient=FALSE) {
-    npeak <- args$npeak
-    map   <- args$newmap  # for each state, newmap has 0 or the peak number
-    nstate <- length(map)
-
-    yprob <- matrix(0., nstate, length(y))
-    if (gradient) ygrad <- array(0, dim=c(nstate, length(y), ncol(eta)))
-
-    # eta will have 2*npeak columns
-    mcount <- table(map[map!=0])
-    for (i in 1:npeak) {
-        j <- i+ npeak  # npeak means followed my npeak log(std values)
-        std <- exp(eta[,j])
-        yprob[map==i,] <- rep(dnorm(y, eta[,i], std, log=TRUE),
-                              each= mcount[i])
-        if (gradient) {
-           gradient[map==i,,i] = (y- eta[,i])/std^2
-           gradient[map==i,,j] <- (((y-eta[,i])/std)^2 -1)
-        }
+        index <- match(param, c("mean", "std"))
+        if (any(is.na(indx))) 
+            stop("unrecognized gaussian parameter: ", param[is.na(indx)])
+        if (all(sort(index) == 1:2)) subset<- seq(along=pname)
+        else if (index==1) subset <- 1:npeak * 2L - 1L
+        else subset <- 2L* 1:npeak
     }
     
-    # convert from log to density
-    yprob[map>0,] <- exp(yprob[map>0,])
-    if (gradient) attr(yprob, "gradient") <- c(yprob) * ygrad
-    yprob
+    rfun <- function(y, eta, gradient=FALSE,  npeak, map) {
+        # y a vector of m values, m= number of measurements of this biomarker
+        # eta = matrix of values, m rows by (2*npeak) columns of mean, log(std),
+        #    mean, log(std), etc.
+        # map= a map of peak to state
+        # value: nstate rows by m columns, row j= f(y| state=j)
+        #
+        nstate <- length(map)
+        mcount <- table(map[map!=0])
+        yprob <- matrix(0., nstate, length(y))
+        if (gradient) ygrad <- array(0, dim=c(nstate, length(y), ncol(eta)))
+   
+        for (i in 1:npeak) {
+            j <- i*2L - 1L  # npeak (mean, log(std)) pairs
+            std <- exp(eta[,j+1])
+            yprob[map==i,] <- rep(dnorm(y, eta[,i], std, log=TRUE),
+                                      each= mcount[i])
+            if (gradient) { #(gradient is easier on log scale)
+                gradient[map==i,,j] = (y- eta[,j])/std^2
+                gradient[map==i,,j+1] <- (((y-eta[,j])/std)^2 -1)
+            }
+        }
+    
+        # convert from log to density
+        yprob[map>0,] <- exp(yprob[map>0,])
+        if (gradient) attr(yprob, "gradient") <- c(yprob) * ygrad
+        yprob
+    }
+
+    # rfun will be called many times; set the defaults so that they don't
+    #  have to be passed through the maximizer
+    temp <- formals(rfun)
+    temp$npeak <- npeak
+    temp$map <- stateinfo$index
+    formals(rfun) <- temp
+
+    list(rfun=rfun, pname=pname, subset=subset)
 }
 
-# Logisitic, a little fatter tails
-ilogistic <- igaussian
-hmmlogisitc <-  function(y, eta, args, gradient=FALSE) {
-    npeak <- args$npeak
-    map   <- args$newmap  # for each state, newmap has 0 or the peak number
-    nstate <- length(map)
+makedistlabels <- function(stateinfo, parms) {
+    nlev <- length(stateinfo$levels)
+    nparm <-length(parms)
+    # I don't need to say "state(dementia)", "dementia" will do
+    if (stateinfo$sname == "state") 
+        paste0(rep(stateinfo$levels, each=nparm), '.', rep(parms, nlev))
+    else {
+        temp <- paste0(stateinfo$sname, '(', stateinfo$levels, ')')
+        paste0(rep(temp, each=nparm), '.', rep(parms, nlev))
+    }
+}
 
-    yprob <- matrix(0., nstate, length(y))
-    if (gradient) ygrad <- array(0, dim=c(nstate, length(y), ncol(eta)))
-
-    # eta will have 2*npeak columns
-    mcount <- table(map[map!=0])
-    for (i in 1:npeak) {
-        j <- i+ npeak  # npeak means followed my npeak log(std values)
-        std <- exp(eta[,j])* sqrt(3)/pi # the R logist has "scale" not "std"
-        yprob[map==i,] <- rep(dlogis(y, eta[,i], std, log=TRUE),
-                              each= mcount[i])
-        if (gradient) {
-           gradient[map==i,,i] = (y- eta[,i])/std^2
-           gradient[map==i,,j] <- (((y-eta[,i])/std)^2 -1)
-        }
+# logistic, a bit fatter tails
+logistic <- function(stateinfo, nclass, param) {
+    npeak <- length(stateinfo$levels)
+    pname <- makedistlabels(stateinfo, c("mean", "std"))
+    if (missing(param)) subset= seq(along=pname)
+    else {
+        index <- match(param, c("mean", "std"))
+        if (any(is.na(indx))) 
+            stop("unrecognized logistic parameter: ", param[is.na(indx)])
+        if (all(sort(index) == 1:2)) subset<- seq(along=pname)
+        else if (index==1) subset <- 1:npeak * 2L - 1L
+        else subset <- 2L* 1:npeak
     }
     
-    # convert from log to density
-    yprob <- exp(yprob)
-    if (gradient) attr(yprob, "gradient") <- c(yprob) * ygrad
-    yprob
+    rfun <- function(y, eta, gradient=FALSE,  npeak, map) {
+        # y a vector of m values, m= number of measurements of this biomarker
+        # eta = matrix of values, m rows by (2*npeak) columns of mean, log(std),
+        #    mean, log(std), etc.
+        # map= a map of peak to state
+        # value: nstate rows by m columns, row j= f(y| state=j)
+        #
+        nstate <- length(map)
+        mcount <- table(map[map!=0])
+        yprob <- matrix(0., nstate, length(y))
+        if (gradient) ygrad <- array(0, dim=c(nstate, length(y), ncol(eta)))
+   
+        for (i in 1:npeak) {
+            j <- i*2L - 1L  # npeak (mean, log(std)) pairs
+            scale <- exp(eta[,j])* sqrt(3)/pi # R logis has "scale" not "std"
+            yprob[map==i,] <- rep(dlogis(y, eta[,j], scale, log=TRUE),
+                                  each= mcount[i])
+            if (gradient) {
+                temp1 <- (y- eta[,j])/scale
+                temp2 <- exp(temp1)/(1+ exp(temp1))
+                gradient[map==i,,j] = -temp1*(1 + temp2)
+                gradient[map==i,,j+1] = -(1+ temp1*(1+temp2))
+            }
+            # convert from log to density
+            yprob[map>0,] <- exp(yprob[map>0,])
+            if (gradient) attr(yprob, "gradient") <- c(yprob) * ygrad
+            yprob
+        }
+    }
+    # rfun will be called many times; set the defaults so that they don't
+    #  have to be passed through the maximizer
+    temp <- formals(rfun)
+    temp$npeak <- npeak
+    temp$map <- stateinfo$index
+    formals(rfun) <- temp
+
+    list(rfun=rfun, pname=pname, subset=subset)
 }
 
+# beta distribution
+beta <- function(stateinfo, nclass, param) {
+    npeak <- length(stateinfo$levels)
+    pname <- makedistlabels(stateinfo, c("shape1", "shape2"))
+    if (missing(param)) subset= seq(along=pname)
+    else {
+        index <- match(param, c("shape1", "shape2"))
+        if (any(is.na(indx))) 
+            stop("unrecognized beta parameter: ", param[is.na(indx)])
+        if (all(sort(index) == 1:2)) subset<- seq(along=pname)
+        else if (index==1) subset <- 1:npeak * 2L - 1L
+        else subset <- 2L* 1:npeak
+    }
+    
+    rfun <- function(y, eta, gradient=FALSE,  npeak, map) {
+        # y a vector of m values, m= number of measurements of this biomarker
+        # eta = matrix of values, m rows by (2*npeak) columns of log(shape1),
+        #    log(shape2) for first peak, then second, ...
+        # map= a map of peak to state
+        # value: nstate rows by m columns, row j= f(y| state=j) 
+        #
+        nstate <- length(map)
+        mcount <- table(map[map!=0])
+        yprob <- matrix(0., nstate, length(y))
+        if (gradient) ygrad <- array(0, dim=c(nstate, length(y), ncol(eta)))
+   
+        for (i in 1:npeak) {
+            j <- i*2L - 1L  # npeak (log(shape1), log(shape2)) pairs
+            a <- exp(eta[,j])
+            b <- exp(eta[,j+1])
+            f <- dbeta(y, a, b, log=FALSE)
+            yprob[map==i,] <- rep(f, each= mcount[i])
+            if (gradient) {
+                #see the derivation in the code vignette
+                dga <- \psi(a + b) - psi(a)
+                dgb <- \psi(a + b) - psi(b)
+                g <- gamma(a+b)/(gamma(a)* gamma(b))
+                dha <- (a-1)*y^(a-2)* (1-y)^(b-1)
+                dhb <- -(y^(a-1) * (b-1)*(1-y)^(b-2))
+                ygrad[map==i,,j] = a*(dga* f + g*dha)
+                ygrad[map==i,,j+1] = b*(dgb*f + g*dhb)
+                attr(yprob, "gradient") <- ygrad
+            }
 
+            yprob
+        }
+    }
+    # rfun will be called many times; set the defaults so that they don't
+    #  have to be passed through the maximizer
+    temp <- formals(rfun)
+    temp$npeak <- npeak
+    temp$map <- stateinfo$index
+    formals(rfun) <- temp
 
-# multivariate logit, first category is the reference
+    checkfun <- function(y) {
+        if (any(y<0 | y>1)) stop("invalid marker value for beta distribution")
+    }
+    list(rfun=rfun, pname=pname, subset=subset, check= check)
+}
+
+# multivariate logit, first category is the reference. If there are k
+#  groups, eta will have k-1 columns
+# This is used by other functions
 mlogit <- function(eta, gradient=FALSE) {
     m <- ncol(eta)
     denom <- 1 + rowSums(exp(eta))
@@ -140,3 +220,113 @@ mlogit <- function(eta, gradient=FALSE) {
     }
     pi
 }
+# mulinomial distribution
+#  Say the the marker has 5 levels and there were k states, for each
+#  state there will 4 parameters to create the 5 probabilities of p=
+#  (1, exp(eta2), exp(eta3), exp(eta4), exp(eta5)) / (1 + exp(eta2) + ...eta5))
+# wlog eta1 is taken to be 0, leading to 4k linear predictors eta.
+# The derivatives turn out to have the same form as a multinomial variance:
+#  d p_i/d eta_i = p_i(1-p_i) and d p_i/ d eta_j = -p_ip_j; which is easy to
+#  remember. See the code vignette for more explanation. 
+# If the marker had 5 categories, the evaluation routine needs to report back
+#  pr(observed marker value, given state), i.e., a single probability p for 
+#  each state, for that observation (nstate by n.obs matrix), along with the 4
+#  derivatives of that value wrt the 4 eta values (nstate by n.obs by 4).
+#  The other p_i are just a tool to compute that set of 4 derivative values: 
+#    there is no variance matrix.
+# 
+# For more complex cases the user can supply a pattern matrix with one row
+#  per state and one col per value of the marker. A zero value in the matrix
+#  indicates that that state/marker pairing will not occur; there is no need
+#  to waste linear predictors for that eventuality. If there were m=5 marker
+#  values but one of them can not occur when the true state is 'A', there will
+#  be 3 eta vectors, not 4, for A.
+# Other values in the matrix determine the mapping, i.e., the smallest 
+#  non-zero value in a row identifies the reference category, the order of the
+#  remaining matrix values determine the mapping of eta to state/prob. 
+##  
+multinomial <- function(stateinfo, nlevel, pattern) {
+    nstate <- length(stateinfo$index)
+    if (nlevel ==0) stop("marker must be a factor for multinomial distribution")
+    ngroup <- max(stateinfo$index)  #number of predicted phat vectors
+
+    if (missing(pattern)) {
+        # the compute function gets two lists with one elment per state
+        #  eindex = which columns of eta for this state
+        #    our default is to use 1,2,..., k-1 for state 1, k, ... for 
+        #    state 2, etc where k is the number of levels for the marker
+        #  mindex = non-zero responses
+        n.eta <- nstate * (nlevel-1)
+        eindex <- split(1:n.eta, rep(1:nstate, each=nlevel-1))
+        mindex <- lapply(1:nstate, function(x) 1:nlevel)
+        nparm <- nstate
+    }
+    else {
+        if (!is.matrix(pattern) || nrow(pattern) != ngroup ||
+            ncol(pattern) != nlevel)
+        stop("pattern must be a matrix with one row per group of states",
+             " and one column per level of the marker")
+        if (any(is.na(pattern))) stop("missing value in pattern matrix")
+
+        
+        nphat <- apply(pattern!=0, 1, sum)  # number of probabilities per row
+        if (any(nphat ==0)) stop("pattern matrix has a zero row")
+        n.eta  <- sum(nphat -1) # total number of linear predictors
+        
+    p2 <- pattern # modify this into "standard" form
+    ref <- apply(pattern, 1, function(x) min(which(x!=0)))
+    p2[cbind(1:ngroup, ref)] <- -1
+    indx <- which(p2>0)
+    p2[indx] <- rank(p2[indx], ties="first")
+
+    
+    rfun <- function(y, eta, gradient=FALSE,  npeak, map) {
+        # y a vector of m values, m= number of measurements of this biomarker
+        # eta = matrix of values, m rows by (2*npeak) columns of log(shape1),
+        #    log(shape2) for first peak, then second, ...
+        # map= a map of peak to state
+        # value: nstate rows by m columns, row j= f(y| state=j) 
+        #
+        nstate <- length(map)
+        mcount <- table(map[map!=0])
+        yprob <- matrix(0., nstate, length(y))
+        if (gradient) ygrad <- array(0, dim=c(nstate, length(y), ncol(eta)))
+   
+        for (i in 1:npeak) {
+            j <- i*2L - 1L  # npeak (log(shape1), log(shape2)) pairs
+            a <- exp(eta[,j])
+            b <- exp(eta[,j+1])
+            f <- dbeta(y, a, b, log=FALSE)
+            yprob[map==i,] <- rep(f, each= mcount[i])
+            if (gradient) {
+                #see the derivation in the code vignette
+                dga <- \psi(a + b) - psi(a)
+                dgb <- \psi(a + b) - psi(b)
+                g <- gamma(a+b)/(gamma(a)* gamma(b))
+                dha <- (a-1)*y^(a-2)* (1-y)^(b-1)
+                dhb <- -(y^(a-1) * (b-1)*(1-y)^(b-2))
+                ygrad[map==i,,j] = a*(dga* f + g*dha)
+                ygrad[map==i,,j+1] = b*(dgb*f + g*dhb)
+                attr(yprob, "gradient") <- ygrad
+            }
+
+            yprob
+        }
+    }
+    # rfun will be called many times; set the defaults so that they don't
+    #  have to be passed through the maximizer
+    temp <- formals(rfun)
+    temp$npeak <- npeak
+    temp$map <- stateinfo$index
+    formals(rfun) <- temp
+
+    checkfun <- function(y, nc=ncol(pattern)) {
+        if (!is.factor(y) || length(levels(y))!= nc)
+            stop("marker must be a factor with ", nc, 
+                 " levels, to match the pattern matrix")
+    }
+            
+    list(rfun=rfun, pname=pname, subset=subset, check= check)
+}
+
+

@@ -229,8 +229,9 @@ hascommon <- function(options) {
 # The version of this code in survival is more complex, because it also
 #  needs to sort out strata, which are not a concept here
 parsecovar2 <- function(parse1, statedata, dformula, Terms, qmatrix,
-                        states, Xname, Xassign) {
+                        Xname, Xassign) {
     nterm <- 1L + length(attr(Terms, "term.labels")) # +1 for (Intercept)
+    states <- statedata[,1]  # will always contain the state names
     nstate <- length(states)
     from <- row(qmatrix)[qmatrix>0]
     to   <- col(qmatrix)[qmatrix>0]

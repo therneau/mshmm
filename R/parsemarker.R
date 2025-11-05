@@ -22,11 +22,11 @@ parsemarker1 <- function(flist, statedata) {
     #   for each marker, statecol and options will also have one element
     #   per marker.
     # 3. ptplot(~N + practice + sex) shows that we can't just use a simple
-    # "grab left term of the first +" strategy.  Hence the grableft() function.
+    # "grab left term of the first +" strategy to find the state, "N" is further
+    #  down the parse tree than that.  Hence the grableft() function.
     #  It returns a list of length 2, first element will be "N", second
-    #  'practice + sex'.  Note that we can't use terms + reformulate: if the
-    #  right portion had an interaction, it would get lost.  See 'parsing' in
-    #  the code vignette for a deeper explanation of this function.
+    #  'practice + sex'.  See 'parsing' in the code vignette for 
+    #  deeper explanations.
     grableft <- function(x) {
         if (length(x)==1) return(list(x, NULL))  #only a single term
         if (is.call(x) && x[[1]]== as.name('+')) {
@@ -40,7 +40,8 @@ parsemarker1 <- function(flist, statedata) {
     }
             
     nform <- length(flist)
-    nmarker <- statecol <- integer(nform)
+    nmarker <- integer(nform)
+    stateinfo <- vector("list", nform)  # a list of info per formula
     marker <- NULL
     sname <- colnames(statedata)
     gtemp <- lapply(rhs2, function(x) grableft(x[[1]])) # not the options
@@ -52,45 +53,46 @@ parsemarker1 <- function(flist, statedata) {
         nmarker[i] <- length(temp2)
         marker <- c(marker, temp2)
         
-        # what was the state
+        # what was the state?
         first <- gtemp[[i]][[1]] # the first word right of the ~
-        if (is.name(first)) jcol <- match(as.character(first), sname)    
-        else if (is.character(first)) jcol <- match(first, sname)
-        else stop("unrecognized state vector: ", deparse(first))
-
-        if (is.na(jcol)) stop("unrecognized state vector: ", deparse(first))
-        statecol[i] <- jcol
-
-        # modify flist[[i]] to be suitable for hmm to create a master formula
-        if (is.null(gtemp[[i]][[2]])) {
-            # only a state on the left, the most common case
-            flist[[i]] <- ftemp  # one sided formula containing respose
-        } else if (nmarker[[i]] ==1) {
-            # replace right hand side of flist with the non-state variables
-            flist[[i]][[3]] <- gtemp[[i]][[2]]
+        if (is.call(first)) {
+            # the user has something like "A(0:2)", which means that any state
+            #  with statedata$A==0 will get assigned the first guassian peak,
+            #  rows with statedata$A ==1 the second, and statedata$A==2
+            #  the third one. States that don't match will get a density of 0.
+            # This last is normally the death state, we don't need parameters
+            #  for a "death" peak because the marker will never be measured for
+            #  a death obs.
+            jcol <- match(as.character(first[[1]]), sname)
+            if (is.na(jcol)) stop("unrecognized state vector: ", deparse(first))
+            first[[1]] <- as.name("c")
+            temp <- eval(first)  # A(1:3) becomes the vector 1,2,3
+            temp <- unique(temp[!is.na(temp)]) # users do weird things....
+            stateinfo[[i]] <- list(sname= names(statedata)[jcol], levels=temp,
+                               index=match(statedata[,jcol], temp, nomatch=0))
         } else {
-            # rare case: multiple markers on the left, extra covariates on right
-            dummy <- ~ x1 + x2  # dummy formula
-            dummy[[2]] <- ftemp[[2]] # respose
-            dummy[[3]] <- gtemp[[i]][[2]]
-            flist[[i]] <- dummy
+            if (is.name(first)) jcol <- match(as.character(first), sname)    
+            else if (is.character(first)) jcol <- match(first, sname)
+            else stop("unrecognized state vector: ", deparse(first))
+
+            if (is.na(jcol)) stop("unrecognized state vector: ", deparse(first))
+            temp <- unique(statedata[,jcol])
+            stateinfo[[i]] <-list(sname= names(statedata)[jcol], levels=temp,  
+                              index=match(statedata[,jcol], temp[!is.na(temp)]))
         }
-    }
-      
-    rval <- list(formula = flist, statecol= statecol, marker = marker, 
-                 options=options, nmarker = nmarker)
-    # other variables
-    temp <- lapply(gtemp, function(x) {
-        if (is.null(x[[2]])) NULL
-        else {
-            dummy <- ~x
-            dummy[[2]] <- x[[2]]  # right hand side, less state and options
-            attr(terms(dummy), "term.labels")
-        }
-    })
-    if (any(sapply(temp, length) > 0)) rval$mterm <- temp # other vars exist
-    rval
-}
+
+        # Further predictors?
+        temp <- lapply(gtemp, function(x) {
+            if (is.null(x[[2]])) NULL
+            else {
+                dummy <- ~x
+                dummy[[2]] <- x[[2]]  # right hand side, less state and options
+                attr(terms(dummy), "term.labels")
+            }
+        })
+     
+    list(marker= marker, statinfo= stateinfo, options=options, 
+         mterm = temp, nmarker = nmarker)
 
 # Why not expand the options list above so there is one element per marker?
 #   The parsemarker2 routine, which builds tmap and cmap, needs to know
@@ -107,47 +109,9 @@ parsemarker1 <- function(flist, statedata) {
 #  distribution) pair, i.e., one per linear predictor. 
 # The coefficient map cmap is an expansion of tmap.
 
-# setup for response functions
-env2 <- new.env(parent = parent.frame(2))
-assign("gaussian", env=env2,
-       value= function(param=c("mean", "std")) {
-           if (missing(param)) # assume both
-               list(dist="gaussian", param=c("mean", "std"), npar=2, 
-                    global=FALSE)
-           else {
-               param= match.arg(param)
-               list(dist="gaussian", param= param, npar=2, global=FALSE)
-           }
-       })  
 
-assign("gamma", env=env2,
-       value= function(param=c("mean", "std")) {
-           if (missing(param)) # assume both
-               list(dist="gamma", param=c("mean", "std"), npar=2, global=FALSE)
-           else {
-               param= match.arg(param)
-               list(dist="gamma", param= param, npar=2, global=FALSE)
-           }
-       })  
-
-assign("multinomial", env=env2,
-       value= function(pattern) {
-           nstate <- nrow(pattern)
-           npar = sum(pattern >0)
-           param= paste0("p", 1:npar)
-           list(dist="multinomial", param=param, npar=npar, global=TRUE)
-       })
-
-cdist <- list(gaussian= list(dist="gaussian", param=c("mean", "std"), npar=2,
-                            global=FALSE),
-              gamma = list(dist="gamma", param=c("mean", "std"), npar=2,
-                           global= FALSE),
-              common= list(dist="null", npar=0),
-              multinomial = list(dist="multinomial", 
-                         error="gamma distribution requires a pattern argument")
-              )
-
-parsemarker2 <- function(parse1, statedata, Terms, Xname, Xassign) {
+parsemarker2 <- function(parse1, statedata, Terms, Xname, Xassign,
+                         markerlevels) {
     nstate <- nrow(statedata)
     nform  <- length(parse1$nmarker)
     umarker <- unique(parse1$marker)

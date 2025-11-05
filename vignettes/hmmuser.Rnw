@@ -103,6 +103,8 @@ death date is gathered from other sources.
 
 
 \section{Interval censored data}
+ Start with a simple censored fit as illustration.
+
 \subsection{CAV example}
 Data from a study that monitors the progression of coronary allograft
 vasculopathy (CAV) is provided in the msm package. 
@@ -132,29 +134,10 @@ igroup <- with(cav2, ifelse(duplicated(ptnum), 1*(cstate=="death"), 2))
 round(quantile(interval[igroup==0], c(0,.25, .5, .75, .9, .95,1)), 1)
 #last visit to death
 round(quantile(interval[igroup==1], c(0,.25, .5, .75, .9, .95,1)), 1)
-
-if (FALSE) {
-    d1 <- density(interval[igroup==0]) # visit intervals
-    d2 <- density(interval[igroup==1]) # last vist to death
-    matplot(cbind(d1$x, d2$x), cbind(d1$y, d2$y), type='l', lwd=2, 
-            xlab="Visit intervals (years)", ylab="Density")
-    abline(v=1:4, lty=3)
-    legend(7, .6, c("Between visits", "Last visit to death"), lty=1:2, lwd=2,
-           col=1:2)
-
-    opar <- par(mfrow=c(2,1), mar=c(5,5,1,1))
-    temp <- table(round(interval[igroup==0]*4)/4)
-    plot(as.numeric(names(temp)), c(temp), type='h',
-         xlab="Years since last visit", ylab="Visits by quarter")
-    temp2 <- table(round(interval[igroup==1]*4)/4)
-    plot(as.numeric(names(temp2)), c(temp2), type='h',
-         xlab="Years since last visit", ylab="Deaths by quarter")
-    par(opar)
-}
-@ 
+@
 
 The data set is unusual in that there is no off study follow-up, i.e., a
-date last known alive for those who are not dead.
+date last known alive, other than a study visit, for those who are not dead.
 The 622 subjects have betwen 2 and 15 assessments, 
 less than 1/2 have more than 4.
 
@@ -176,26 +159,88 @@ qmat[2,3] <- qmat[3,2] <- 1
 qmat[1:3,4] <- 1
 statefig(rbind(3,1), qmat, offset=.02)
 
-init <- log(c(.166, .25, .25, .166, .25, .166, .25))
+init <- c(.166, .25, .25, .166, .25, .166, .25) #rates per year
 # The coefs are in the same order as the non-zero entries in qmat; remember 
 #  that R matrices are stored in column major order.
 # It might seem more natural to read across, like a book (msm does), but 
-#  both as a user and within the package we found that this quickly 
+#  both as a user and within the package code we found that this quickly 
 #  becomes an exercise in swimming upstream.
 hfit0 <- icmsh(Surv(years, cstate) ~ 1, data= cav2, id= ptnum,
-               qmatrix= qmat, exact="death", intercept= init)
-hfit0 
+               qmatrix= qmat, exact="death", intercept= log(init))
+hfit0  #msm vignette, 2.5, model 1
+@
 
-hfit1 <- hmm(list(Surv(years, cstate) ~ sex, 
+For \code{icmsh} states are of two types: interval censored states where the
+state is known at the measurment time, but not when that state was entered,
+and exact states, where the entry time to the state is known. These latter
+are enumerated in the \code{exact} argument.
+Death is the most common exact state.   
+(One can also have multiple exact states, one of the more common examples 
+is cause of death, e.g., states of `death due to cancer' and `other death'.) 
+The status variable in the Surv call will be a factor with censored as the
+first level, followed by the states, in the same order as the $Q$ matrix.
+Now add covariates.
+
+<<cav2>>= 
+hfit1 <- icmsh(list(Surv(years, cstate) ~ 1, 
+                  1:2 + 1:4 ~ sex),
+             data=cav2, id= ptnum,
+             qmatrix= cmat, exact="death", irate= exp(init))
+hfit1  # msm vignette, 2.7, model 2a
+
+hfit2 <- icmsh(list(Surv(years, cstate) ~ dage, 
                   1:2 + 2:3 ~ sex / common,
                   2:1 + 3:2 ~ sex / common,
                   0:death   ~ sex / common),  data=cav2, id= ptnum,
              qmatrix= cmat, exact="death", irate= exp(init))
-hfit1$cmap
-hfit1   # msm vignette, 2.7, model 3
+hfit2  
+
+hfit2$cmap
 @ 
 
+More complex models are specified using a list for the formula argument.
+The first formula in the list specifies the response and a default set of
+covariates which is used as the starting point for all transtitions. 
+Later formulas update the formula(s) for specified transtions
+\begin{itemize}
+  \item line 2 of hfit1 adds sex to the formulas for none to mild (1:2) and
+    none to death (1:4), but not to other transitions
+  \item line 2 of hfit2 forces the the 1:2 progression
+    (no CAV to mild/moderate) and 2:3 (mild/moderate to severe) to share a
+    common sex coefficient
+  \item line 3 of hfit2 makes the sex coefficients for the two reverse 
+    transitions identical
+  \item 0:death stands for any state to death. Invalid transitions not found in
+    qmatrix are ignored, i.e., the implied  death:death transtion
+\end{itemize}
 
+\subsection{Theory}
+Two primary differences between the MSH partial likelihood of \code{coxph} and
+the full likelihood of \code{icmsh} is that first, the baseline hazard for 
+the latter is parametric, often a spline function of time. 
+The above models assumed a constant hazard and the fits include an intercept.
+A second difference is that the
+log-likelihood is a sum over subjects, each subject's term can be computed
+independently. 
+
+Let $X^*$ and $Y^*$ be the portions of the $X$ matrix and survival outcome $Y$
+corresponding to some particular subject, with $t_1, t_2, ...,t_k$ the time
+points for this subject. Let $B$ be the martix of coeffients, one column for
+each transtion, and $\eta^* = X^* B$ the matrix of linear predictors, a row for
+each time and a column for each transtion.
+$H(t)$, the hazard matrix, will have elements of $\exp(\eta)$ for each
+possible transition (non-zero element of qmatrix).
+Like a Cox model, using exp guarrantees that rates are non-negative.
+$H$ has the same pattern of zero and non-zero elements as $Q$.
+Finally, set the diagonal elements of $H$ such that each row of $H$ sums to 0,
+then the nstate by nstate probability transtion matrix $P(s,t)$ from some 
+observation time $s$ until the next observation time $t$ is the matrix
+exponential $\exp[(t-s)H]$. 
+The matrix exponential is computationally expensive, so the routine computes
+the likelihood for multiple subjects in parallel for better speed
+(using the R parallel library of course).
+Further details of the likelihood and derivatives are found in the mathematics
+vignette, and further compute details in the compute vignette.
 
 
 The \code{hmm} function, the central function of this package, can deal
