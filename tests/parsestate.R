@@ -6,11 +6,12 @@
 #parsecovar1 <- mshmm:::parsecovar1
 #parsecovar2 <- mshmm:::parsecovar2
 #parsemarker1 <- mshmm:::parsemarker1
-
+#parsemarker2 <- mshmm:::parsemerker2
  library(survival)
  source("ptplot.R")
  source("parscovar.R")
  source("parsemarker.R")
+ source("response.R")
 
 states <- c("A0N0", "A1N0", "A0N1", "A1N1", "A0N2","A1N2", "death")
 qmat <- matrix(0, 7,7, dimnames=list(states, states))
@@ -47,7 +48,7 @@ newform <- reformulate(c(attr(terms(dform), 'term.labels'), unlist(tlab)))
 Xname <- c("(Intercept)", "age", "sex", "x1B", "x1C", "x1D", "x2", "x3", "x4")
 Xassign <- c(0,1,2,3,3,3,4,5,6)
 
-test2 <- parsecovar2(test1, statedata, dform, terms(newform), qmat, states,
+test2 <- parsecovar2(test1, statedata, dform, terms(newform), qmat,
                      Xname, Xassign)
 
 vars <-  c("(Intercept)", "age", "sex", "x1", "x2", "x3", "x4")
@@ -71,23 +72,36 @@ all.equal(check3, test2$cmap)
 
 
 # Now look at a marker list
-mlist <- list(log(pib) + log(tau) ~ A /gaussian,
-              sqrt(p.tau181) ~ A/gaussian,
-              sqrt(p.tau181) ~ A/gaussian(param="std") + common,
-              wmh ~ N + icvol+ sex/ gamma)
+mlist <- list(log(pib) + log(tau) ~ A(0:1) /gaussian,
+              sqrt(p.tau181) ~ A(0:1)/gaussian,
+              sqrt(p.tau181) ~ A(0:1)/gaussian(param="std") + common,
+              log(wmh) ~ N + icvol+ sex/ logistic)
 
 test1 <- parsemarker1(mlist, statedata)
 
 # formula = the bits that need to pasted up so as to all variable in the
 #  model frame
-all.equal(test1$formula, list(~log(pib) + log(tau), ~sqrt(p.tau181), 
-                             ~ sqrt(p.tau181), wmh ~  icvol+ sex))
 all.equal(test1$marker, c("log(pib)", "log(tau)", "sqrt(p.tau181)", 
-                         "sqrt(p.tau181)", "wmh"))
-all.equal(test1$statecol, c(2,2,2,3))
+                         "sqrt(p.tau181)", "log(wmh)"))
+# stateinfo has a summary of the column of statedata that was used,
+# one element per formula in mlist
+# A(0:1) states that for statedata$A, the '0', and '1' elements will map
+#  to unique Gaussian peaks, A2 = death has no pib or tau distribution
+#  levels need not be numeric, index is of length nstate and shows which
+#  peak each state maps onto.
+#  
+all.equal(test1$stateinfo,
+    list(list(sname="A", levels=0:1, index=c(1,2,1,2,1,2,0)),
+         list(sname="A", levels=0:1, index=c(1,2,1,2,1,2,0)),
+         list(sname="A", levels=0:1, index=c(1,2,1,2,1,2,0)),
+         list(sname="N", levels=0:2, index=c(1,1,2,2,3,3,0))))
+
 all.equal(test1$options, list(as.name("gaussian"), as.name("gaussian"),
                           expression(gaussian(param="std") +common)[[1]], 
                           as.name("gamma")))
+all.equal(unlist(test1$mterm), c("icvol", "sex"))
+all.equal(test1$nmarker, c(2,1,1,1))
 
+test2 <- parsemarker2(test1, statedata, terms(newform), Xname, Xassign,
+                      markerlevel =NULL)
 
-test2 <- parsemarker2(test1, statedata)

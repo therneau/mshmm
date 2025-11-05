@@ -1,4 +1,4 @@
-Title: Multi-state hazard and multi-state hidden Markov models
+Title: Interval censored models and hidden Markov models for multistate data.
 Description: Models multi-state time to event data.
 The icmsh function fits an interval censored multi-state hazard model, 
 the hmm function extends this to hidden Markov models (HMM)

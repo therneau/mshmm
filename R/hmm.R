@@ -155,7 +155,7 @@ hmm <- function(formula, data, subset, weights, na.action,
                             markerlevels)
     bcount <- c(ncol(cmap), ncol(marker2$cmap), 0)
     cmap <- cbind(cmap,
-                   ifelse(marker2$cmap==0, 0, marker2$cmap +max(cmap))#+ markers
+               ifelse(marker2$cmap==0, 0, marker2$cmap +max(cmap))) 
     nparam <- max(cmap) # total estimated parameters
     # For transitions we will want only the first bcount[1] columns of cmap
     #  sometimes the marker columns or initial state cols, other times 
@@ -173,7 +173,7 @@ hmm <- function(formula, data, subset, weights, na.action,
     ymiss <- is.na(Y)
     
     # Check for missing values in istate as well, they are fatal
-    if (!missing(istate) && any(missing(istate))
+    if (!missing(istate) && any(missing(istate)))
         stop("the istate argument cannot contain missing values")
     
     # we are cruel: anyone with a hole is no longer a valid timeline

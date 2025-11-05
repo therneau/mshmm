@@ -370,7 +370,7 @@ parsecovar2 <- function(parse1, statedata, dformula, Terms, qmatrix,
     cmap[,] <- match(c(cmap), sort(unique(c(0, cmap)))) -1L
     dimnames(tmap) <- list(c("(Intercept)", attr(Terms, "term.labels")),
                            tran.id)
-    dimnames(cmap) <- list(Xcol, tran.id)
+    dimnames(cmap) <- list(Xname, tran.id)
     mapid <- rbind(from, to)
     colnames(mapid) <- tran.id
     list(tmap= tmap, cmap= cmap, mapid= mapid)

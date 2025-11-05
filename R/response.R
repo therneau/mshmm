@@ -6,16 +6,20 @@
 #              sets and returns a gaussian response function + other info
 # likewise  multinomial(statepattern, nclass, pattern)
 #
+# hmm.dist is used by parsemarker to check for legal names
+hmm.dist <- c("gaussian", "logistic", "beta", "multinomial", "noerror")
+
 # The stateinfo has name and level information that is use to create labels
 #  for the linear predictors, plus an index matching gaussian densities to
 #  states, 
-#  the nclass argument is used by categorical methods, pattern by multinomial,
-#  the param option is used for return information.
+#  the markerlevel argument is used by categorical methods, pattern by 
+#   the multinomial dist, and the param option for return information.
+#
 # return a list with 
 #   rfun: the response function
 #   pname: labels for the parameters
 #   subset: which subset are referred to by the param argument
-gaussian <- function(stateinfo, nclass, param) {
+gaussian <- function(stateinfo, markerlevel, param) {
     npeak <- length(stateinfo$levels)
     pname <- makedistlabels(stateinfo, c("mean", "std"))
     if (missing(param)) subset= seq(along=pname)
@@ -80,7 +84,7 @@ makedistlabels <- function(stateinfo, parms) {
 }
 
 # logistic, a bit fatter tails
-logistic <- function(stateinfo, nclass, param) {
+logistic <- function(stateinfo, markerlevel, param) {
     npeak <- length(stateinfo$levels)
     pname <- makedistlabels(stateinfo, c("mean", "std"))
     if (missing(param)) subset= seq(along=pname)
@@ -133,7 +137,7 @@ logistic <- function(stateinfo, nclass, param) {
 }
 
 # beta distribution
-beta <- function(stateinfo, nclass, param) {
+beta <- function(stateinfo, markerlevel, param) {
     npeak <- length(stateinfo$levels)
     pname <- makedistlabels(stateinfo, c("shape1", "shape2"))
     if (missing(param)) subset= seq(along=pname)
@@ -166,8 +170,8 @@ beta <- function(stateinfo, nclass, param) {
             yprob[map==i,] <- rep(f, each= mcount[i])
             if (gradient) {
                 #see the derivation in the code vignette
-                dga <- \psi(a + b) - psi(a)
-                dgb <- \psi(a + b) - psi(b)
+                dga <- psi(a + b) - psi(a)
+                dgb <- psi(a + b) - psi(b)
                 g <- gamma(a+b)/(gamma(a)* gamma(b))
                 dha <- (a-1)*y^(a-2)* (1-y)^(b-1)
                 dhb <- -(y^(a-1) * (b-1)*(1-y)^(b-2))
@@ -272,7 +276,7 @@ multinomial <- function(stateinfo, nlevel, pattern) {
         nphat <- apply(pattern!=0, 1, sum)  # number of probabilities per row
         if (any(nphat ==0)) stop("pattern matrix has a zero row")
         n.eta  <- sum(nphat -1) # total number of linear predictors
-        
+    }
     p2 <- pattern # modify this into "standard" form
     ref <- apply(pattern, 1, function(x) min(which(x!=0)))
     p2[cbind(1:ngroup, ref)] <- -1
@@ -300,8 +304,8 @@ multinomial <- function(stateinfo, nlevel, pattern) {
             yprob[map==i,] <- rep(f, each= mcount[i])
             if (gradient) {
                 #see the derivation in the code vignette
-                dga <- \psi(a + b) - psi(a)
-                dgb <- \psi(a + b) - psi(b)
+                dga <- psi(a + b) - psi(a)
+                dgb <- psi(a + b) - psi(b)
                 g <- gamma(a+b)/(gamma(a)* gamma(b))
                 dha <- (a-1)*y^(a-2)* (1-y)^(b-1)
                 dhb <- -(y^(a-1) * (b-1)*(1-y)^(b-2))
@@ -326,7 +330,26 @@ multinomial <- function(stateinfo, nlevel, pattern) {
                  " levels, to match the pattern matrix")
     }
             
-    list(rfun=rfun, pname=pname, subset=subset, check= check)
+    list(rfun=rfun, pname=pname, subset=subset, check= checkfun)
 }
 
 
+# the distribution for an state observed without error
+nerror <- function(stateinfo, ...) {
+    rfun <- function(y, eta, gradient=FALSE, npeak, map) {
+        # eta should be 0 columns, gradient will be ignored
+        nstate <- length(map)
+        yprob <- matrix(0., nstate, length(y))
+        # missing a line here
+        }
+    temp <- formals(rfun)
+    temp$npeak <- npeak
+    temp$map <- stateinfo$index
+    formals(rfun) <- temp
+
+    checkfun <- function(y, zzz) {
+        # all of y in statecol column's values
+    }
+    list(rfun=rfun, pname=NULL, check= checkfun)
+}
+        
