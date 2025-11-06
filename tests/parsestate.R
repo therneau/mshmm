@@ -72,35 +72,35 @@ all.equal(check3, test2$cmap)
 
 
 # Now look at a marker list
-mlist <- list(log(pib) + log(tau) ~ A(0:1) /gaussian,
-              sqrt(p.tau181) ~ A(0:1)/gaussian,
-              sqrt(p.tau181) ~ A(0:1)/gaussian(param="std") + common,
-              log(wmh) ~ N + icvol+ sex/ logistic)
+mlist <- list(A(0:1):log(pib) + A(0:1):log(tau) ~ 1/ gaussian,
+              A(0:1):sqrt(p.tau181) ~ 1 /gaussian,
+              N:log(wmh) ~ 1/ logistic,
+              N:log(wmh) ~ icvol/ logistic(param= "mean") + common)
 
 test1 <- parsemarker1(mlist, statedata)
 
-# formula = the bits that need to pasted up so as to all variable in the
-#  model frame
+# the markers, needed to create the model frame
 all.equal(test1$marker, c("log(pib)", "log(tau)", "sqrt(p.tau181)", 
-                         "sqrt(p.tau181)", "log(wmh)"))
+                         "log(wmh)", "log(wmh)"))
+all.equal(test1$nmarker, c(2,1,1,1))
+
 # stateinfo has a summary of the column of statedata that was used,
-# one element per formula in mlist
+# one element per marker
 # A(0:1) states that for statedata$A, the '0', and '1' elements will map
 #  to unique Gaussian peaks, A2 = death has no pib or tau distribution
 #  levels need not be numeric, index is of length nstate and shows which
 #  peak each state maps onto.
 #  
-all.equal(test1$stateinfo,
-    list(list(sname="A", levels=0:1, index=c(1,2,1,2,1,2,0)),
-         list(sname="A", levels=0:1, index=c(1,2,1,2,1,2,0)),
-         list(sname="A", levels=0:1, index=c(1,2,1,2,1,2,0)),
-         list(sname="N", levels=0:2, index=c(1,1,2,2,3,3,0))))
+temp2 <- list(sname="A", levels=0:1, index=c(1,2,1,2,1,2,0))
+temp3 <- list(sname="N", levels=0:2, index=c(1,1,2,2,3,3,0))
+all.equal(test1$stateinfo, list(temp2, temp2, temp2, temp3, temp3))
 
 all.equal(test1$options, list(as.name("gaussian"), as.name("gaussian"),
-                          expression(gaussian(param="std") +common)[[1]], 
-                          as.name("gamma")))
-all.equal(unlist(test1$mterm), c("icvol", "sex"))
-all.equal(test1$nmarker, c(2,1,1,1))
+                              as.name("logistic"),
+                              expression(logistic(param="mean") +common)[[1]])) 
+
+all.equal(test1$mterm, list(~1, ~1, ~1, ~icvol))
+
 
 test2 <- parsemarker2(test1, statedata, terms(newform), Xname, Xassign,
                       markerlevel =NULL)
