@@ -88,9 +88,9 @@ hmm <- function(formula, data, subset, weights, na.action,
     # grab markers for the hidden states
     if (missing(markers)) stop("hmm model must have markers")
     marker1 <- parsemarker1(markers, statedata)
-    nmarker <- length(marker1$marker)  # number of markers
-    # the result has a separate list of markers (character) and covariates 
-    #  for markers (list of NULL or char))
+    nmarker <- length(unique(marker1$marker))  # number of markers
+    # the result has a separate list of markers (character) and formulas for
+    #  the covariates of the markers (most or all of which might be ~1)
     
     # Deal with an initial formula (not yet done)
     iformula <- NULL
@@ -107,7 +107,9 @@ hmm <- function(formula, data, subset, weights, na.action,
         # The above test can be fooled: use log(pib) as a marker and pib for 
         #  a rate.
     }
-    tlab <- c(tlab, unlist(marker1$mterm), marker1$marker) #markers last
+    mlab <- unlist(lapply(marker1$mterm, function(x) {
+        attr(terms.formula(x), "term.labels")}))
+    tlab <- c(tlab, mlab, marker1$marker) #markers last
     newform <- reformulate(unique(tlab), dformula[[2]])
     environment(newform) <- environment(dformula)
     formula <- newform  # used for model.frame, not reported to user

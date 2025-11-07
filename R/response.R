@@ -25,8 +25,8 @@ gaussian <- function(stateinfo, markerlevel, param) {
     if (missing(param)) subset= seq(along=pname)
     else {
         index <- match(param, c("mean", "std"))
-        if (any(is.na(indx))) 
-            stop("unrecognized gaussian parameter: ", param[is.na(indx)])
+        if (any(is.na(index))) 
+            stop("unrecognized gaussian parameter: ", param[is.na(index)])
         if (all(sort(index) == 1:2)) subset<- seq(along=pname)
         else if (index==1) subset <- 1:npeak * 2L - 1L
         else subset <- 2L* 1:npeak
@@ -76,10 +76,10 @@ makedistlabels <- function(stateinfo, parms) {
     nparm <-length(parms)
     # I don't need to say "state(dementia)", "dementia" will do
     if (stateinfo$sname == "state") 
-        paste0(rep(stateinfo$levels, each=nparm), '.', rep(parms, nlev))
+        rbind(rep(stateinfo$levels, each=nparm), rep(parms, nlev))
     else {
         temp <- paste0(stateinfo$sname, '(', stateinfo$levels, ')')
-        paste0(rep(temp, each=nparm), '.', rep(parms, nlev))
+        rbind(rep(temp, each=nparm), rep(parms, nlev))
     }
 }
 
@@ -90,8 +90,8 @@ logistic <- function(stateinfo, markerlevel, param) {
     if (missing(param)) subset= seq(along=pname)
     else {
         index <- match(param, c("mean", "std"))
-        if (any(is.na(indx))) 
-            stop("unrecognized logistic parameter: ", param[is.na(indx)])
+        if (any(is.na(index))) 
+            stop("unrecognized logistic parameter: ", param[is.na(index)])
         if (all(sort(index) == 1:2)) subset<- seq(along=pname)
         else if (index==1) subset <- 1:npeak * 2L - 1L
         else subset <- 2L* 1:npeak
@@ -143,8 +143,8 @@ beta <- function(stateinfo, markerlevel, param) {
     if (missing(param)) subset= seq(along=pname)
     else {
         index <- match(param, c("shape1", "shape2"))
-        if (any(is.na(indx))) 
-            stop("unrecognized beta parameter: ", param[is.na(indx)])
+        if (any(is.na(index))) 
+            stop("unrecognized beta parameter: ", param[is.na(index)])
         if (all(sort(index) == 1:2)) subset<- seq(along=pname)
         else if (index==1) subset <- 1:npeak * 2L - 1L
         else subset <- 2L* 1:npeak
@@ -280,9 +280,9 @@ multinomial <- function(stateinfo, nlevel, pattern) {
     p2 <- pattern # modify this into "standard" form
     ref <- apply(pattern, 1, function(x) min(which(x!=0)))
     p2[cbind(1:ngroup, ref)] <- -1
-    indx <- which(p2>0)
-    p2[indx] <- rank(p2[indx], ties="first")
-
+    index <- which(p2>0)
+    p2[index] <- rank(p2[index], ties="first")
+    # make pname
     
     rfun <- function(y, eta, gradient=FALSE,  npeak, map) {
         # y a vector of m values, m= number of measurements of this biomarker

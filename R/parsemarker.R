@@ -206,9 +206,8 @@ parsemarker2 <- function(parse1, statedata, Terms, Xname, Xassign,
         }
         do.call(tdist$dist, arglist)
     })    
-    browser()    
     
-    # The total number of linear predictors = col names for tmap and cmap
+    # Create col names for tmap and cmap, one per linear predictor
     temp <- lapply(1:nform, function(i)
         paste(parse1$marker[i], rlist[[i]]$pname, sep=':'))
     lpname <- unique(unlist(temp))
@@ -216,11 +215,12 @@ parsemarker2 <- function(parse1, statedata, Terms, Xname, Xassign,
     cmap <- matrix(0L, nrow=length(Xname), ncol= numlp,
                    dimnames=list(Xname, lpname))
 
-    if (length(unlist(parse1$mterm)) >0) {
-        # there are extra variables, create tmap
+    if (any(sapply(parse1$mterm, function(x) x != ~1))) {
+        # at least one marker formula is more than "~1", we will need tmap
         tmap <- matrix(0L, nrow=length(attr(Terms, "term.labels")), ncol=numlp)
+        intercept <- sapply(parse1$mterm, hasintercept)
     } else tmap <- NULL
-
+    browser()
     # Walk through the formulas one at a time and build cmap,
     # dealing with "common"
     #
@@ -240,5 +240,14 @@ parsemarker2 <- function(parse1, statedata, Terms, Xname, Xassign,
         index1 <- m     
     }
 }             
-                                     
-                        
+                                                           
+# Run down the formula parse tree and see if there is an explicit
+#  intercept term, i.e. a "1".  An intercept won't be part of an interaction
+#  so no need to chase *, : or (.
+hasintercept <- function(x) {
+    if (class(x) == "formula") hasintercept(x[[2]])
+    else if (is.numeric(x) && x==1) TRUE
+    else if(is.call(x) && x[[1]] == as.name("+")) 
+       (hasintercept(x[[2]]) || hasintercept(x[[3]]))
+    else FALSE
+}
