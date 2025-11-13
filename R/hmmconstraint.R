@@ -1,19 +1,19 @@
 # The user provides constraints as special data sets, each row specifies
-#  a linear predictor _eta_, a constraint id _cid_ and a constant _cval_
+#  a linear predictor _lp_, a constraint id _cid_ and a constant _cwt_
 #
 hmmconstraint <- function(cdata, Terms, cmap) {
     if (!inherits(cdata, "data.frame")) 
         stop("constraint or penalty must be a data frame containing ",
-             " _eta_, _cid_, and _cval_ variables")
-    indx <- match(c("_eta_", "_cid_", "_cval_"), names(cdata))
+             " _lp__, _cid_, _cwt_ and data set variables")
+    indx <- match(c("_lp__", "_cid_", "_cwt_"), names(cdata))
     if (any(is.na(indx)) 
         stop("constraint or penalty must be a data frame containing ",
-             " _eta_, _cid_, and _cval_ variables")
-    X <- model.matrix(Terms, data=cdata)  # this won't have _eta_, cid, cval
+             " _lp__, _cid_, and _cwt_ variables")
+    cX <- model.matrix(Terms, data=cdata)  # this won't have _lp_, _cid_, _cwt_
 
-    etaid <- match(cdata[,"_eta_"], colnames(cmap))
+    etaid <- match(cdata[,"_lp__"], colnames(cmap))
     if (any(is.na(etaid))) {
-        bad <- unique(cdata[,"_eta_"][is.na(etaid)])
+        bad <- unique(cdata[,"_lp__"][is.na(etaid)])
         stop("linear predictor not found in model: ", bad[1])
     }
 
@@ -22,19 +22,21 @@ hmmconstraint <- function(cdata, Terms, cmap) {
         any(cid<1))
         stop("the constrast id _cid_ must be a postive integer")
     idcount <- table(cid)
-    if (any(idcount) ==1)
-        stop("contrasts must be beteen at least 2 predicted values")
+    # I'm not so sure about this check. Perhaps someone does want a certain,
+    #   single predicted value to be >=0 (?)
+    #if (any(idcount) ==1)
+    #    stop("contrasts must be between at least 2 predicted values")
 
-    cval <- cdata[, "_cval_"]
-    if (!is.numeric(cval) || any(is.na(cval)))
-        stop("contrast weights _cval_ must be numeric, not missing")
+    cwt <- cdata[, "_cwt_"]
+    if (!is.numeric(cwt) || any(is.na(cwt)))
+        stop("contrast weights _cwt_ must be numeric, and not missing")
 
     cid <- match(cid, unique(cid)) # make them 1, 2, ... for convenience
-    cmat <- matrix(0, max(cid), nrow(cmat))
+    const <- matrix(0, max(cid), nrow(cmap))
     for (i in 1:max(cid)) {
         for (j in which(cid==i)) {
             xvar <- which(cmap[,eta[j]] > 0) # variables for this lp
-            cmat[i,xvar] <- cmat[i, xvar] <- cval[j]* X[j, xvar]
+            const[i,xvar] <- const[i, xvar] + cwt[j]* X[j, xvar]
     }
-    cmat
+    const
 }    

@@ -32,7 +32,8 @@ palette("Okabe-Ito")
 \section{Introduction}
 The two main functions of this package deal with interval censored data
 from a multi-state hazard (MSH) model, where the states are either known
-(the \code{icmsh} function) or latent, the latter is known as a hidden
+(\code{icmsh} function) or latent (\code{hmm} function).
+An MSH model with latent states is known as a hidden
 Markov model since the true states are not directly observed, they are
  ``hidden''.  HMM fits have been a primary driver of this work and so will
 be a greater focus in this vignette.
@@ -50,9 +51,10 @@ two packages.
   \item For more complex data, like the dementia example found further below in
     this vignette, the underlying optimization functions in msm were very often
     not successful at finding the maximum, and very slow when they did succeed.
-    Expermentation with more robust approaches, along a need for these models 
-    within our dementia research program, was the primary driver for the mshmm
-    package.  Some aspects of the msm code made such extension of the 
+    Expermentation with more robust approaches, along with a need for these 
+    models within our dementia research program, 
+    were the primary drivers for the mshmm package.
+    Some aspects of the msm code made extension of the 
     optimization more difficult, e.g., the addition of constraints. 
     It was just easier to start fresh.
   \item Follow-up summaries of the model, e.g., mean time in state, are more
@@ -80,7 +82,7 @@ form:
   \item Covariates apply over the entire interval, from start to finish
   \item Outcomes occur at the end of the interval
 \end{itemize}
-The data for msm and hmm should be in \emph{timeline} form.
+The data for hmm should be in \emph{timeline} form.
 \begin{itemize}
   \item Each line of the data has a subject id, along with a time value
   \item Other variables on the line are information that was measured or
@@ -98,7 +100,7 @@ status of alive.  A second
 observation at the time of death or last follow-up will have the status at that
 time point (alive/dead). 
 That second observation will also have many missing values, e.g., blood
-pressure would not normally be known at the death date, especially if
+pressure would not normally be known at death, especially if
 death date is gathered from other sources.
 
 
@@ -142,9 +144,9 @@ The 622 subjects have betwen 2 and 15 assessments,
 less than 1/2 have more than 4.
 
 For either interval censored or HMM data we need to specifiy the set of
-valid transitions $Q$. For hmm this is a matrix of 0/1 values, which can
+valid transitions $Q$.  This is a matrix of 0/1 values, which can
 also be used by the statefig routine. 
-(Positive values other than 1 are allowed, as they are used to draw curved
+(Positive values other than 1 are allowed, since they are used to draw curved
 lines in statefig.)
 The row/column names of the transition matrix are the names of the states,
 levels in the Surv object need to match these.
@@ -268,7 +270,7 @@ hazards model, much like those addressed by multistate hazard (MSH) models
 fit using the coxph function in the survival library.
 Here is a moderately complex model for illustration, based on a dementia study. 
 <<states>>=
-states <- c(outer(paste0("A", 0:1), paste0("C", 0:2), paste, sep=':'), "death")
+states <- c(outer(paste0("A", 0:1), paste0("C", 0:2), paste, sep='.'), "death")
 statedata <- data.frame(state= states,
                         A=c(0,1, 0,1, 0,1, 2),
                         N=c(0,0, 1,1, 2,2, NA),
@@ -279,14 +281,15 @@ statefig(cbind(2,2,2,1), qmat, alty=rep(1:2, c(7,8)))
 @ 
 
 The above model assumes two latent processes, amyloid accumulation in the brain,
-and cognitive decline from no impairment to high.
-The premise of an HMM is that the states are not directly observed, rather
+A0 and A1,
+and cognitive decline from no impairment to high, C0, C1, C2.
+The premise of an HMM is that these states are not directly observed, rather
 what we see are biomarkers that indicate, imperfectly, the underlying process.
 The latent or ``hidden'' states operate in continuous time, so transitions in
-the figure will be a change in A or N, never both at once.  
+the figure are a change in A or N, never both at once.  
 Because of intermittent observation a subject might well be in A0:N0 at one
 visit and A1:N2 at the next, but the unobserved continuous process would not
-have made an instaneous multistate jump.
+have made an instantaneous multistate jump.
 
 Here is a possible specification for a model.  
 It is purposely a very general one.
@@ -296,23 +299,28 @@ mfit <- hmm(list(Surv(time, death) ~ male,
                  0:death ~ iage,
                  A(0):A(1) ~ apoe + male + ns(iage,4)/ common,
                  C(0):C1(1) + C(1):C(2) ~ iage + cmc),
-            marker = list(diag ~ N/ multinomial(pattern= pmat),
-                          memory~ N + practice/ gaussian,
-                          centiloid + sqrt(p.tau181) ~ A(1:2) /gaussian)
+            marker = list(C:dx ~ 1/ multinomial(pattern= pmat),
+                          C:memory~ 1 /logistic,
+                          C:memory~ practice/ logistic(param=mean) + common,
+                          A(1:2):centiloid + A(1:2):sqrt(p.tau181) ~1/gaussian),
             data= dementia, id=ptnum, qmatrix = qmat, 
             statedata = statedata)
 @ 
 
 Full estimation includes 13 transition rates (arrows), along with the 
 relationship
-of 4 biomarkers (diag, memory, centloid, and p.tau181) to the underlying
+of 4 biomarkers (dx, memory, centloid, and p.tau181) to the underlying
 states. It is a complex model, with a lot of parameters, and the 
-specification is also complex. The statedata makes specification a bit 
+specification is also complex. The statedata data set makes specification a bit 
 easier by setting up aliases, e.g., A(0) is shorthand for A0:C0, A0:C1 and
-A0:C2. It has one row per state, in the same order as they are found in
-the transition matrix \code{qmat}.
+A0:C2. 
+The data set has a row per state, in the same order as they are found in
+the transition matrix \code{qmat}.  It's first column must be a variable
+named ``state'', the other columns provide aliases.
 
-First, each of the 13 transition rates is modeled as $\exp(\beta X)$, in the
+The specification for the 13 transitions rates has the same form as in the
+coxph and icmsh functions.  Each of the rates is
+ modeled as $\exp(\beta X)$, in the
 same manor as a Cox model, each transition has it's own equation.
 The formula argument, the first argument of the hmm function, is a list
 whose first element is the default formula for each transiton, subsequent lines
@@ -328,7 +336,39 @@ Here is a sample from the above:
 \end{itemize}
 Behind the scenes the A(0):A(1) specification translates as any valid transition
 from a state where the A column of statedata is 0, to one where the A
-column is 1.  The valid transitions are specified in the transition matrix.
+column is 1.  
+Going from row 1 (A0.C0) to row 6 (A1.C2) formally satisfies the A(0) to A(1)
+pattern, but is not one of the valid transitions, per qmat.
+
+The marker specification is also a list of formulas. The 
+\code{C:memory ~ /gaussian}
+specification states that each of the true cognitive states C has an expected
+distribtuion of memory scores which follows a logistic distribution: true
+state C(0) gives rise to logistic($\mu_1$, $\sigma_1$) memory scores,
+true state C(1) gives rise to logistic($\mu_2$, $\sigma_2$) memory scores,
+and true state C(3) to logistic($\mu_3$, $\sigma_3$). This gives rise to
+6 linear predictors in the model, one for each mean and log(std) value.
+Memory scores tend to be systematically better when the same test is 
+readministered a second time, this practice effect is often coded as a factor
+with levels of 0, 1-2, 3+ for the number of prior tests.
+The second memory line states that the linear predictors for $\mu_1-\mu_3$
+will also include the practice effect, and that this effect is assumed to
+be the same size for all 3 latent states.
+(An assumption that is open to challenge; a C2 subject might not remember prior
+test exposures as well.) 
+
+A latent state of none/low amyloid, A(0), is assumed to lead to 
+gaussian distributions for centloid values and for log(tau), 
+PET based biomarkers, and ditto for A(1). The A(3) row, death, will never
+correspond to a PET measurement.
+This leads to 2 markers * 2 state groups * 2 parameters = 8 linear predictors.
+In this case each LP is simply an interecept.
+The diagnosis variable is categorical, leading to a multinomial distribution
+for the state:marker combination. The pattern argument will be illustrated in
+a later example.
+
+
+
 
 The first major difference between the MSH and HMM models is that observations
 on each state come from interval censored data, also known as panel data. 

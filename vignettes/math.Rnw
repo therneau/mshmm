@@ -1,6 +1,6 @@
 \documentclass{article}
 \usepackage{amsmath}
-\title{Hidden Markov Models}
+\title{Interval censored multi-state hazard models}
 \author{Terry Therneau}
 
 \addtolength{\textwidth}{1in}
@@ -8,7 +8,7 @@
 \setlength{\evensidemargin}{\oddsidemargin}
 \newcommand{\code}[1]{\texttt{#1}}
 
-%\VignetteIndexEntry{HMM theory}
+%\VignetteIndexEntry{Model theory}
 %\VignetteEngine{knitr::knitr}
 \begin{document}
 \maketitle
@@ -26,10 +26,148 @@ knitr::opts_chunk$set(comment=NA, tidy=FALSE, highlight=FALSE, echo=FALSE,
 @ 
 
 \section{Introduction}
-This report describes the underlying mathematics behind the HMM models.
-It took me a long time to get this straight in my own mind, and this is at
-least in part documentation for a future me who has forgotten the
-details.
+This report describes the underlying mathematics behind interval censored
+multistate hazard models, and their extension to model with latent states,
+which are a variant of hidden Markov models.
+The second of these can in particular be complex, and took me some time
+to assimilate.
+The report is at least in part documentation for a future me who has 
+forgotten the details.
+We will first talk about interval censored models, then build on that for
+HMM
+
+\section{Multi-state hazard models}
+The survival package deals with multistate hazard models that are based on a 
+non-parametric baseline hazard.
+The Aalen-Johansen estimator is a natural extension of the Kaplan-Meier,
+and the MSH models a natural extension of the Cox model.
+The \code{survfit} routine produces both the KM and AJ estimates, and the
+\code{coxph} function estimates both the simple proportional hazards (Cox)
+model and its multistate extention.
+
+\begin{figure}
+<<nafld1, echo=FALSE>>=
+states <- c("0MC", "1MC", "2MC", "3MC", "death")
+smat <- matrix(0, 5,5, dimnames=list(states, states))
+smat[1,2] <- smat[2,3] <- smat[3,4] <- 1
+smat[1:4,5] <- 1
+smat[1,3] <- smat[2,4] <- smat[1,4] <- .7
+statefig(rbind(4,1), smat, alty= c(1,2,1,2,2,1,1,1,1,1))
+@ 
+ \caption{Transitions for the NAFLD data, 0--3 = number of the defined
+metabolid comorbidites.}
+ \label{nafld}
+\end{figure}
+
+This library deals with interval censored variants of thes models. 
+As an illustration consider Figure \ref{nafld1}, 
+which shows the state space diagram for the NAFLD data set, an
+example used in the survival vignette [ref].  
+At any given visit subjects will
+have 0 or more of three predefined metabolic comorbidites (MC):
+diabetes, hypertension, and hyperlipidemia.
+If measured continuously, subjects will progress via the solid arrows from 0 
+to 1 to 2 to 3 comorbidities.
+We assume that no one progresses on two of the markers at the exact same 
+instant.
+In the observed data, however, there will be subjects who are in the 0MC
+state at one visit, and in the 2MC state at their next visit, that following
+visit might be several years later.  Such visit pairs lead to the dashed
+line transtions in Figure \ref{nafld1}.
+(Since comorbidities in the study were defined as ``history of diabetes'', 
+``history of dyslipidemia'', etc. no one can go backwards.)
+
+The MSH model fit by coxph treats the transition times between states as
+exact.  An observation of first diabetes on day 257 creates a jump in the
+hazard, and an addition to the partial likelhood, at day 257.  
+For simplicity assume that day 257 was the first physician appointment after
+enrollment at day 0, and only diabetes was observed at that appointment.
+The interval censored multistate model fit by \code{ismh} adds the
+value Pr(in state 1MC at time 257 | in state 0MC at time 0) to the likelihood
+at this point, where \code{coxph} adds hazard(tranferred from 0MC to 1MC on
+exactly day 257).  This is the primary conceptual difference between the
+models.
+
+The perceptive user will have noticed that a call to ismh looks remarkably
+like a call to coxph.  One differnce is that first, imsh requires
+a matrix of valid transions $Q$.  For the above data this is shown below,
+and corresponds to the solid arrows.
+
+<<qmatrix>>=
+states <- c("0MC", "1MC", "2MC", "3MC", "death")
+qmat <- matrix(0, 5,5, dimnames=list(from=states, to=states))
+qmat[1,2] <- qmat[2,3] <- qmat[3,4] <- 1
+qmat[1:4, 5] <- 1
+qmat
+@ 
+
+A second is that the code needs to distinguish death, which is not interval
+censored, e.g., ``we know they died between year 1 and 2 but not when'' does
+not occur.  We might note learn of death until after the fact, but the
+actual date of death will be recorded.
+Assume that the rates for each of 7 valid transitions is constant over some
+period $(s,t)$, with event rates $q_{jk} = exp(\eta_{jk})$ for each of the
+valid transitions.  Define the nstate by nstate hazard matrix $H$ is
+\begin{align}
+H_{jk} &= \left{ \array{cc} exp(\eta_{jk}) & Q_{jk} =1 \\
+             0 & Q_{jk}=0, j\ne k \end{array} \right. \label{qfill}\\
+\sum_kH_{jk} &=0 \label{hdiag} \\
+ P(s,t) &= e^H
+\end{align}
+Equation \ref{qfill}, that row sums of $H$ are zero, defines the diagonal
+elements of $H$; the diagonal of $Q$ is always 0.
+$P(s,t)$ is the probability transition matrix from $s$ to $t$, where exp is
+the matrix exponential.
+
+The exponential of a matrix is defined parallel to the simple exponential
+\begin{align*}
+\exp(A) &= I + A + A^2/2! + A^3/3! + \ldots \\
+        &= lim_{n \rightarrow \infty} (I + A/n)^n
+\end{align*}
+The function has a reputation for computational difficulty \cite{Dongarra},
+but modern software is quite good, and it turns out that the $H$ matrices
+are one of the more benign cases for the algorithms.
+
+The likelihood can be computed separately for each subject $i$, over the next
+2 paragraphs we suppress any $i$ subscript for simplicity.
+Let $\alpha$ be a vector with one element per state, containing the estimated
+probability in state for the subject.
+Using timeline data, the initial value for $\alpha$ is 
+(0, 0, ldots, 1, 0, \ldots 0), i.e, a 1 in the observed intial state.
+Now march forward over time intervals $(t_0, t_1, ....t_k)$ for this subject
+\begin{itemize}
+  \item Compute $H(t_0)$ using covariate value at time $t_0$
+  \item Set $\alpha^{(1)} = \alpha^{(0)} \exp[(t_1-t_0) H(t_0)]$
+  \item If observed to be in state $k$ at $t_1$, set $\alpha_j=0, j\ne k$.
+    If censored at $t_1$ do nothing.
+  \item Compute $H(t_1)$ using covariate value at $t_1$
+  \item Set  $\alpha^{(2)} = \alpha^{(1)} \exp[(t_2-t_1) H(t_0)]$
+   \item ...
+\end{enumerate}
+
+This can be written as
+$$
+ \alpha_0 P(t_0,t_1) D_1 P(t_1, t_2) D_2 \ldots D_k
+$$
+where each $D$ matrix is either the identity, if that row is censored, 
+$D$ is diagonal with $d_{kk}=1$ if this is an interval censored observation
+observed to be in state $k$,
+and if death is observed the non-diagonal matrix
+$$
+ D_{jk} = \left{ \begin{array}{cc}
+        H_{jk} & j /ne k, k= \rm{death} \\
+        0 , otherwise
+        \end{array} \right.
+$$
+
+The final result will be a vector with nstate elements, the likelihood for this
+subject is the sum of the elements.
+             
+
+\section{Hidden Markov Models}
+For an HMM there are no observed interval censored states, there are laten
+states and one or more exact states, e.g., death, where the time of entry
+to the state is known, and the state cannot be mistaken for any other.
 
 A primary reference for the material is Christopher Jackson's excellent manual 
 for the msm package \cite{Jackson16}.

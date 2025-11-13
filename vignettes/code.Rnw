@@ -73,7 +73,7 @@ Here is the transition matrix for a moderately complex model.
 We have two latent amyloisis states, and 3 latent cognitive states.
 
 <<qplus>>=
-states <- c(outer(paste0("A", 0:1), paste0("C", 0:2), paste, sep=':'), "death")
+states <- c(outer(paste0("A", 0:1), paste0("C", 0:2), paste0), "death")
 statedata <- data.frame(state= states,
                         A=c(0,1, 0,1, 0,1, 2),
                         N=c(0,0, 1,1, 2,2, NA),
@@ -248,26 +248,35 @@ the left hand sides and the options are dealt with in pass 2.
 which is used to create the model frame and the X matrix.
 The left hand sides information and the options are dealt with in pass 2.
 
+\paragraph{Markers}
 The markers formulas can be a bit more complex.
 Here are some valid ones
 \begin{itemize}
-  \item \code{log(amyloid) + log(tau) ~ A(0:1) / gaussian}
-  \item \code{pzmemory ~ N + practice / gaussian(param='mean')}
-  \item \code{pzmemory ~ N / gaussian(param='std')}
-  \item \code{dx ~ state / multinomial(pattern = pmat)}
+  \item \code{A(0:1):log(amyloid) + A(0:1):log(tau) ~1 / gaussian}
+  \item \code{N:pzmemory ~ 1 / gaussian}
+  \item \code{N:pzmemory ~ practice / gaussian(param='mean')/ common}
+  \item \code{state:dx ~1   / multinomial(pattern = pmat)}
 \end{itemize}
 
-For these creation of the model frame will require the marker variables,
+I would not recommend putting two markers on one line, but it is allowed
+should someone want to force common paramenters.  I can't think of a use
+case for this, and will likely not mention it in the documentation.
+Having two lines for a marker is necessary for the case above, where we
+want to force the practice effect to be common, but not the means.
+
+The parsemarker1 routine separates out the options (a list with one
+element per formula), the right hand side less the options (most of which
+are ~1 formulas), the vector of marker names, and a list with the
+state information for each marker:state pair.  Last is a vector giving
+the number of markers per line, so that the parsemarker2 routine can
+match markers to formulas.
+For these creation of the model frame, hmm will require the marker variables,
 log(amyloid), log(tau), pzmemory, and dx,
 along with any further covariates on the right hand side, 'practice' in
-this case. 
-The \code{attr(terms(formula), 'term.labels')} construct used in hmm does
-not work correctly for a formula with multiple variables on the left,
-so parsemarker needs to return a list of modified formulas that have these
-terms. The further elements of the markers, states, distribution, and
-other covariates are dealt with later.
+this case. Everything else is passed forward.
 
 \subsection{ Second pass}
+\paragraph{Transitions}
 The left hand side of each formula specifies the set of transitions to which
 the covariates apply, and is more complex.
 Say instance that we had 7 states and the following statedata
@@ -298,25 +307,28 @@ data set.
      by the R parser
 \end{enumerate}
 
-
-For the second step of parsing, what we need from parsecovar2 and parsecovar3
+For the second step of parsing, what we need from parsecovar2
 is the coefficient map \code{cmap}. 
 It has one row for each covariate, one column for each transition, and contains
-the index of the relevant coefficient, for the linear predictor of the
-given transition; 0 if this particular covariate is not relevant to the given
+the index of the relevant coefficient(s) for the linear predictor of the
+given transition; 0 if this particular covariate is not relevant to the
 transition.
-Given \code{cmap} 
-Given this, there is a simple transformation from
+Given \code{cmap}, there is a simple transformation from
 the total coefficent vector \code{coef} to a matrix form B
-with one column per transition, such that \verbzX%*% Bz gives the
+with one column per transition, see the coef.to.B function. 
+B will have 0 wherever cmap is zero, and \verbzX%*% Bz gives the
 matrix of linear predictors; one row per observation, one column per transition.
+Each row is used to fill in elements of $H$, which is used to create transtion
+probability matrices $P_i(t) = exp(H)$.
+
 A matrix \code{tmap} with one row per term is an intermediate step: a factor 
 or ns() term has multiple coefficients.  The term() function (and users) work
 with terms, the assign attribute of the X matrix translates this to 
 coefficients.
 
-not yet done, document the details of parsecovar2 and parsecovar3
+not yet done, document the details of parsecovar2
 
+\paragraph{Markers}
 To understand the role of markers, first write out the likelihood.
 Assume there were three markers a, b, c, then the likelihood 
 for any given subject can be written as
@@ -332,9 +344,6 @@ Each row of $XB$ for a subject generates a transition matrix $P$ except the
 last, and row of data with markers generates a set of $D$ matrices, 
 otherwise $D$ is the identity matrix.
 
-For the transition matrices, the overall $XB$ matrix is exactly what we need.
-The likelihood computation for an hmm is separate for each subject; the parallel
-routine for a subject can be handed the rows of $XB$ for that subject.
 For the markers it is useful to think about the compuation piecewise.
 \begin{enumerate}
   \item For many data sets, in particular those which treat current age as a
@@ -342,8 +351,7 @@ For the markers it is useful to think about the compuation piecewise.
     age, most rows won't corrspond to time points at which markers were 
     measured.  Even for data rows that 
     correspond to a patient visit, not every marker will may measured on every
-    subject.  Thus it is useful to have separate
-    y vectors for each marker, to avoid spurious NA.
+    subject. 
   \item The $D$ matrix for a given subject $i$, time $j$ and marker $m$
     has diagonal element
     $D_{kk} = f(y_{ijm}; \eta_{ijk1}, \eta_{ijk2}, \ldots)$ where $k$ is the state,
@@ -351,31 +359,35 @@ For the markers it is useful to think about the compuation piecewise.
     and 1, 2, etc are the parameters of the distribution, e.g., mean and std.
   \item Diagonal element $k$ of $D$ is the likelihood of seeing this particular
     $y$, given that the true state is $k$.
-  \item Each $\eta$ has two parts
-    \begin{itemize}
-      \item An intercept due to state, identical for all subjects.
-      \item A per observation portion due to any extra variables, 
-        such as \code{practice} in
-        the example above.  Normally there will be none.
-    \end{itemize}
+  \item The code creates a response function for each state:marker pair.
+    As input it will have the vector of $m$ observed values for the marker 
+    (missings excluded) and a matrix of $\eta$ values with $m$ rows and the
+    appropriate number of columns, along with control values determined at
+    setup.  It returns a matrix with a row per state and $m$ columns, each
+    column contains the elements of one of the D matrices.
 \end{enumerate}
+
+The parsemarker2 routine will need to generate a list containing the response
+function for each marker, along with the index of which columns of the cmap
+matrix map into each, along with cmap.
 
 Look again at the marker equations:
 \begin{itemize}
-  \item \code{log(amyloid) + log(tau) ~ A(0:1) / gaussian}
-  \item \code{pzmemory ~ N + practice / gaussian(param='mean')}
-  \item \code{pzmemory ~ N / gaussian(param='std')}
-  \item \code{dx ~ state / multinomial(pattern = pmat)}
+  \item \code{A(0:1):log(amyloid) + A(0:1):log(tau) ~ 1 / gaussian}
+  \item \code{N:pzmemory ~ 1/ logisitic}
+  \item \code{N:pzmemory ~ practice / gaussian(param='mean')}
+  \item \code{state:dx ~ 1 / multinomial(pattern = pmat)}
 \end{itemize}
 
 \begin{itemize}
  \item The first thing is that in an HMM the value of a marker is
-   predicted from the state, not vice versa, thus the marker is coded as the
-   response. The state must be the first predictor, and is often the only one. 
-   We always treat it as a factor, e.g., an intercept per state.
-   ``A'' above says to use the ``A'' column of the state data.  Subjects in the
-   A0N0, A0N1 and A0N2 states are assumed to have the same distribution of 
-   amyloid.
+   predicted from the state, not vice versa, the ordering N:pzmemory is
+   intentional. Having the mean as the only predictor is common.
+   A(0:1) above says to use the ``A'' column of the statedata data set.
+   Subjects in the A0N0, A0N1 and A0N2 states are assumed to share the same 
+   mean and std for their amyloid values. 
+   The A=3 row of statedata is the death state; there is no mean or std since
+   amyloid PET is not performed on a corpse.
  \item The specified distribution will have multiple parameters, the mean
    and std for a Gaussian for example. As in lines 2 and 3 we can specify
    different formulae for the mean and std, mean memory scores are influenced 
@@ -386,18 +398,18 @@ Look again at the marker equations:
    the mapping between linear predictors and states.
 \end{itemize}
 
-
-
-Start with a simple case. For a gamma distribution there will be 2 parameters
-per peak, the mean and std.  The number of peaks is taken from the relevant
-column of statedata: 2 for A, 3 for N.  The total number of linear predictors
-for the log(tau):A(0:1) mapping will be 4 with names of ``log(tau):mean.A0'',
-``log(tau):mean.A1'', ``log(tau):log(std).A0'' and ``log(tau):log(std).A1''.
-The density routine will be passed a vector $y$ of log(tau) values, a
-4 column matrix of parameters, and the mapping of the two peaks to the 7 states.
-It will return an nstate by $m$ matrix of
-probabilities where $m$ is the number or rows of $y$.  
-The associated cmap will have 4 columns and rows for the intercept and practice.
+For a gaussian distribution there will be 2 parameters per peak, the mean 
+and std. Likewise for logistic and gamma.
+The number of peaks is taken from the relevant column of statedata: 2 for A, 
+3 for N.  The total number of linear predictors for the A:log(amyloid) mapping
+will be 4, with names of ``A0:log(amyoid).mean'', ``A0:log(amyloid).log(std)'',
+``A2:log(amyoid).mean'' and  ``A1:log(amyloid).log(std)''.  
+The response function will be passed an $m$ by 4 matrix of linear predictors,
+where $m$ is the number of non-missing values of log(amyloid),
+It will return a nstate=7 by $m$ matrix of probabilities, the last (death)
+row of which is 0.  
+The associated cmap will have 4 columns with nonzero elements in the rows
+rows for the intercept (4 columns) an and practice (2 columns).
 
 A multinomial outcome will have labels that are not quite as obvious. Say that
 we have the following pattern matrix.
@@ -411,34 +423,38 @@ pmat
 This has declared that we will never mistakenly apply a ``dementia'' label to
 someone who is in the C0 state, nor a ``cognitively unimpaired'' label to
 one who is in dementia. Thus the multinomial distribution for true C0 has
-only 1 parameter (it is binomial) and likewise for C2, C1 has 2 parameters.
+only 1 parameter (it is effectively binomial) and likewise for C2, 
+C1 has 2 parameters.
 The -1 codes the cell that should be thought of as the reference.
-In this case labels will be ``diag:eta1'', ``diag:eta2'', ``diag:eta3'', and
-``diag:eta4''; there is not a nice 1:1 relationship between any parameter and 
+In this case labels will be ``N0:dx.p1'', ``N0:dx.p2'', etc. Three N states
+by 4 paramters. There is not a nice 1:1 relationship between any parameter and 
 the entries in the probability matrix. 
 It is possible, though I would find it odd, to force parameters to be
 equal.  A second row of 2, -1, 2 for instance would force the probability of
 classifiying true C1 as unimpaired or demented to be identical.
 
-How we handle this is to have a triad of functions for each distribution.
+We handle this with a function for each distribution.
 \begin{itemize}
- \item An initialization function is given the number of peaks, e.g., the
-relevant column of statedata, along with any optional parameters. It returns
-the number of linear predictors along with names for them, along with optional
-data to pass to the compuatation function.
- \item The compuatation function recieves the vector y, the matrix of linear
-   predictors, and the optional information.  It returns a nstate x n matrix
-   of density values.
- \item A reporting function can transform results to a user scale.  This is
-   trivial for the gaussian, just turn log(std) into std.  For the multinomial
-   produce the misclassification matrix.
+ \item The function is called with a statedata list (created by parsemarker1)
+   which has the name of the column, ( e.g. 'A'), the label for for each peak
+   each peak (0, 1), and the expansion of this to the 7 states (1,2,1,2,1,2,0);
+   factor labels of the marker, and any user specified arguments 
+   (\code{param='mean'}).
+ \item This function creates a response function, with default parameters set
+   properly, and returns it.
+ \item It also creates a matrix of labels, a row for state and parameter,
+   one column for each linear predictor it will require.
+ \item Optional check and formatting function are also returned. The first
+   is called as a data check, a beta distribution for instance expect the
+   marker to be between 0 and 1.  The second is used to format results, e.g.,
+   the misclassification matrix for a multinomial or
+   log(std) to std for gaussian.
+ \item The compuatation function recieves the vector y and the matrix of linear
+   predictors. It returns a nstate x m matrix of density values.
 \end{itemize}
-This allows for some freedom, for instance the gaussian setup could allow an
-\code{std=2} argument, which would fix the standard devation for the distribution
-at 2. That would also reduce the number of linear predictors.
 
 The user can write either \code{gaussian} or \code{gaussian(param=std)}, as
-an example. The parsecovar routine picks up the name, puts the parametes in
+an example. The parsecovar routine picks up the name, puts the parameters in
 a list along with the state data, and calls the initialzation function. The
 fact that the code uses log(std) is something the user need not even know.
 
@@ -459,9 +475,45 @@ corner of 1.  In the hmm function death is handled via the status variable
 instead, and adding a death to the in-office-diagnosis would be a mistake.
 (This came to a head the first time I had an msm model without any categorical
 markers and wondered ``where do I put death''.)
-In an hmm, we computation at any given time point purposely does death last,
-to accomodate the admittedly strange case of a subject who had a clinical 
-evaluation in the morning and died in the afternoon.
+In an hmm, we computation at any given time point purposely does any exact
+state last, to accomodate the admittedly strange case of a subject who had a 
+clinical evaluation in the morning and died in the afternoon.
+
+The code in parsemarker2 has some non-obvious features. 
+The fact that I allow two state:marker pairs in a single formula means that
+the vector of markers will be longer than the list of formulas or options.
+This leads to multiple indexing nusances.
+This was do to allow the /common option to apply across two state:marker pairs
+in the same way that it does in the formula section.
+I do currently have any use case for this, but expect that someone will.
+
+This is perhapse the most perplexing bit of code:
+<<echo=TRUE, eval=FALSE>>=
+mindex <- match(marker, umarker)
+for (i in 1:nform) {
+    j <- findex[[i]] # index of markers on this formula line
+    k <- unlist(lapply(eindex[mindex[j]], function(x)
+        x[rlist[[j[1]]]$subset]))
+    # k is the set of columns of cmap, to which this formula applies
+    dtemp <- dmap[,k]
+    if (hascommon(parse1$options[[i]])) dtemp <- dtemp[,1]
+@ 
+
+Use our earlier example
+<<echo=TRUE, eval=FALSE>>=
+ marker = list(A(0:1):log(amyloid) + A(0:1):log(tau) ~1 / gaussian,
+               N:pzmemory ~ 1 / gaussian,
+               N:pzmemory ~ practice / gaussian(param='mean')/ common,
+               state:dx ~1   / multinomial(pattern = pmat))
+@
+The findex variable will be list(c(1,2), 3, 4, 5).
+The eindex list has one element for each unique marker, and
+will denote linear predictor columns of 1:4 for amyloid, 5:8 for
+tau, 9:14 for pzmemory, and 15:19 for dx. 
+The rlist object has an element for each marker, in the order of the markers,
+but all markers in a single formula will share the same rlist. 
+For formula number 3, j=4, rlist[[4]]['subset'] = c(1,3), which are the two
+mean parameters. Only those linear predictors use the practice variable. 
 
 
 

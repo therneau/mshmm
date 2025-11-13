@@ -22,12 +22,12 @@ hmm.dist <- c("gaussian", "logistic", "beta", "multinomial", "noerror")
 gaussian <- function(stateinfo, markerlevel, param) {
     npeak <- length(stateinfo$levels)
     pname <- makedistlabels(stateinfo, c("mean", "std"))
-    if (missing(param)) subset= seq(along=pname)
+    if (missing(param)) subset= 1:ncol(pname)
     else {
         index <- match(param, c("mean", "std"))
         if (any(is.na(index))) 
             stop("unrecognized gaussian parameter: ", param[is.na(index)])
-        if (all(sort(index) == 1:2)) subset<- seq(along=pname)
+        if (all(sort(index) == 1:2)) subset<- 1:ncol(pname)
         else if (index==1) subset <- 1:npeak * 2L - 1L
         else subset <- 2L* 1:npeak
     }
@@ -68,7 +68,7 @@ gaussian <- function(stateinfo, markerlevel, param) {
     temp$map <- stateinfo$index
     formals(rfun) <- temp
 
-    list(rfun=rfun, pname=pname, subset=subset)
+    list(name="gaussian", rfun=rfun, pname=pname, subset=subset)
 }
 
 makedistlabels <- function(stateinfo, parms) {
@@ -87,12 +87,12 @@ makedistlabels <- function(stateinfo, parms) {
 logistic <- function(stateinfo, markerlevel, param) {
     npeak <- length(stateinfo$levels)
     pname <- makedistlabels(stateinfo, c("mean", "std"))
-    if (missing(param)) subset= seq(along=pname)
+    if (missing(param)) subset= 1:ncol(pname)
     else {
         index <- match(param, c("mean", "std"))
         if (any(is.na(index))) 
             stop("unrecognized logistic parameter: ", param[is.na(index)])
-        if (all(sort(index) == 1:2)) subset<- seq(along=pname)
+        if (all(sort(index) == 1:2)) subset<- 1:ncol(pname)
         else if (index==1) subset <- 1:npeak * 2L - 1L
         else subset <- 2L* 1:npeak
     }
@@ -133,19 +133,19 @@ logistic <- function(stateinfo, markerlevel, param) {
     temp$map <- stateinfo$index
     formals(rfun) <- temp
 
-    list(rfun=rfun, pname=pname, subset=subset)
+    list(name="logistic", rfun=rfun, pname=pname, subset=subset)
 }
 
 # beta distribution
 beta <- function(stateinfo, markerlevel, param) {
     npeak <- length(stateinfo$levels)
     pname <- makedistlabels(stateinfo, c("shape1", "shape2"))
-    if (missing(param)) subset= seq(along=pname)
+    if (missing(param)) subset= 1:ncol(pname)
     else {
         index <- match(param, c("shape1", "shape2"))
         if (any(is.na(index))) 
             stop("unrecognized beta parameter: ", param[is.na(index)])
-        if (all(sort(index) == 1:2)) subset<- seq(along=pname)
+        if (all(sort(index) == 1:2)) subset<- 1:ncol(pname)
         else if (index==1) subset <- 1:npeak * 2L - 1L
         else subset <- 2L* 1:npeak
     }
@@ -193,7 +193,7 @@ beta <- function(stateinfo, markerlevel, param) {
     checkfun <- function(y) {
         if (any(y<0 | y>1)) stop("invalid marker value for beta distribution")
     }
-    list(rfun=rfun, pname=pname, subset=subset, check= check)
+    list(name="beta", rfun=rfun, pname=pname, subset=subset, check= check)
 }
 
 # multivariate logit, first category is the reference. If there are k
@@ -330,7 +330,8 @@ multinomial <- function(stateinfo, nlevel, pattern) {
                  " levels, to match the pattern matrix")
     }
             
-    list(rfun=rfun, pname=pname, subset=subset, check= checkfun)
+    list(name="multinomial", rfun=rfun, pname=pname, subset=subset, 
+         check= checkfun)
 }
 
 
@@ -350,6 +351,6 @@ nerror <- function(stateinfo, ...) {
     checkfun <- function(y, zzz) {
         # all of y in statecol column's values
     }
-    list(rfun=rfun, pname=NULL, check= checkfun)
+    list(name=noerror, rfun=rfun, pname=NULL, check= checkfun)
 }
         

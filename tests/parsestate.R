@@ -7,9 +7,9 @@
 #parsecovar2 <- mshmm:::parsecovar2
 #parsemarker1 <- mshmm:::parsemarker1
 #parsemarker2 <- mshmm:::parsemerker2
- library(survival)
+library(survival)
  source("ptplot.R")
- source("parscovar.R")
+ source("parsecovar.R")
  source("parsemarker.R")
  source("response.R")
 
@@ -37,21 +37,25 @@ tform <- list(Surv(time, status) ~ 1+ age,
 dform <- tform[[1]]  # the default formula
 test1 <- parsecovar1(tform[-1])
 
-# Build the new right hand side, in the way that hmm does
+# Build the new right hand side, in the way that hmm does, icvol will come
+# from the markers, below
 tlab <- lapply(test1$rhs, function(x) {
               attr(terms(x), "term.labels")
           })
-newform <- reformulate(c(attr(terms(dform), 'term.labels'), unlist(tlab)))
+newform <- reformulate(c(attr(terms(dform), 'term.labels'), unlist(tlab),
+                         "icvol"))
 
 # For testing, assume that x1 was a factor with 4 levels of A, B, C, D
-#  This is what the column names and assign values would be
-Xname <- c("(Intercept)", "age", "sex", "x1B", "x1C", "x1D", "x2", "x3", "x4")
-Xassign <- c(0,1,2,3,3,3,4,5,6)
+#  This is what the column names and assign values would be. The icvol term
+#  shows up in the markder
+Xname <- c("(Intercept)", "age", "sex", "x1B", "x1C", "x1D", "x2", "x3", "x4",
+           "icvol")
+Xassign <- c(0,1,2,3,3,3,4,5,6,7)
 
 test2 <- parsecovar2(test1, statedata, dform, terms(newform), qmat,
                      Xname, Xassign)
 
-vars <-  c("(Intercept)", "age", "sex", "x1", "x2", "x3", "x4")
+vars <-  c("(Intercept)", "age", "sex", "x1", "x2", "x3", "x4", "icvol")
 tran <- paste(row(qmat), col(qmat), sep=':')[qmat>0]
 check2 <- matrix(0, length(vars), length(tran), dimnames=list(vars, tran))
 indx <- cbind(c(1,4,5,7, 1,2,6,7, 1,2,6, 1,5, 1,2,6, 1,2,6, 1,5, rep(1:3, 6)),
@@ -61,8 +65,8 @@ check2[indx] <- 1:39
 check2[4,2] <- 2
 all.equal(check2, test2$tmap)
 
-# expand x1 to 3 rows
-check3 <-check2[c(1,2,3,4,4,4,5,6,7),]
+# expand x1 to 3 rows, i.e., expand tmap to cmap
+check3 <-check2[c(1,2,3,4,4,4,5,6,7,8),]
 check3[5,1:2] <- check3[5, 1:2] + .1
 check3[6,1:2] <- check3[6, 1:2] + .2
 rownames(check3) <- Xname
@@ -104,4 +108,16 @@ all.equal(test1$mterm, list(~1, ~1, ~1, ~icvol))
 
 test2 <- parsemarker2(test1, statedata, terms(newform), Xname, Xassign,
                       markerlevel =NULL)
+# linear predictors for each: 2 peaks * mean/std =4  for pib, tau, and ptau
+all.equal(test2$rindex, list('log(pib)'=1:4, 'log(tau)'=5:8, 
+                             'sqrt(p.tau181)' = 9:12, 'log(wmh)'= 13:18))
+all(test2$cmap[2:9,] ==0)
+all(test2$cmap[1,] == c(1:13, 15:19))
+all(test2$cmap[10, c(13, 15, 17)] ==14) # shared icvol coef
+all(test2$cmap[10,-c(13, 15, 17)] ==0 )
 
+all.equal(sapply(test2$response, function(x) x$name),
+          rep(c("gaussian", "logistic"), c(3,1)))
+
+
+          

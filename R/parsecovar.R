@@ -376,28 +376,3 @@ parsecovar2 <- function(parse1, statedata, dformula, Terms, qmatrix,
     list(tmap= tmap, cmap= cmap, mapid= mapid)
 }
  
-# The last step, which is to transform the map of terms, tmap, into the
-#  map of coefficients cmap.  Translation is driven by the assign attribute
-#  of the X matrix.                       
-parsecovar3 <- function(tmap, optlist, Xcol, Xassign) {
-    hasintercept <- any(Xassign ==0) # almost always true
-    cmap <- matrix(0L, length(Xcol), ncol(tmap),
-                   dimnames= list(Xcol, dimnames(tmap)[[2]]))
-    opt1 <- matrix(FALSE, length(Xcol), ncol(tmap))  # was a value filled in
-    opt2 <- matrix(0    , length(Xcol), ncol(tmap))  # the initial value
-    # number of covariates for each term
-    xcount <- table(factor(Xassign, levels=1:max(Xassign)))
-    mult <- 1L+ max(xcount)  # temporary scaling
-
-    ii <- 0
-    for (i in 1:nrow(tmap)) {
-        k <- seq_len(xcount[i])
-        for (j in 1:ncol(tmap)) 
-            cmap[ii+k, j] <- if(tmap[i,j]==0) 0L else tmap[i,j]*mult +k
-        ii <- ii + max(k)
-    }
-
-    # renumber coefs as 1, 2, 3, ...
-    cmap[,] <- match(cmap, sort(unique(c(0L, cmap)))) -1L
-    cmap
-}

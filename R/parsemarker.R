@@ -137,9 +137,13 @@ markerpair <- function(x, statemap) {
 parsemarker2 <- function(parse1, statedata, Terms, Xname, Xassign,
                          markerlevel) {
     nstate <- nrow(statedata)
-    nform  <- length(parse1$nmarker)  # number of formulas = number of options
-    umarker <- unique(parse1$marker)
+    marker <- parse1$marker
+    nform  <- length(parse1$nmarker) #number of formulas, also number of options
+    umarker <- unique(marker)
     nmarker <- length(umarker)
+    # findex is a list, first element = which elements of markers were added
+    #  by the first formula, second formula, etc.
+    findex <- split(seq(along=marker), rep(1:nmarker, parse1$nmarker))
 
     # separate out the three parts of an options list
     # the hmm.dist vector has the list of legal distributions, see response.R
@@ -164,36 +168,53 @@ parsemarker2 <- function(parse1, statedata, Terms, Xname, Xassign,
     odist <- lapply(parse1$options, osplit)
             
     # 
-    #  First pass: each marker should point to only one state set, and only
-    #   one distribution. Columns of tmap will be dist:marker.param.  Using
-    #   'common' across parameters would be odd, but is legal; a gaussian for 
-    #   instance always has two parameters.
-    #  A marker with additive affects on states is weird: an equation with
-    #   pib ~ A and another with pib ~ N; but someday someone will want it. 
-    #   When that day comes we will think about allowing it.
+    #  Do consistency checks:
+    #   Each marker should point to only one state set, and only
+    #   one distribution. A marker with additive affects on states is weird:
+    #   an equation with pib ~ A and another with pib ~ N.  (Someday someone 
+    #   will want it. When that day comes we will think about allowing it.)
     #  A marker might appear in 2 formula, e.g., a covariate applies to the
     #   mean but not the std, but it will still be parameters of the same dist.
-    #  One formula can also have 2 markers.  
+    #  A marker should not appear twice in the same formula
+    #  Two different state sets should not appear in the same formula
     statecol <- sapply(parse1$stateinfo, function(x) x$sname)
     check1 <- sapply(umarker, function(x) {
-        length(unique(statecol[parse1$marker==x]))
+        length(unique(statecol[marker==x]))
     })
     if (any(check1 >1)) stop("marker points to two states: ", umarker[check1>1])
 
-    oindex <- rep(1:nform, parse1$nmarker) # the option list for each marker
+    oindex <- rep(1:nform, parse1$nmarker) # the formula for each marker
     # first element in 'marker' points to oindex[1] element of options, etc
     tdist <- sapply(odist[oindex], function(x) x$dist)
     check2 <- sapply(umarker, function(x) {
-        length(unique(tdist[parse1$marker==x]))
+        length(unique(tdist[marker==x]))
     })
     if (any(check2 >1)) stop("marker points to two distributions: ",
                             umarker[check2>1])
+
+    check3 <- table(marker, oindex) 
+    if (any(check3 >1)) stop("same marker appears more than once in a single forula")
+    
+    # I later decided that this is an unnecesary contraint.  As long as
+    #  all sates are covered, who cares if the user has A(0) in one and 
+    #  state(4,5,6) in another.
+    #    check4 <- sapply(1:nform, function (i) {
+    #        temp <- parse1$stateinfo[findex[[i]]] 
+    #        if (length(temp)==1) return(FALSE) # formula with only 1 marker
+    #        sname <- sapply(temp, function(x) x$sname)
+    #        if (any(sname != sname[1])) return(TRUE)   # two names
+    #        slev <- lapply(temp, function(x) x$levels)
+    #        for (i in 1:length(slev)) if (!identical(slev[[1]], slev[[i]]))
+    #                                  return(TRUE)
+    #        FALSE
+    #    })
+    #    if (check4) stop("two different state subsets used in the same marker formula")
 
     # Walk through the markers from first to last, and call the setup
     #  function of the distribution used for each.  
     # E.g. gaussian() is the setup function a gaussian peak, and it will
     #  return a response function along with ancillary information.
-    mindex <- match(parse1$marker, umarker)  # markerlevel will be in this order
+    mindex <- match(marker, umarker)  # markerlevel will be in umarker order
     rlist <- lapply(seq(along=mindex), function(i) {
         arglist <- list(stateinfo= parse1$stateinfo[[i]],
                         markerlevel = markerlevel[[mindex[i]]])
@@ -207,39 +228,51 @@ parsemarker2 <- function(parse1, statedata, Terms, Xname, Xassign,
         do.call(tdist$dist, arglist)
     })    
     
-    # Create col names for tmap and cmap, one per linear predictor
-    temp <- lapply(1:nform, function(i)
-        paste(parse1$marker[i], rlist[[i]]$pname, sep=':'))
-    lpname <- unique(unlist(temp))
+    # Create the set of labels for each linear predictor.
+    #  And the mapping from linear predictor to response function
+    # If a marker appears in more than one formula, it is in rlist twice,
+    #  for this use we only want one of them
+    tlabel <- lapply(match(umarker, marker), function(i) {
+        tlab <- rlist[[i]]$pname
+        paste0(tlab[1,],':', marker[i],'.', tlab[2,])
+    })
+    n.eta <- sapply(tlabel, length)  # number of LP for each marker (umarker)
+    lpname <- unlist(tlabel)
     numlp <- length(lpname)
+    eindex <- split(1:numlp, rep(1:nmarker, n.eta)) # lp for each marker
+    names(eindex) <- umarker  # keep them in the order of the marker arg
+
+    # Create cmap
     cmap <- matrix(0L, nrow=length(Xname), ncol= numlp,
                    dimnames=list(Xname, lpname))
-
-    if (any(sapply(parse1$mterm, function(x) x != ~1))) {
-        # at least one marker formula is more than "~1", we will need tmap
-        tmap <- matrix(0L, nrow=length(attr(Terms, "term.labels")), ncol=numlp)
-        intercept <- sapply(parse1$mterm, hasintercept)
-    } else tmap <- NULL
-    browser()
-    # Walk through the formulas one at a time and build cmap,
-    # dealing with "common"
-    #
-    
-        
-        
-   uindex <- oindex[match(umarker, parse1$marker)] # first formula for a marker
-    ddist <- sapply(odist[uindex], function(x) x$dist)
-
-    # Walk through the formulas, from first to last. Succeeding ones
-    #  trump prior ones
-    # dmap is a set of unique integers, so I don't end up reusing an index
-    dmap <- matrix(1:length(tmap), nrow=nrow(tmap), ncol=ncol(tmap))
-    
+    dmap <- matrix(1:length(cmap), nrow(cmap), ncol(cmap)) #distinct integers
+ 
+    # Walk through the formulas one at a time
+    # parse1$marker is the order they are encountered in the formulas
     for (i in 1:nform) {
-        stemp <- statedata[, parse1$statecol[i]]
-        index1 <- m     
+        j <- findex[[i]] # index of markers on this formula line
+        k <- unlist(lapply(eindex[mindex[j]], function(x)
+            x[rlist[[j[1]]]$subset]))
+        # k is the set of columns of cmap, to which this formula applies
+        dtemp <- dmap[,k, drop=FALSE]
+        if (hascommon(parse1$options[[i]])) dtemp <- dtemp[,1, drop=FALSE]
+
+        # which rows of cmap?
+        if (parse1$mterm[[i]] == ~1) irow <- 1  # only an intercept
+        else { # more complex formula
+            temp <- attr(terms(parse1$mterm[[i]]), "term.labels")
+            iterm <- match(temp, attr(Terms, "term.labels"))
+            irow  <- which(Xassign %in% iterm)
+            if (hasintercept(parse1$mterm[[i]])) irow <- c(1, irow)
+        }
+        cmap[irow, k] <- dtemp[irow,]
     }
-}             
+        
+    # map the elements of cmap to 0, 1, ...
+    cmap[,] <- match(cmap, unique(c(0L, cmap))) - 1L
+    list(cmap=cmap, response = rlist[match(umarker, marker)], 
+         rindex= eindex)
+}
                                                            
 # Run down the formula parse tree and see if there is an explicit
 #  intercept term, i.e. a "1".  An intercept won't be part of an interaction
