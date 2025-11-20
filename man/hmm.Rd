@@ -14,29 +14,20 @@ hmm(formula, data, subset, weights, na.action=na.pass, id,
 }
 %- maybe also 'usage' for other objects documented here.
 \arguments{
-  \item{formula}{a formula for the HMM.  The left hand side will
-    normally be a call to hbind or Surv. The first column of y is the
-    time of observation, remaining columns are the responses observed at
-   that time point.}
+  \item{formula}{a formula for the HMM.  The left hand side will be a
+    numeric vector or a call to Surv.
   \item{data}{dataframe containing the data to be fit}
   \item{subset}{subset of the data to be used}
   \item{weights}{not currently implemented}
   \item{na.action}{any special actions for missingness}
   \item{id}{the variable name that contains the subject identifier.
     This will normally be in the data set pointed to by \code{data}.}
-  \item{istate}{the initial distribution of states.  Only required for
-    survival type data.}
-  \item{otype}{the observation type. Normally a variable in the
-      \code{data} argument.  Values are 0=censored, 1=usual, 2=exact,
-      3=entry.  For most data sets most observations will be of type 1.}
-  \item{qmatrix}{the square matrix which shows which transitions are
-    possible, along with initial estimates of their rate.}
-  \item{qcoef}{a data frame which describes which of the terms are
-    associated with which transitions, along with contraints on those terms}
-  \item{rfun}{a response function or list of response functions, one for
-    each response.}
-  \item{rcoef}{a data frame which describes which of the terms are associated
-    with which response function, along with contraints on those terms}
+  \item{qmatrix}{a square matrix whose row and column labels are the
+    states, positive elements indicate valid transitions}
+  \item{markers}{a list of formulas defining state:marker relationships}
+  \item{iprob}{optional, the initial distribution of states. Either a
+    matrix with one row per unique id and one column per state, or a
+    vector with one element per state.}
   \item{pfun}{a function that provides the initial probabilities for
     each state.}
   \item{pcoef}{a data frame which describes which model terms are
@@ -44,11 +35,9 @@ hmm(formula, data, subset, weights, na.action=na.pass, id,
   \item{entry}{a vector giving the probability of enrollment for each
     state, i.e., 0 for the death state.
     This requires data preprocessing, see below.}
-  \item{iprob}{optional vector or matrix containing probabilty of each
-    state, at entry.
-    If a matrix, there is one row for each unique subject, with subject
-    as a row name.}
-  \item{death}{the state which corresponds to death}
+  \item{death}{optional, the state which corresponds to death}
+  \item{exact}{optional, states for which the time of entry to the state
+  is known exactly}
   \item{mfun}{the optimization function to use}
   \item{mpar}{any parameters for the optimization function}
   \item{mc.cores}{how many parallel cores to use for computing the
@@ -62,19 +51,32 @@ hmm(formula, data, subset, weights, na.action=na.pass, id,
     scaled.  A single logical is replicated.
     Alternatively, a list containing the centering and scaling vectors.}
 
-  \item{penalty}{an optional array descibing penalties.}
+  \item{penalty}{an optional data frame descibing penalties.}
 
-  \item{constraint}{an optional array descibing constraints.}
+  \item{constraint}{an optional data frame descibing constraints.}
 
   \item{cutoff}{the threshold value for constraints}
 
   \item{debug}{higher values lead to selected debuging printout.}
-  \item{makefork}{controls which subportion of the parallel library is
-    used: makefork or mcapply.
-    The default option of FALSE appears to be faster.}
+  \item{makefork}{controls which portion of the parallel library is
+    used: the fork option is not available in MS-Windows.}
 }
 \value{an hmm fit object}
 \details{
+  If the response is \code{Surv(time, status)}, then the status variable
+  should be a factor whose first level corresponds to censored, and
+  other levels are a subset of the states in \code{qmatrix}.  Any states
+  in said subset are assumed to me measured without error. Normally, the
+  only state of that type, in a hidden Markov model (HMM), will be death,
+  and in that particular case a 0/1 status code is allowed.
+  
+  It is possible to have exact states other than death, one example
+  might be a particular surgery.  The difference arises with censored
+  observations: at that point we know the subject is not dead, even for
+  an out of study follow-up, but we would not know the status of other
+  states.
+
+  
   Entry into a trial is one important issue for HMM models, we allow three
   different likelihoods: a common entry probability vector for all, per-
   subject entry probabilities, and computed probabilities.  The first

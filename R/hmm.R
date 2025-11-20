@@ -5,7 +5,7 @@ hmm <- function(formula, data, subset, weights, na.action,
                 mfun=hmmtest, mpar= list(), 
                 mc.cores= getOption("mc.cores", 2L),
                 icoef, intercept, scale=TRUE, penalty, constraint,
-                statedata, exact= "death",
+                statedata, death= "death", exact= death,
                 debug=0, fork=.Platform$OS.type=="unix") {
     Call <- match.call()
     time0 <- proc.time()

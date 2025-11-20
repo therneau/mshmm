@@ -1,3 +1,9 @@
+# Given all the data and setup, do the actual fit of an hmm model.
+hmmfit <- 
+
+    if (all(qmatrix[row(qmatrix) > col(qmatrix)] == 0)) uppertri <- TRUE
+    else  uppertri <- FALSE
+
    eps <- 1e-4
     hmm1 <- function(who, beta) {
         rows <- which(id ==uid[who])  # the subjects of interest

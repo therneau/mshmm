@@ -336,21 +336,25 @@ multinomial <- function(stateinfo, nlevel, pattern) {
 
 
 # the distribution for an state observed without error
-nerror <- function(stateinfo, ...) {
-    rfun <- function(y, eta, gradient=FALSE, npeak, map) {
+noerror <- function(stateinfo, ...) {
+    rfun <- function(y, nstate) {
         # eta should be 0 columns, gradient will be ignored
-        nstate <- length(map)
-        yprob <- matrix(0., nstate, length(y))
-        # missing a line here
+        temp <- diag(nstate)
+        if (any(y < 1 | y>nstate | floor(y) !=y))
+            stop("y must be an integer between 1 and number of states")
+        temp[,y, drop = FALSE]
         }
     temp <- formals(rfun)
-    temp$npeak <- npeak
-    temp$map <- stateinfo$index
+    temp$nstate <- length(stateinfo$index)
     formals(rfun) <- temp
 
-    checkfun <- function(y, zzz) {
-        # all of y in statecol column's values
+    checkfun <- function(y, nstate) {
+        if (any(y < 1 | y>nstate | floor(y) !=y))
+            stop("y must be an integer between 1 and number of states")
     }
-    list(name=noerror, rfun=rfun, pname=NULL, check= checkfun)
+    temp <- formals(checkfun)
+    temp$nstate <- length(stateinfo$index)
+    formals(checkfun) <- temp
+    list(name="noerror", rfun=rfun, pname=NULL, check= checkfun)
 }
         

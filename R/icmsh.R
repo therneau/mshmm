@@ -1,12 +1,14 @@
 # Fit an interval censored mult-state hazard model
 icmsh <- function(formula, data, subset, weights,
-                id, qmatrix, statedata, exact= "death",
-                icoef, intercept, scale=TRUE, penalty, constraint,
+                id, qmatrix, icoef, intercept,
+                scale=TRUE, penalty, constraint,
                 mfun=hmmscore, mpar=list(gr="hmmboth"), 
-                mc.cores= getOption("mc.cores", 1L),
+                statedata, death="death", exact=death,
+                mc.cores= getOption("mc.cores", 1L), control,
                 debug=0, fork= (.Platform$OS.type=="unix")) {
     Call <- match.call()
     time0 <- proc.time()
+
     # create a call to model.frame() that contains the formula (required)
     #  and any other of the relevant optional arguments
     #  but don't evaluate it just yet
@@ -37,17 +39,26 @@ icmsh <- function(formula, data, subset, weights,
     if (any(qmatrix < 0)) stop("qmatrix elements must be >=0")
     qmap <- which(qmatrix != 0)   
     ntransitions <- length(qmap)
-    if (all(qmatrix[row(qmatrix) > col(qmatrix)] == 0)) uppertri <- TRUE
-    else  uppertri <- FALSE
+
+    if (missing(death)) {
+        # don't complain if the default value of "death" is not in the list,
+        #  death might not be a state for this model
+        if (is.na(match(death, statenames))) death <- NULL
+    } else {
+        ideath <- match(death, statenames)
+        if (any(is.na(ideath)))
+            stop("death argument contains a state not in qmatrix")
+    }
     if (missing(exact)) {
         # don't complain if the default value of "death" is not in the list,
         #  death might not be a state for this model
         if (is.na(match(exact, statenames))) exact <- NULL
     } else {
-        exact <- match(exact, statenames)
-        if (any(is.na(exact)))
+        iexact <- match(exact, statenames)
+        if (any(is.na(iexact)))
             stop("exact argument contains a state not in qmatrix")
     }
+    iexact <- unique(c(ideath, iexact))  # death is always an exact state
 
     # Is there state data?
     if (!missing(statedata)) { # check that it is okay
@@ -107,7 +118,7 @@ icmsh <- function(formula, data, subset, weights,
     # Grab the response and validate it
     Y <- model.response(mf)
     if (!inherits(Y, "Surv") || attr(Y, "type" != "mright"))     
-        stop("response must be a multi-state Surv object")
+        stop("response must be of the form Surv(time, state)")
     else {
         ystate <- attr(Y, "states")
         if (length(ystate)!= length(statenames) || any(ystate != statenames))
@@ -129,10 +140,11 @@ icmsh <- function(formula, data, subset, weights,
     # cmap and tmap
     X <- model.matrix(Terms, mf)
     xassign <- attr(X, "assign")
-    if (FALSE) { # do I need these?
-        xlevels <- .getXlevels(delete.response(Terms), mf)
-        contrasts <- attr(X, "contrasts")
-    }
+    # the next two are included in the output object, and used by later
+    #  model.frame and model.matrix calls
+    xlevels <- .getXlevels(delete.response(Terms), mf)
+    contrasts <- attr(X, "contrasts")
+
     parse2 <- parsecovar2(parse1, statedata, dformula, Terms, qmatrix,
                           statenames, colnames(X), xassign)
     cmap <- parse2$cmap # coefficients for the transitions
@@ -142,18 +154,15 @@ icmsh <- function(formula, data, subset, weights,
     # Y and id can't be missing,
     # missing rate variables are filled in with lvcf
     toss <- is.na(Y) | is.na(id)
-    if (any(toss)) {
-        na.action <- which(toss)
-        class(na.action) <- "omit"
-        Y <- Y[keep]
-        id <- id[keep]
-        X <- X[keep,]
-        mf <- mf[keep,]
-    } else na.action <- NULL
+    if (any(toss)) 
+        stop("missing response or id value, which would lead to an invalid timeline for that subject")
+
     for (i in 1:ncol(X)) {
         if (any(is.na(X[,i])))
             X[,i] <- lvcf(id, X[,i])
     }
+    if (any(is.na(X))) # this will only occur on the first row of an id
+        stop("initial observation for a subject has missing values")
 
     weights <- model.weights(mf)
     if (length(weights) >0) stop("weights are not yet supported")
@@ -180,7 +189,7 @@ icmsh <- function(formula, data, subset, weights,
             if (length(icoef) != nparam) stop("wrong length for icoef")
             B <- coef.to.B(icoef, cmap)
         } else stop("icoef must be a numeric vector or matrix")
-    }
+    }   
 
     # Import any init() or fixed() from the options
     # not yet done
@@ -195,7 +204,7 @@ icmsh <- function(formula, data, subset, weights,
     }
     if (scale) {
         rvar <- 2:ncol(X)  # don't rescale the intercept
-        Xscale <- c(0, colMeans(X[,rvar]) 
+        Xscale <- c(0, colMeans(X[,rvar]))
         Xscale <- c(1, apply(X[,rvar], 2, sd))
         for (i in rvar) X[,i] <- (X[,i]- Xmean[i])/Xscale[i]
         # we have XB = (X T^{-1}) (T B) where T is a transformation matrix
@@ -237,7 +246,8 @@ icmsh <- function(formula, data, subset, weights,
         penmat <- crossprod(penalty)
     } else penmat <- NULL
     
-    rindex <- which(qmatrix > 0)
+ 
+    fit <- icmfit(Y, X, id, cmap, qmat, beta, coef, death, exact, control)
 
     uid <- unique(id)
     nid <- length(uid)

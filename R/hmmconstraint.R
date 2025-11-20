@@ -6,7 +6,7 @@ hmmconstraint <- function(cdata, Terms, cmap) {
         stop("constraint or penalty must be a data frame containing ",
              " _lp__, _cid_, _cwt_ and data set variables")
     indx <- match(c("_lp__", "_cid_", "_cwt_"), names(cdata))
-    if (any(is.na(indx)) 
+    if (any(is.na(indx))) 
         stop("constraint or penalty must be a data frame containing ",
              " _lp__, _cid_, and _cwt_ variables")
     cX <- model.matrix(Terms, data=cdata)  # this won't have _lp_, _cid_, _cwt_
@@ -37,6 +37,7 @@ hmmconstraint <- function(cdata, Terms, cmap) {
         for (j in which(cid==i)) {
             xvar <- which(cmap[,eta[j]] > 0) # variables for this lp
             const[i,xvar] <- const[i, xvar] + cwt[j]* X[j, xvar]
+        }
     }
     const
 }    
