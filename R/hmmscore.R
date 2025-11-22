@@ -1,4 +1,3 @@
-# Automatically generated from hmmcode
 hmmscore <- function(par, fn, gr, iter=30,
                      scale=2, shrink=1, debug=FALSE,
                      constraint, eps=1e-6, hessian =FALSE, ...) {
@@ -19,7 +18,7 @@ hmmscore <- function(par, fn, gr, iter=30,
     if (ncon>0) actmat <- matrix(0L, iter+1, ncon)
     
     # initial step
-    fit <- gr(par)
+    fit <- fn(par)
     logmat[1,] <- c(fit$loglik, 0, 0,0)
     if (!is.list(fit) || is.null(fit$S))
         stop("hmmscore needs to call hmmboth")
@@ -69,7 +68,7 @@ hmmscore <- function(par, fn, gr, iter=30,
             }
         
         cmat[i+1,] <- newpar
-        newfit <- gr(newpar)
+        newfit <- fn(newpar)
         #cat("score stop\n"); browser()
         
         if (newfit$loglik <= -2*abs(log0)) {
@@ -107,8 +106,8 @@ hmmscore <- function(par, fn, gr, iter=30,
                     for (i in 1:ncoef) {
                         delta <- rep(0., length(par))
                         delta[i] <- epsilon
-                        temp1 <- gr(par + delta)
-                        temp2 <- gr(par - delta)
+                        temp1 <- fn(par + delta)
+                        temp2 <- fn(par - delta)
                         hmat[i,] <- (temp2$deriv - temp1$deriv)/(2* epsilon)
                         if (debug>1) cat(" hessian ", i)
                     }
@@ -125,7 +124,7 @@ hmmscore <- function(par, fn, gr, iter=30,
                 
                 if (gder >0 & lambda>0 & lambda <1) { # backtrack
                     try2 <- (1-lambda)*par + lambda*newpar
-                    fit2 <- gr(try2)  # we expect this to usually work
+                    fit2 <- fn(try2)  # we expect this to usually work
                     if (fit2$loglik > fit$loglik) { # shrinkage worked
                         logmat[i+1,4] <- fit2$loglik
                         fit <- fit2
@@ -159,8 +158,8 @@ hmmscore <- function(par, fn, gr, iter=30,
         for (i in 1:ncoef) {
             delta <- rep(0., length(par))
             delta[i] <- epsilon
-            temp1 <- gr(par + delta)
-            temp2 <- gr(par - delta)
+            temp1 <- fn(par + delta)
+            temp2 <- fn(par - delta)
             hmat[i,] <- (temp2$deriv - temp1$deriv)/(2* epsilon)
             if (debug>1) cat(" hessian ", i)
         }
