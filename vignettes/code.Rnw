@@ -666,4 +666,106 @@ Then
 
 
    
-If B is the matrix of coefficients, $XB = (XT)(T^
+If B is the matrix of coefficients, $XB = (XT)(T^$
+
+
+\section{Likelihood}
+The likelihood for a subject has 3 parts: initial value, transition
+matrices, and observation matrices, with I will call $p(0)$, $P(s,t)$
+and $D(t)$.
+Let $t_{i1}, t_{i2}, ...$ be the time points for subject $i$,
+$y(t_{i1}, y(t_{i2}), ...$ the observed state, 0 for censored, and $Q$ the 0/1
+matrix of valid transitions. 
+
+\subsection{Simple interval censored}
+For the formulas below we will suppress the $i$ subscript, as the likelihood
+can be computed separately for each subject. 
+The pair $(t_m, t_{m+1})$ is an arbitrary interval for a subject.
+$B$ is a matrix of coefficients, one column per transition probability,
+which is one per non-zero element of $Q$, the \code{qmatrix} argument.
+The \code{cmap} matrix maps elements of $B$ to the parameters to be
+maximized.
+
+\begin{align}
+  p_j(t_{1}) &= I{y(t_1) = j} \nolabel \\
+  R_{jk}(t) &= \left\{ \begin{array}{cc}
+    -\sum_{k \ne j} -R_{jk}  & j=k \label{rmat1} \\
+    e^{\eta_{jk}(t)}       &  j \ne k, Q_{jk}>0  \label{rmat2}\\
+    0                &  j \ne k, Q_{jk} =0 \nolabel \end{array} \right. \\
+  \eta &= XB  \nolabel \\
+  P(t_m, t_{m+1}) &= e^{[t_{m+1} - t_m]R(t_m)}  \label{pmat1} \\
+  D_{jk}(t_m)= \left\{ \begin{array}{cc}
+    1 & y(t_m) =j, j \ne \mbox{exact}   label{dmat1a} \\
+    1 & y(t_m)= 0, j \ne \mbox{death}   \label{dmat1b} \\
+    R_{jk}(t_{m-1}) &  y(t_m)= k, k = \mbox{exact}  \label{dmat2} \\
+    0 & \rm{otherwise} \nolabel \end{array} \right.
+\end{align}
+
+The overall probability vector for the subject is
+\begin{equation*}
+  p = p(t_1) P(t_1, t_2) D(t_2) P(t_2, t_3) D(t_3) \ldots 
+\end{equation*}
+The starting vector matches the first observation, it is an error for the
+first obs to be censored.
+The $R$ matrix depends on the matrix of linear predictors, $\beta$ will have
+one column for each non-zero element of $Q$.
+In the code we use alpha rather than p, an artifact of the notation used
+in the msm package.
+
+An exact state is one whose entry time is observed exactly, the 
+\code{exact} option in the code, the most common case is death.
+For a observed state that is not exact, $D$ is a diagonal matrix with 
+a single 1 on the diagonal corresponding to the observed state.
+For an exactly observed state, we multiply by the transition rates just 
+before the event occurred, hence the $m-1$.  The covariates just before
+the event, which are what we want, will equal the most recent prior
+measurment.
+For a censored obs, the subject is known tobe in any state *except* death
+at that time, where for this rule ``death''
+is any exactly observed absorbing state, which is almost always death.
+One can have an exact state that is not absorbing, an example is surgical
+resection of a section of inflamed bowel in Crohn's disease.
+The msm package also allows for a state with known exit time, but I have not
+yet found a need for this.
+
+For a non-zero element of $q_{jk}$ of $Q$, the derivative of $R_{jk}$ with
+respect to $\eta_{jk}$ is $R_{jk}$, and 0 for all other elements of $R$.
+The derivative of $P$ with respect to $\eta_{jk}$ is more complex, since each
+element of $P$ depends on all the elements of $R$.
+This is returned by the pade routine as a matrix of dimension 
+(nstate, nstate, q) where $q$ is the number of non-zero elements of $Q$.
+This is \code{ptemp\$dmat} in the hmm2 routine. From the product rule
+\begin{equation}
+  \frac{\partial p(t)P(t,s)}{\partial \eta_q} &= 
+  \frac{\partial p(t)}{\partial \eta_q} P(t,s) + 
+  p(t)\frac{\partial P(t,s)}{\partial \eta_q} \label{productderiv}
+\end{equation}
+To prove this simply write out the matrix product as a sum of terms, apply
+the product rule for derivatives to each term, and reassemble the result.
+
+Since $p(t)$ is a vector with nstate elements, the derivative with respect
+to $\eta_q$ is also a vector.
+The first term of \eqref{productderiv} is easy: \code{P.d \%*\% P} in the
+code. 
+For the second, first note that what we want are the deriviatives wrt
+$\beta$, the vector of parameters. 
+
+Aside:The \code{cmap} matrix tracks the mapping between the matrix form of the
+parameters $B$ and the vector form $\beta$;
+the matrix form is what we want for $XB$ and the vector form is what the
+maximization functions want.
+We use both so often the hmm code keeps track of both, and uses the
+$B.to.coef$ and $coef.to.B$ routines to translate from one to the other.
+The $B$ matrix will have a lot of zeros, since most parameters will refer to
+a single transition.
+Let $\theta$ be an arbitrary parameter, then since $\eta = XB$
+\begin{equation*}
+  \frac{\partial \theta}{\beta} = X\frac{\partial\theta}{\eta}
+\end{equation*}
+
+In R, this can be done by temporarily changing the dimension of the derivative
+to (nstate^2, 
+\begin{align}
+
+
+number of non-zero $Q$. 

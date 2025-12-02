@@ -276,8 +276,8 @@ hmm <- function(formula, data, subset, weights, na.action,
     # 
     B <- 0*cmap
     indx <- match(1:nparam, cmap)
-    param.names <- paste(rownames(cmap)[indx], colnames(cmap)[indx], sep='.')
-    param <- rep(0, nparam)
+    beta.names <- paste(rownames(cmap)[indx], colnames(cmap)[indx], sep='.')
+    beta <- rep(0, nparam)
     if (!missing(icoef)) {
         if (!missing(intercept)) stop("only one of intercept or icoef allowed")
         if (is.matrix(icoef)) {

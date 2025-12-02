@@ -95,7 +95,7 @@ hmm1 <- function(who, beta) {
             if (debug>2) cat("B: j=", j, "alpha=", alpha, "\n")
         }
 
-        if (any(exactabsorb) & pstate[j]==0) {
+        if (any(exactabsorb) & ystat[j]==0) {
             # can't be in one of the exact+absorbing states
             alpha[exactabsorb] <- 0
         }
@@ -308,7 +308,7 @@ hmm2 <- function(who, beta) {
             if (debug > 2) cat("B: j=", j, "alpha=", alpha, "\n")
         }
 
-        if (any(exactabsorb) && pstate[j]==0) {
+        if (any(exactabsorb) && ystat[j]==0) {
             alpha[exactabsorb] <- 0
             stop("need to fix derivatives")
         }

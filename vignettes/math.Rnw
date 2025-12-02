@@ -71,7 +71,7 @@ to 1 to 2 to 3 comorbidities.
 We assume, biologically,  that no one progresses on two of the markers at the 
 \emph{exact} same instant.
 In the observed data, however, there will be subjects who are in the 0MC
-state at one visit, and in the 2MC state at their next visit; that following
+state at one visit, and in the 2MC state at their next visit; as that following
 visit might be several years later.  Such visit pairs lead to the dashed
 line transtions in Figure \ref{nafld1}.
 (Since comorbidities in the study were defined as ``history of diabetes'', 
@@ -211,18 +211,6 @@ Then
   p(t_{i+1}) = p(t_i) e^{(t_{i+1}-t_i)R_i}
 \end{equation*}
 
-Because we do not observe the transitions, the user needs to specify which
-elements of $R$ are non-zero.  
-So for instance in the NAFLD model of Figure \ref{fig:nafld} we would allow
-only the solid lines; in a simple cognitive model of
-\ref{fig:simple}
-we might assume that subjects can only go forward from CU to MCI to Dementia.
-However, if the data contains any who were observed to be CU after an MCI
-visit, the likelhood of the data, under this model, is 0; which is an issue
-we will address using the HMM.
-In the MSH models of coxph function, we need to add arrows for every observed
-transition.
-
 \begin{figure}
 <<simple, echo=FALSE>>=
 states <- c("Cognitively\nUnimpaired", "Mild Cognitive\nImpairment",
@@ -236,22 +224,71 @@ statefig(rbind(3,1), smat)
  \label{fig:simple}
 \end{figure}
 
+Because we do not observe the transitions, the user needs to specify which
+elements of $R$ are non-zero.  
+So for instance in the NAFLD model of Figure \ref{fig:nafld} we would allow
+only the solid lines; in a simple cognitive model of
+\ref{fig:simple}
+we might assume that subjects can only go forward from CU to MCI to Dementia.
+However, if the data contains any who were observed to be CU after an MCI
+visit, the likelhood of the data, under this model, is 0; which is an issue
+we will address using the HMM.
+In the MSH models of coxph function, we need to add arrows for every observed
+transition.
+
+\begin{figure}
+<<stepfun>>=
+xx <- seq(0, 6, length=50)+ 60
+yy <- exp((xx-62)/6)
+opar <- par(mfrow=c(1,2), mar=c(5,5,1,1))
+plot(xx, yy, type='l', lty=1, col='gray', ylim=c(0.5, exp(5/6)),
+     xlab="Age", ylab="Hazard")
+x1 <- c(0, 1.1, 2.1, 2.9, 3, 4,6) + 61
+lines(x1, exp((x1-62)/6), type='s', lwd=2)
+x2 <- c(0, 2.3, 4.5, 6) + 60.4
+lines(x2, exp((x2- 62)/6), type='s', col=2, lwd=2)
+legend(60,2.3, c("Underlying spline", "Smith", "Jones"),
+       col=c('grey', 'black', 'red'), lwd=c(1,2,2), bty='n')
+
+plot(xx, yy, type='l', lty=1, col='gray', ylim=c(0.5, exp(5/6)),
+     xlab="Age", ylab="Hazard")
+x1 <- sort(c(61:66, x1))
+lines(x1, exp((x1-62)/6), type='s', lwd=2)
+x2 <- sort(c(61:66, x2))
+lines(x2, exp((x2-62)/6), type='s', col=2, lwd=2)
+abline(v=61:66, lty=3, col='gray')
+par(opar)
+@ 
+  \caption{Left panel: underlying spline model along with the realized step
+    functions for two hypothetical subjects with visits at ages
+    (61, 62.1, 63.1, 63.9, 64, 65) and (60.4, 62.7, 64.9), respectively.
+    Right panel: Augmented data with subject age updated at each birthday.}
+    
 The baseline hazard is modeled as a parametric function of time, but the
 actual likelihood treats this as peicewise constant over the set of time
 points $t$ used in the data.
+This is because the probability transformation matrix 
+$P(s,t) =\exp(A[t-s])$ has a simple form when the matrix of hazards $A$
+is constant from $s$ to $t$.
 If the baseline were increasing, for instance, we might worry about a bias
-from different length intervals;
-if Smith were observed at years 0,1.1, 2.1 and 2.9 ,3,4 and Jones at 
-0, 2.3, and 4.5  then from year
-1 to 2 Jones' computation would use a systmatically smaller rate than Smith.
+from different length intervals; if Smith and Jones had the same covariates,
+but Smith was observed at ages 61, 62.1, 63.1, 63.9, 64 and 65, and Jones
+at ages 60.4, 62.7 and 64.90, then Jones' computation effectively have a 
+lower average rate due to less frequent observation. 
+This is shown in the left panel of Figure \ref{fig:simple}, the red line
+is lower on average.
 A standard response is to add extra censored cutpoints
-at 1 or 2 year intervals in order to force an update of $t$.
-There is a small nuisance to adding dummy observations for \emph{each}
-subject, so all share the same cutpoints, but the R tools are effective.
+at 1 or 2 year age intervals in order to force an update of $t$, as shown
+in the right panel. 
+The reason for piecewise constant is that the probability transformation matrix 
+$P(s,t) =\exp(R[t-s])$ has a simple form when the matrix of hazards $R$
+is constant from $s$ to $t$, i.e., the exponential of a matrix.
 
+
+Adding dummy observations for \emph{each} subject so that all share these
+cutpoints is a nuisance, but the R tools are effective.
 As a contrast, in the \code{icmstate} package the baseline is treated as
 non-parametric.  The cutpoints will be the set of observed event times,
-In the icmstate package the baseline is treated as non-parametric. 
 and if time is measured in days it is likely that there is only one observed 
 event at any given event time, leading to a sparse $R$ matrix and faster
 computation.
@@ -261,7 +298,23 @@ A disadvantage is that an EM algorithm is needed at each time point to
 estimate the baseline rate.
 
 Assume subject $i$ is seen at times $t_{j}$, $j=0, \ldots, n_i$, with observed
-states $s_{j}$, where $t_{0}=0$ is the starting time, and set 
+states $s_{j}$, where $t_{0}=0$ is the starting time.
+The likelihood computation for interval censored models can be thought of 
+in three parts, for each subject $i$
+ \item The initial probability in state vector $p(t_0)$.
+ \item The transtion matrix from $t_{i} to t_{i_1}$.
+ \item Restrictions on the current state at each observed observation time.
+\end{itemize}
+For a simple interval censored model (suppressing the $i$ subscript) the
+initial probability vector has matches the intial state at enrollment.
+The afasf;kj
+\begin{align*}
+  p_j(t_0) &= I(y(t_0) =j) \\
+  P(t_i, t_{i_1}) &= e^{H(t_i)[t_{i+1}- t_i]} \\
+  D(t_i)
+
+
+ and set 
 $p_j(0) = I(j= s_0)$, i.e., probability 1 for the observed starting state.
 Then 
 \begin{equation}
