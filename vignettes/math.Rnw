@@ -32,7 +32,7 @@ which are a variant of hidden Markov models.
 The second of these can in particular be complex, and took me some time
 to assimilate.
 The report is at least in part documentation for a future me who has 
-forgotten the details.
+forgotten those details.
 We will first talk about interval censored models, then build on that for
 HMM
 
@@ -40,7 +40,7 @@ HMM
 The survival package deals with multistate hazard models that are based on a 
 non-parametric baseline hazard.
 The Aalen-Johansen estimator is a natural extension of the Kaplan-Meier,
-and the MSH models a natural extension of the Cox model.
+and those MSH models a natural extension of the Cox model.
 The \code{survfit} routine produces both the KM and AJ estimates, and the
 \code{coxph} function estimates both the simple proportional hazards (Cox)
 model and its multistate extention.
@@ -56,22 +56,22 @@ statefig(rbind(4,1), smat, alty= c(1,2,1,2,2,1,1,1,1,1))
 @ 
  \caption{Transitions for the NAFLD data, 0--3 = number of the defined
 metabolid comorbidites.}
- \label{nafld}
+ \label{fig:nafld}
 \end{figure}
 
-This library deals with interval censored variants of thes models. 
-As an illustration consider Figure \ref{nafld1}, 
+This library deals with interval censored variants of these models. 
+As an illustration consider Figure \ref{fig:nafld}, 
 which shows the state space diagram for the NAFLD data set, an
 example used in the survival vignette [ref].  
 At any given visit subjects will
-have 0 or more of three predefined metabolic comorbidites (MC):
+have 0--3 of three predefined metabolic comorbidites (MC):
 diabetes, hypertension, and hyperlipidemia.
 If measured continuously, subjects will progress via the solid arrows from 0 
 to 1 to 2 to 3 comorbidities.
-We assume that no one progresses on two of the markers at the exact same 
-instant.
+We assume, biologically,  that no one progresses on two of the markers at the 
+\emph{exact} same instant.
 In the observed data, however, there will be subjects who are in the 0MC
-state at one visit, and in the 2MC state at their next visit, that following
+state at one visit, and in the 2MC state at their next visit; that following
 visit might be several years later.  Such visit pairs lead to the dashed
 line transtions in Figure \ref{nafld1}.
 (Since comorbidities in the study were defined as ``history of diabetes'', 
@@ -82,16 +82,17 @@ exact.  An observation of first diabetes on day 257 creates a jump in the
 hazard, and an addition to the partial likelhood, at day 257.  
 For simplicity assume that day 257 was the first physician appointment after
 enrollment at day 0, and only diabetes was observed at that appointment.
-The interval censored multistate model fit by \code{ismh} adds the
-value Pr(in state 1MC at time 257 | in state 0MC at time 0) to the likelihood
-at this point, where \code{coxph} adds hazard(tranferred from 0MC to 1MC on
-exactly day 257).  This is the primary conceptual difference between the
-models.
+The interval censored multistate model fit by \code{imsh} adds the
+value Pr(in state 1MC at time 257 $|$ in state 0MC at time 0) to the likelihood
+at this point, where \code{coxph} adds $\lambda($tranferred from 0MC to 1MC on
+exactly day 257) where $\lambda$ is the hazard function. 
+This is the primary conceptual difference between the models.
 
 The perceptive user will have noticed that a call to ismh looks remarkably
-like a call to coxph.  One differnce is that first, imsh requires
+like a call to coxph.  This is on purpose, but there remain two major
+differences. The first is that imsh requires
 a matrix of valid transions $Q$.  For the above data this is shown below,
-and corresponds to the solid arrows.
+and corresponds to the solid arrows in figure \ref{nafld}.
 
 <<qmatrix>>=
 states <- c("0MC", "1MC", "2MC", "3MC", "death")
@@ -101,80 +102,36 @@ qmat[1:4, 5] <- 1
 qmat
 @ 
 
-A second is that the code needs to distinguish death, which is not interval
-censored, e.g., ``we know they died between year 1 and 2 but not when'' does
-not occur.  We might note learn of death until after the fact, but the
-actual date of death will be recorded.
-Assume that the rates for each of 7 valid transitions is constant over some
-period $(s,t)$, with event rates $q_{jk} = exp(\eta_{jk})$ for each of the
-valid transitions.  Define the nstate by nstate hazard matrix $H$ is
-\begin{align}
-H_{jk} &= \left{ \array{cc} exp(\eta_{jk}) & Q_{jk} =1 \\
-             0 & Q_{jk}=0, j\ne k \end{array} \right. \label{qfill}\\
-\sum_kH_{jk} &=0 \label{hdiag} \\
- P(s,t) &= e^H
-\end{align}
-Equation \ref{qfill}, that row sums of $H$ are zero, defines the diagonal
-elements of $H$; the diagonal of $Q$ is always 0.
-$P(s,t)$ is the probability transition matrix from $s$ to $t$, where exp is
-the matrix exponential.
+The code needs to distinguish death, 
+which is not interval censored. 
+We might not learn of a death until well after the fact, but the
+actual date of will have been recorded and it will enter the data set
+as the actual death time.
+Interval censored data is also known as panel data, from studies where
+the particpants come back at a regular interal and each visit involves
+a panel of tests. The state at each visit is known, but not when between
+state transitions had occured.
+A second difference is that the icmsh routine uses a parametric baseline
+hazard for each state to state transition, most often a spline function
+of age or time.
 
-The exponential of a matrix is defined parallel to the simple exponential
-\begin{align*}
-\exp(A) &= I + A + A^2/2! + A^3/3! + \ldots \\
-        &= lim_{n \rightarrow \infty} (I + A/n)^n
-\end{align*}
-The function has a reputation for computational difficulty \cite{Dongarra},
-but modern software is quite good, and it turns out that the $H$ matrices
-are one of the more benign cases for the algorithms.
+It turns out that there is a close connection between the simple interval
+censored multi-state models discussed so far, and multi-state hidden
+Markov models (msHMM), i.e., there is enough code overlap that both are fit
+with the same function.
+HMM models as applied to clinical studies were actually the motivation for 
+this package.
+ For multistate hidden Markov model the assumption is that the internal
+states (other than death) are not observed directly. Instead we observe
+one or more imperfect biomarkers of each state. Badly damaged lungs (true state)
+might reveal themselves via a low forced expiratory volume (FEV) test, for
+instance.
 
-The likelihood can be computed separately for each subject $i$, over the next
-2 paragraphs we suppress any $i$ subscript for simplicity.
-Let $\alpha$ be a vector with one element per state, containing the estimated
-probability in state for the subject.
-Using timeline data, the initial value for $\alpha$ is 
-(0, 0, ldots, 1, 0, \ldots 0), i.e, a 1 in the observed intial state.
-Now march forward over time intervals $(t_0, t_1, ....t_k)$ for this subject
-\begin{itemize}
-  \item Compute $H(t_0)$ using covariate value at time $t_0$
-  \item Set $\alpha^{(1)} = \alpha^{(0)} \exp[(t_1-t_0) H(t_0)]$
-  \item If observed to be in state $k$ at $t_1$, set $\alpha_j=0, j\ne k$.
-    If censored at $t_1$ do nothing.
-  \item Compute $H(t_1)$ using covariate value at $t_1$
-  \item Set  $\alpha^{(2)} = \alpha^{(1)} \exp[(t_2-t_1) H(t_0)]$
-   \item ...
-\end{enumerate}
-
-This can be written as
-$$
- \alpha_0 P(t_0,t_1) D_1 P(t_1, t_2) D_2 \ldots D_k
-$$
-where each $D$ matrix is either the identity, if that row is censored, 
-$D$ is diagonal with $d_{kk}=1$ if this is an interval censored observation
-observed to be in state $k$,
-and if death is observed the non-diagonal matrix
-$$
- D_{jk} = \left{ \begin{array}{cc}
-        H_{jk} & j /ne k, k= \rm{death} \\
-        0 , otherwise
-        \end{array} \right.
-$$
-
-The final result will be a vector with nstate elements, the likelihood for this
-subject is the sum of the elements.
-             
-
-\section{Hidden Markov Models}
-For an HMM there are no observed interval censored states, there are laten
-states and one or more exact states, e.g., death, where the time of entry
-to the state is known, and the state cannot be mistaken for any other.
-
-A primary reference for the material is Christopher Jackson's excellent manual 
+A primary reference for the material was Christopher Jackson's excellent manual 
 for the msm package \cite{Jackson16}.
 Others that I found particularly helpful were a web page by Nokoalai
 Shokiriv \cite{Shokhirev}, Satten and Lingini \cite{Satten96} and
 computational details from Kalbfleisch and Lawless \cite{Kalbfleisch85}.
-
 Per Shokhirev there are 3 canonical problems for HMM models.
 
 \begin{enumerate}
@@ -212,7 +169,7 @@ but not much else.)
         probability that $j$ will be observed if $i$ is the true state.
         (Yes, he reuses $i$ multiple times).
     \end{itemize}
-  \item Jackson's msm manual
+  \item Jackson's msm manual has
     \begin{itemize}
       \item $Q$ is the rate matrix, $P$ the transition probability matrix,
         and $E$ the error matrix.
@@ -233,8 +190,9 @@ or whether other states were visited in the interim.
 
 Let $S$ be the set of $m$ states, $p(0)$ the distribution of states at time
 0, often $(1, 0, \ldots)$, $P(s,t; \theta)$ the $m$ by $m$ transition
- probability matrix from time $s$ to time $t$, depending on parameter
-vector $\theta$, and $p(t,\theta)= p(0) P(0,t)$ the probability in state
+ probability matrix from time $s$ to time $t$, depending on a parameter
+vector $\theta$.
+Then $p(t,\theta)= p(0) P(0,t)$ will be the probability in state
 vector at time $t$.
 
 Let $R$ be an $m$ by $m$ rate matrix, the $jk$ element is the rate of transition
@@ -250,18 +208,20 @@ Assume that $t_0, t_1, t_2, \ldots$ are the
 time points that partition the line, with often $t_0=0$.  
 Then
 \begin{equation*}
-  p(s) = p(0)\left[\prod_{t_k<s}e^{(t_k-t_{k-1}) R_{k-1}}\right] e^{(s-t_k)R_k}
+  p(t_{i+1}) = p(t_i) e^{(t_{i+1}-t_i)R_i}
 \end{equation*}
 
 Because we do not observe the transitions, the user needs to specify which
-elements of $R$ are non-zero.  So for instance in a simple model of
-\ref{fig:simple} below
-we might assume that events can only go forward from CU to MCI to Dementia.
+elements of $R$ are non-zero.  
+So for instance in the NAFLD model of Figure \ref{fig:nafld} we would allow
+only the solid lines; in a simple cognitive model of
+\ref{fig:simple}
+we might assume that subjects can only go forward from CU to MCI to Dementia.
 However, if the data contains any who were observed to be CU after an MCI
-visit, the likelhood of the data, under this model, is 0.
-A reasonable default, used in the coxph function, is that anything we didn't
-see couldn't happen and that anything we did see, could.
-The multi-state hazards (MSH) model in this case would add an MCI:CU arrow.
+visit, the likelhood of the data, under this model, is 0; which is an issue
+we will address using the HMM.
+In the MSH models of coxph function, we need to add arrows for every observed
+transition.
 
 \begin{figure}
 <<simple, echo=FALSE>>=
@@ -276,44 +236,52 @@ statefig(rbind(3,1), smat)
  \label{fig:simple}
 \end{figure}
 
-In the msm package the baseline hazard as a function of time is parametric
-with $t$ = the starting point of the interval. 
+The baseline hazard is modeled as a parametric function of time, but the
+actual likelihood treats this as peicewise constant over the set of time
+points $t$ used in the data.
 If the baseline were increasing, for instance, we might worry about a bias
 from different length intervals;
-if Smith were observed at years 0,1,2,3,4 and Jones at 0, 2, 4 then from year
-1 to 2 Jones' computation would use a systmatically smaller rate.
-I have often added extra censored cutpoints
+if Smith were observed at years 0,1.1, 2.1 and 2.9 ,3,4 and Jones at 
+0, 2.3, and 4.5  then from year
+1 to 2 Jones' computation would use a systmatically smaller rate than Smith.
+A standard response is to add extra censored cutpoints
 at 1 or 2 year intervals in order to force an update of $t$.
-There is also a small nuisance of adding dummy observations for \emph{each}
-subject, so all share the same cutpoints, but survSplit does this easily.
+There is a small nuisance to adding dummy observations for \emph{each}
+subject, so all share the same cutpoints, but the R tools are effective.
+
+As a contrast, in the \code{icmstate} package the baseline is treated as
+non-parametric.  The cutpoints will be the set of observed event times,
 In the icmstate package the baseline is treated as non-parametric. 
-An advantage of this is that any given $R$ matrix may be very sparse. 
-The cutpoints will be a subset of the observed event times,
-and if time is measured in days
-it is likely that there is only one observed event at any given event time, and
-in that case the matrix exponential has a closed form.
-(Computing a lot of matrix exponentials can be a major part of the compute
-time.)
+and if time is measured in days it is likely that there is only one observed 
+event at any given event time, leading to a sparse $R$ matrix and faster
+computation.
+(Computing a lot of matrix exponentials is a major part of the compute
+time for icmsh.)
 A disadvantage is that an EM algorithm is needed at each time point to
 estimate the baseline rate.
 
-If subject $i$ is seen at times $t_{j}$, $j=0, \ldots, n_i$, with observed
-states $s_{j}$, where $t_{0}=0$ and $s_{0}$ is the starting state, then their
-contribution to the likelihood is
-$$ L_i = \sum_{j=1}^{n_i} P(t_{j-1}, t_j)_{s_{j-1}, s_j}$$
-At each observation after the first, compute the probability of transition
-from state $s_{j-1}$ to $s_{j}$ over that time interval.  
-The exception to this is a transition who occurence time is measured exactly, 
-e.g., death. 
-In that case that likelihood term is a sum of probabilities: for all states
-$k$ except death the probability of being in state $k$ just before death
-times the hazard rate for death from state $k$, which is the sum of $p(t)$
-times the death column of $R(t)$.
+Assume subject $i$ is seen at times $t_{j}$, $j=0, \ldots, n_i$, with observed
+states $s_{j}$, where $t_{0}=0$ is the starting time, and set 
+$p_j(0) = I(j= s_0)$, i.e., probability 1 for the observed starting state.
+Then 
+\begin{equation}
+  p(t_{i}) = p(t_{i-1})e^{(t_i-t_{i-1})R_{i-1}} D(t_i) 
+\end{equation}
+Where the $D$ matrix has 3 types
+\begin{itemize}
+  \item If the status at $t_i$ is censored, the $D$ is the identity matrix,
+    but with diagonal element 0 for the death state (if present)
+  \item If $t_i$ corresponds to a state $k$ with exactly known time, $D(t_i)$ is
+    a copy of $R_{i-1}$ with all columns zeroed except $k$.
+  \item If $t_i$ corresponds to state $k$ and $k$ is not death, $D$ is a
+    zero matrix except for $D_{kk}=1$
+\end{itemize}
+      
 If one subject is measured a lot more often than others, the $P$ matrices
 become close to the identity; they do not contribute a lot more to the
 loglik due to multiple measurements, i.e., this does not add a bias.
-(They do contribute a bit more information, since the time of any
-transition is more bounded.)
+(They do contribute a tiny bit more information, since the time of any
+observed transition is more bounded.)
 
 As a simple example, assume three states and two subjects with the same
 $R$ matrix below, both of which transition from state 1 to state 2 at 6
@@ -374,9 +342,9 @@ bit magic.)
 \section{HMM likelihood}
 
 For a hidden Markov model (HMM) the likelihood has one more piece.  At each
-observation time there are one or more variables $y_{ijk}$ measured on a
+observation time there are one or more marker variables $y_{ijk}$ measured on a
 subject.  The number $k$ could be the same at any visit, or different,
-e.g. a particular test might not be done on all visits. 
+e.g. a particular test might not be done on all visits, or for all subjects.
 The second component of the models is a set of densities $f_k(y_k | m)$, 
 the probability such a measurement $y$ if the true state of the subject
 is $m$.
@@ -447,9 +415,17 @@ are currently in state 1 given the observed outcomes + probability in state 2
 given the observed outcomes + \ldots;  
 which is the sum of elements of $p(t)$.
 The probability for the entire study is the product of per-subject values.
-(The msm package uses $\alpha$ instead of $p$).
+(Note that msm package uses $\alpha$ instead of $p$ in both code and
+documentation).
+If you look closely, this is the same formula and the non-HMM case, but with a
+different $D$ matrix.  We can in fact view the simple interval censored fit
+as an HMM fit where the markers are error free.
 
-One important assumtion of the above is that the $y$ values are independent
+(I now think the paragraph just below is wrong, but not yet convinced enough to
+remove it. The $y$ values are realizations of the true state so are 
+conditionally independent given state, not independent.)
+
+[One important assumtion of the above is that the $y$ values are independent
 given $p$.
 A simple counter-example would be a study where most are measured yearly but
 subject 2 is measured daily. There is more information about subject 2, as
@@ -459,15 +435,16 @@ For instance, if the marker in question depended both on true state and some
 other umeasured covariate (blood type AB biases the biomarker assay high, say)
 then 365 repeated lab runs will not reduce absolute error by $\sqrt(1/365)$.
 The variation is shrunk but the bias remains.
-I don't think this is a serious problem in most studies, however.
+I don't think this is a serious problem in most studies, however.]
 
 \section{Intial state}
 The very first step of the computation requires a bit more thought.
 The initial state is normally a reflection of the recruitment process, not
 the process of disease progression. 
-As such the considerations for this value are completely different than the
-HMM likelhood.
-Which subjects actually appear in the sampling frame, which of those 
+As such the considerations for this value are completely different than for 
+the rest of the HMM likelhood.
+Which subjects from our target population (the one we \emph{want} to explore)
+are available in the sampling frame, which of those 
 fullfill the eligiblity criterion of the study, and which were chosen?  
 There are four approaches available.
 
@@ -476,7 +453,8 @@ This is the initialize step in Shokhirev for instance.
 Each subject is assumed to be randomly chosen from an underlying population with
 probability vector $\pi$.
 The parameter estimate $\pi$ may be fixed or estimated, and may involve 
-per-subject covariates.
+per-subject covariates.  We might have run an external regression to assign
+probabilities to each state, for instance.
 In some cases the estimated result will be of interest in
 itself, in others we might regard it as a nuisance parameter.
 
@@ -567,23 +545,14 @@ I am not clear on whether this improves estimates or not.
 \section{Censoring and Death}
 Censoring in the hmm package is viewed somewhat differently than in the
 survival package.  
-A key idea for both is there may be a time point for a given subject $i$ 
-beyond which we have no information about future transitions.
-By definition, this does not occur if subject $i$ has entered an absorbing
-state, e.g., death.
-Death is (almost?) unique in that it is both absorbing and exact;
-we refer to an exact state as one which cannot be mistaken and for which the
-time at entry is known.
-For an exact absorbing state, a data observation after that time point is an
-error, one that the hmm code can screen for.
-(Multistate \code{survfit} and \code{coxph} can not since they do not have 
-external information on the valid transitions, and depend on the use to execute
-\code{survcheck} and examine the transition table.)
-
-Censoring in an HMM model corresponds to partial information, and is of one
-of three types.
+First, there is the censoring indicator of the Surv() response, which marks
+only whether this observation corresponds to an ``exact time'' state.  It will
+normally only be used for death.
+The second are censored markers and correspond to partial information, often
+one of 3 types:
 \begin{enumerate}
-  \item For a continuous reporter, for instance, there might be a lower threshold
+  \item For a continuous reporter, for instance, there might be a lower 
+    threshold
     $z$ on the assay for that reporter.  The proper element of $D$ for a
     value below threshold would be $ \int_0^z f(x) dx$.
     This is equivalent to left censoring in a parametric survival model, 
@@ -599,41 +568,25 @@ of three types.
     the \emph{true} state is CU or MCI, but that the \emph{observed} state is
     CU or MCI.  To forstall such confusions we take care to use different labels
     for true states and observed states.
-  \item For any data row not in the exact/absorbing (EA) set, we have
-    an implict $D$ matrix which is ``not EA at this time'', i.e.,
-    a diagonal matrix of zeros and ones. For the user code, this requires
-    both a declaration of which states are EA states, and variable in the
-    data that defines entry to an EA state. 
-    There are 3 ways to do this.
-    \begin{enumerate}
-      \item If the data has one or more categorical reporters, add death and
-        censor as two more categories, and create an extended missclassification
-        table as shown in the right of Table \ref{tab:missclass2}. Add the
-        \code{death} option to the call to identify the EA states.
-      \item Use the \code{otype} variable to identify rows in which death occurs,
-        and the \code{death} option to identify EA states.
-      \item Encode EA states using \code{Surv} on the left hand side of the
-        equation (not yet inplemented).
-    \end{enumerate}
+  \item Any censored data row is known to not be in the death state.
 \end{enumerate}
 
 \begin{table} \centering
-  \begin{tabular}{rcccclcccccc}
-    &\multicolumn{4}{c}{Standard}& \qquad & \multicolumn{6}{c}{Extended} \\
- State& CU & MCI & Dem & ND && CU & MCI & Dem & ND & Death & Censor \\ \hline
- C0 & $1-a$& $a$ & 0   & $1$&& $1-a$&$a$& 0  & $a$ &  0    &  1 \\
- C1 & $b$  & $1-(b+c)$& $c$& $1-c$ &&  $b$  & $1-(b+c)$ $c$& $1-c$ & 0 & 1 \\
- C2 & 0    & $d$      &$1-d$&$d$ && 0    & $d$      &$1-d$&$d$& 0 & 1 \\
-Death&&&&& 0 & 0 & 0& 0& 0 & 1 & 0
+  \begin{tabular}{rcccc}
+ State& CU & MCI & Dem & ND  \\ \hline
+ C0 & $1-a$& $a$ & 0   & $1$ \\
+ C1 & $b$  & $1-(b+c)$& $c$& $1-c$ \\
+ C2 & 0    & $d$      &$1-d$&$d$ \\
+ Death&0 &0 &0 &0
  \end{tabular}
-\caption{Left: Missclassification table with non demented (ND) = CU + MCI as
-  a censored category.  Right: Extended table including death.}
+\caption{Missclassification table with non demented (ND) = CU + MCI as
+  a censored category. }
 \label{tab:missclass2}
 \end{table}
 
-One case that is not handled by 3i above is the (rare) case of a biomarker
+One case that is not handled above is the (rare) case of a biomarker
 measured on the day of death, e.g., an auto accident at the end of a day of
-medical appointments.
+medical appointments. The user will need to move the prior visit back a smidge.
 Two other rare but possible cases are
 \begin{itemize}
   \item An exact state which is not aborbing, e.g., 
@@ -643,17 +596,29 @@ Two other rare but possible cases are
     entry into said state is unknown, e.g., MAFLD.
 \end{itemize}
 
-
-As a final footnote, one of the many confusions that can arise 
-when the latent states and a response are given the same labels involves
-censoring, e.g., using the same labels on rows and columns of table
-\ref{tab:missclass2}. 
-If the latent states in the model had been
-labeled as CU, MCI, dementia and death; a user might incorrectly say that a 
-``CU/MCI'' observation indicates that the \emph{true} state is CU or MCI,
-when it is the \emph{observed} state that is CU/MCI.
-(For death, we can use the same label for true the state and observed state
-without confusion.)
+When there is a single categorical marker, as in the table above, one temptation
+is to include death as one of the categorical states. This is done in the msm
+manual for instance. Table \ref{missclass2} would have another column ``death''
+with values of 0,0,0,1.
+In our code and in the explanation here we have been careful not to do this:
+death (and any other known state) are in the Surv() object, only hidden states
+are reported out by markers.
+There are a few reasons for this.
+\begin{itemize}
+  \item Death is different, it leads to a separate compuation in the likelihood.
+    Because of this we will need to mark it off separately anyway.
+  \item The CU/MCI/dementia variable is measured at a clinical visit, death
+    comes from other sources, so we are mixing two things together.
+  \item When a model has multiple categorical markers, which gets the death
+    addition? If there are only continuous markers, where does it go?
+\end{itemize}
+One counter argument is that we could as easily say that death identifies
+one of the true states, and any marker that maps to that state inherits the
+behavior. 
+(It is one case where using the same label for a marker and the state is
+complely valid.) 
+This solves the first point above. But we still need a data marker
+in the continuous case.
 
 \section{Modeling cognitive decline}
 
@@ -700,8 +665,8 @@ A2 &CeV1   &    &    &    &    &    &    &    & r12& d8 \\
 
 There are 12 different state to state transitions and 9 to death.
 If we don't want to fail from too many coefficients, then we might 
-assume that the effect of some covariate \code{zed} is additive.  We would have an
-formula lines such as
+assume that the effect of some covariate \code{zed} is additive.  
+We would have formula lines such as
 \begin{verbatim}
   A0CeV0:A1CeV0 + A0CeV1:A1CeV1 + A0CeV2:A1CeV2 ~ zed /common,
   A1CeV0:A2CeV0 + A1CeV1:A2CeV1 + A1CeV2:A2CeV2 ~ zed /common,
@@ -797,7 +762,7 @@ The hmm function allows ``Fisher scoring'' as a choice of algorithm for finding
 the maximum.  This is the union of four ideas.
 
 Let $U(\theta)$ be the matrix of first derivatives, one row per subject and
-one column per parameters, $1'U$ is the overall first derivative.
+one column per parameter, $1'U$ is the overall first derivative.
 At the solution $\hat\beta$ we have 
 \begin{align*}
   E(U) &= 0 \\
@@ -812,10 +777,12 @@ replacement for $H$ in the Newton-Raphson algorithm.
 The first derivatives of all log-likelihood components are available
 analytically, including the matrix exponential, so are fairly economical to
 compute.  For modest problems ($< 50$ parameters) we have found the compute
-time to increase by 2-3 fold.  The Hessian matrix, on the other hand, needs to
+time to increase by 2-3 fold when computing the derivative as well as the
+loglik for a given set of coefficients.
+ The Hessian matrix, on the other hand, needs to
 be computed analytically and so is much more expensive.  Update algorithms
 like BFGS reduce this considerably of course, but we have found each iteration
-optim to be much slower than the above.
+of optim to be much slower than the above.
 
 When we are far from the true maximum this approximation might not be accurate,
 of course, so the code adds an additional amount to the diagonal, resulting in
@@ -837,7 +804,7 @@ loglik, at proposed new estimates, to what the predicted value of
 the function would be at that point if the quadratic were perfect.
 If these two values are far apart this is evidence that the Taylor series has
 reached too far, i.e., beyond the region where the series is accurate.
-The result is to take a smaller step, that is, stay within the span
+The strategy is to then take a smaller step, that is, stay within the span
 for which the Taylor series prediction is sufficiently good, where it can
 be ``trusted''.
 

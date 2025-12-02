@@ -53,14 +53,17 @@ two packages.
     not successful at finding the maximum, and very slow when they did succeed.
     Expermentation with more robust approaches, along with a need for these 
     models within our dementia research program, 
-    were the primary drivers for the mshmm package.
-    Some aspects of the msm code made extension of the 
-    optimization more difficult, e.g., the addition of constraints. 
-    It was just easier to start fresh.
+    were the primary drivers for the mshmm package.  
+    The addition of optional constraints was particularly helpful. 
+    We have data sets where certain obvious constraints, e.g., 
+    death rates increase with disease state, are not active at the final
+    solution point, but nevertheless guide the maximizer away from bad
+    intermediate guesses.  My imperfect analogy is to ``never pass through the
+    bad part of town''.
   \item Follow-up summaries of the model, e.g., mean time in state, are more
     fully fleshed out in the msm package.
-  \item Simple interval censored models and HMM models are set out as two
-    separate function in mshmm, the msm::msm function fits both.
+%  \item Simple interval censored models and HMM models are set out as two
+%    separate function in mshmm, the msm::msm function fits both.
 \end{enumerate}
 As a user, 1 and 2 might recommend mshmm, while item 3, a longer history, and 
 a deserved reputation for reliability would recommend msm.  
@@ -92,9 +95,9 @@ The data for hmm should be in \emph{timeline} form.
 A timeline data set is actually more natural in the sense that it mimics the 
 way in which data is gathered. 
 It also may be easier to create, since one can use a wider variety of tools.
-It is however different than our usual practice.
-For instance, for ordinary survival, a Kaplan-Meier say,
-data in timeline form requires two observations per subject.
+For ordinary survival however,  a Kaplan-Meier say,
+data in timeline form requires two observations per subject, which differs
+from the usual practice for censored data.
 The first observation at time 0 will have baseline covariates along with a
 status of alive.  A second
 observation at the time of death or last follow-up will have the status at that
@@ -102,22 +105,21 @@ time point (alive/dead).
 That second observation will also have many missing values, e.g., blood
 pressure would not normally be known at death, especially if
 death date is gathered from other sources.
-
+The multistate format for the survival package evolved out of simple survival
+and so retains that instance as a special case, i.e., one line per subject.
 
 \section{Interval censored data}
- Start with a simple censored fit as illustration.
-
 \subsection{CAV example}
 Data from a study that monitors the progression of coronary allograft
 vasculopathy (CAV) is provided in the msm package. 
 CAV is a post-transplant deterioration of the aterial walls in patients who
 have recieved a heart transplant. 
-
-We first make a few changes to
-the data set to set it up for the icmsh function, and show some summaries. 
+Make a few changes to
+the data set to set it up for the hmm function, and show some summaries. 
 This first fits treat the CAV outcome as interval censored. 
 
 <<newcav>>=
+library(msm)
 cav2 <- cav
 names(cav2) <- casefold(names(cav2))  # lower case (personal preference)
 
@@ -143,7 +145,7 @@ date last known alive, other than a study visit, for those who are not dead.
 The 622 subjects have betwen 2 and 15 assessments, 
 less than 1/2 have more than 4.
 
-For either interval censored or HMM data we need to specifiy the set of
+For interval censored data we need to specifiy the set of
 valid transitions $Q$.  This is a matrix of 0/1 values, which can
 also be used by the statefig routine. 
 (Positive values other than 1 are allowed, since they are used to draw curved
@@ -155,20 +157,20 @@ the msm vignette.
 
 <<cavstates>>=
 cstates <- c("no CAV", "mild/mod", "severe", "death")
-qmat <- matrix(0,4,4, dimnames= list(from=cstates, to=cstates))
-qmat[1,2] <- qmat[2,1] <- 1
-qmat[2,3] <- qmat[3,2] <- 1
-qmat[1:3,4] <- 1
-statefig(rbind(3,1), qmat, offset=.02)
+cqmat <- matrix(0,4,4, dimnames= list(from=cstates, to=cstates))
+cqmat[1,2] <- cqmat[2,1] <- 1
+cqmat[2,3] <- cqmat[3,2] <- 1
+cqmat[1:3,4] <- 1
+statefig(rbind(3,1), cqmat, offset=.02)
 
 init <- c(.166, .25, .25, .166, .25, .166, .25) #rates per year
 # The coefs are in the same order as the non-zero entries in qmat; remember 
 #  that R matrices are stored in column major order.
 # It might seem more natural to read across, like a book (msm does), but 
 #  both as a user and within the package code we found that this quickly 
-#  becomes an exercise in swimming upstream.
-hfit0 <- icmsh(Surv(years, cstate) ~ 1, data= cav2, id= ptnum,
-               qmatrix= qmat, exact="death", intercept= log(init))
+#  becomes an exercise in swimming upstream. 
+hfit0 <- hmm(Surv(years, cstate) ~ 1, data= cav2, id= ptnum,
+               qmatrix= cqmat, exact="death", intercept= log(init))
 hfit0  #msm vignette, 2.5, model 1
 @
 
@@ -215,6 +217,101 @@ Later formulas update the formula(s) for specified transtions
   \item 0:death stands for any state to death. Invalid transitions not found in
     qmatrix are ignored, i.e., the implied  death:death transtion
 \end{itemize}
+
+\subsection{NAFLD example}
+ Metabolic dysfunction-associated fatty liver disease (previously known as
+NAFLD) is characterized by fat accumulation in the liver that is linked to 
+metabolic dysfunction, such as obesity, type 2 diabetes, or other signs of 
+metabolic dysregulation. 
+The \code{nafld1}, \code{nafld2} and \code{nafld3} data sets containing
+baseline, repeated laboratory, and outcome data, respectively from a 2018 
+study by Allen.
+
+An analysis using the state space below is found in the vignettes for
+the survival package.
+See there for creating the counting process data using \code{tmerge}.
+The states are the count of three metabolic comorbities (MC) for each
+subject at a given visit: diabetes, dislipidemia, and hypertension.
+
+<<nafld1>>=
+states <- c("0MC", "1MC", "2MC", "3MC", "death")
+nmat <- matrix(0, 5, 5, dimnames=list(states, states))
+nmat[1,2] <- nmat[2,3] <- nmat[4,5] <- 1
+nmat[1:4,5] <- 1
+nmat[1,3] <- nmat[1,4] <- nmat[2,4] <- 0.7
+statefig(rbind(4,1), nmat, alty=c(1,2,1, 2,2,1,1,1,1))
+@
+
+
+Now create the timeline data set.
+For illustration we have done this using only the functions in base R, 
+but many other tools can be used which might be simpler or better.
+
+<<naflddata>>=
+temp1 <- subset(nafld1, select=c(id, age, male))  #baseline
+temp1$days <- 0
+temp2 <- subset(nafld3, event== "diabetes") # first diabetes
+temp2$days <- pmax(0, temp2$days)  # diabetes which began before enrollment 
+temp3 <- subset(nafld3, event== "dyslipidemia")
+temp3$days <- pmax(0, temp3$days)
+temp4 <- subset(nafld3, event== "htn")       # first hypertension
+temp4$days <- pmax(0, temp4$days)
+
+# create the cumulative count, recognizing that two outcomes might be
+#  discovered at the same follow-up visit
+temp5 <- rbind(temp1[,c(1,4)], temp2[,1:2], temp3[,1:2], temp4[,1:2])
+temp5 <- temp5[order(temp5$id, temp5$days),]
+temp5$count <- 1:nrow(temp5) - (1:nrow(temp5))[match(temp5$id, temp5$id)]
+temp5 <- temp5[!duplicated(temp5[,1:2], fromLast=TRUE),]
+
+lfu <- subset(nafld1, select= c(id, futime, status)) # death
+names(lfu)[2] <- "days"
+nafld <- subset(nafld3, event=="nafld")
+
+ndata <- merge(temp1, temp5, by=c("id", "days"), all=TRUE) 
+ndata <- merge(ndata, lfu,   by=c("id", "days"), all=TRUE) 
+ndata <- merge(ndata, nafld, by=c("id", "days"), all=TRUE) 
+ndata$nafld <- 1*(ndata$event=="nafld")
+ndata$event <- NULL  # no longer needed
+
+# 3 cases: death, fu after last visit, clinic visit
+tstate <- with(ndata, ifelse(!is.na(status) & status==1, 5,
+                           ifelse(!is.na(count), count, 4)))
+ndata$state <- factor(tstate, c(4,0:3, 5),
+                      c("censor", "OMC", "1MC", "2MC", "3MC", "death"))
+
+with(ndata, table(state[!duplicated(id)]))
+with(ndata, table(from= state[duplicated(id, fromLast=TRUE)],
+                   to = state[duplicated(id)]))
+@ 
+
+The first table above shows the state at entry, about 45\% of the
+\Sexpr{nrow(nafld1)} subjects start in the 0MC state.
+The second table shows observed transtions.
+Since comorbidities were defines as ``any history of'', subjects
+can not go backwards. 
+A few subjects have a censored visit in the midst of their state
+transitions, e.g., censor to 1MC. These correspond to a NAFLD diagnosis
+that was not at the same visit as as a new MC addition.
+For the semiparametric counting process analysis using \code{coxph}
+we need to account for all of the observed transitions.
+This includes the dashed lines in the figure, which arise from a visit
+where 2 or 3 MC are observed that were not present at the prior visit.
+Biologically, no subject will have gained two new MC at exactly the same
+moment, and the interval censored analysis can will eliminate the dashed
+lines: an observed transtion from 0MC to 2MC is actually two transitions
+of 0MC:1MC and 1MC:2MC, but at unknown times.
+
+<<nafld2>>=
+states <- c("0MC", "1MC", "2MC", "3MC", "death")
+qmat <- matrix(0, 5, 5, dimnames=list(from= states, to =states))
+qmat[1,2] <- qmat[2,3] <- qmat[4,5] <- 1
+qmat[1:4,5] <- 1
+
+nfit <- hmm(Surv(days, state) ~ age + male + nafld, data= ndata,
+            id = id, qmatrix= qmat, death="death")
+@ 
+
 
 \subsection{Theory}
 Two primary differences between the MSH partial likelihood of \code{coxph} and
