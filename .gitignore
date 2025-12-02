@@ -8,4 +8,5 @@ vignettes/.*.tex
 vignettes/.*.pdf
 vignettes/.*.bbl
 vignettes/.*.blg
-.*~
+*~
+data/renal.R
