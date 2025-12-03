@@ -186,15 +186,39 @@ if (bcount[3]) { #if there are initial probability  parameters
 }
 cmap.b1 <- makeindex(cmap[,b1, drop=FALSE])
 
-Ptrans <- function(alpha, dmat, x, map=cmap.b1) {
-    tmat <- matrix(0., map$dim[1], map$dim[2])
-    tmat[map$tindex] <- x[map$xindex]
-    #treat dmat as though it were a matrix with first dim nstate*nstate
-    dim(dmat) <- c(nstate*nstate, map$dim[1])
-    dmat2 <- dmat %*% tmat  #transform
-    t(rowsum(dmat2 * rep(alpha, nstate*map$dim[2]), rep(1:nstate, each=nstate),
-             reorder=FALSE))
-}    
+# This funtion will first convert from derivatives wrt eta, to derivatives
+#  with respect to beta, given cmap and a single row of the X matrix
+#  per eta.
+Ptrans <- function(alpha, dP, cmap, x) {
+    dd <- c(dim(dP), nrow(cmap))  #length(x) = nrow(cmap)
+    # dP will have dim(nstate, nstate, number of etas)
+    # cmap has a row for each variable, column for each eta
+    # the transform matrix Z has dd[3] rows and dd[4] columns, with
+    # Z[j,i] = 0 if cmap[i,j]=0 or x[cmap[i,j] =0, 1/x[cmap[i,j]] otherwise
+    nbeta <- max(cmap)
+    Z <- matrix(0,dd[3], nbeta)
+    cpos <- c(cmap>0)
+    rc <- c(row(cmap))
+    Z[cbind(c(col(cmap)), c(cmap))[cpos,]] <- ifelse(x==0, 0, 1/x)[rc[cpos]]
+   
+    # A simple transform is
+    # for (i in 1:nstate) {
+    #   for (j 1:nstate) newd[i,j,] <- dP[i,j,] %*% Z }
+    # Try to be faster using matrix mult, but use the above to validate
+    browser()
+    dd <- c(dim(dP), nrow(cmap))
+    dim(dP) <- c(dd[1]*dd[1], dd[3])
+    newd <- dP %*% Z 
+
+    # If we think of newd as (nstate, nstate, beta), [,,1] is the derivative
+    #  of each element of P wrt beta[1], etc., we want a new matrix whose
+    #  jth row is alpha %*% newd[,,j].  Can we do it without a loop?
+    dim(newd) <- c(dd[1], dd[1]*dd[4])
+    temp <- alpha %*% newd
+    dim(temp) <- c(d[1], dd[1])
+    temp
+}
+
 
 if (!missing(exact)) {  
     dtemp <- col(qmatrix)[rindex]

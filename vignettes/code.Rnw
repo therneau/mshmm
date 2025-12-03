@@ -695,7 +695,7 @@ maximized.
   \eta &= XB  \nolabel \\
   P(t_m, t_{m+1}) &= e^{[t_{m+1} - t_m]R(t_m)}  \label{pmat1} \\
   D_{jk}(t_m)= \left\{ \begin{array}{cc}
-    1 & y(t_m) =j, j \ne \mbox{exact}   label{dmat1a} \\
+    1 & y(t_m) =j, j \ne \mbox{exact}   \label{dmat1a} \\
     1 & y(t_m)= 0, j \ne \mbox{death}   \label{dmat1b} \\
     R_{jk}(t_{m-1}) &  y(t_m)= k, k = \mbox{exact}  \label{dmat2} \\
     0 & \rm{otherwise} \nolabel \end{array} \right.
@@ -734,7 +734,8 @@ The derivative of $P$ with respect to $\eta_{jk}$ is more complex, since each
 element of $P$ depends on all the elements of $R$.
 This is returned by the pade routine as a matrix of dimension 
 (nstate, nstate, q) where $q$ is the number of non-zero elements of $Q$.
-This is \code{ptemp\$dmat} in the hmm2 routine. From the product rule
+This is \code{ptemp\$dmat} in the hmm2 routine. 
+From the product rule
 \begin{equation}
   \frac{\partial p(t)P(t,s)}{\partial \eta_q} &= 
   \frac{\partial p(t)}{\partial \eta_q} P(t,s) + 
@@ -743,12 +744,53 @@ This is \code{ptemp\$dmat} in the hmm2 routine. From the product rule
 To prove this simply write out the matrix product as a sum of terms, apply
 the product rule for derivatives to each term, and reassemble the result.
 
-Since $p(t)$ is a vector with nstate elements, the derivative with respect
-to $\eta_q$ is also a vector.
+The the partial of $p(t)$ kept as a matrix \code{P.d} which has a column for 
+each state and a row for each linear predictor, 
+row $q$ of this matrix is the $dp/d \eta$ 
+element of the first term in \eqref{productderiv}.
 The first term of \eqref{productderiv} is easy: \code{P.d \%*\% P} in the
 code. 
-For the second, first note that what we want are the deriviatives wrt
-$\beta$, the vector of parameters. 
+
+The R code for the second term is a little more subtle. Consider a single
+a single linear predictor $q$, which is a single row of \code{P.d} and the
+\code{[, , q]} margin of $\partial P$. This does not collapse into a single
+matrix multiply, we can do it as a loop over the linear predictors, each 
+interation updates a single row of \code{P.d}.
+
+So far so good, but the above is not quite what we need. The maximizer wants
+to have the derivative with respect to $\beta$, not $\eta = XB$.
+If there are no time dependent covariates for a subject, then all rows of
+$\eta$ for a given subject are identical, and we could transform to derivatives
+wrt $\beta$ at the end of processing this subject.  But many data sets will
+have TD covariates, i.e., rows of $X$ for a subject will vary over time.
+
+The transformation of derivatives from $\eta$ to $\beta$ is however simple.
+The first term of \eqref{productderiv} is simple matrix multiplication, just
+as before, where $P.d$ has a row for each element of $\beta$.
+For the second we use the chain rule
+\begin{equation*}
+\frac{\partial P_{jk}}{\partial beta_m} &=
+  \sum_{s=1}^q \frac{\partial P_{jk}}{\partial eta_s} 
+   frac{\partial \eta_s}{\partial \beta_m} 
+\end{equation*}
+
+The cmap matrix provides map between covariates, coefficients
+and $\eta$.
+If cmap[j,k] >0, then X[i,j]* beta[cmap[j,k]] is part of linear predictor $j$.
+So a ncol(cmap) by length(beta) transformation matrix $Z$ will have 
+\begin{equation*}
+ Z_{mk} &\equiv \left\{ \begin{array}{cc}
+   X_{ij} & C_{jm}=k\\
+   0       & otherwise \end{array} \right.
+\end{equation*}
+This can set up once using matrix subscripts, i.e., let
+etabeta be a matrix with rows of (m,k,j) from the above equation, 
+one row/value for each nonzero element of cmap.
+Then for row $i$ if X we have \code{Z[etabeta[,1:2]] <- X[i, etabeta[,3]]}.
+
+or more efficienty by temporarily treating the derivative as a matrix with
+nstate*nstate rows and using the crossprod function.
+
 
 Aside:The \code{cmap} matrix tracks the mapping between the matrix form of the
 parameters $B$ and the vector form $\beta$;
@@ -758,11 +800,21 @@ We use both so often the hmm code keeps track of both, and uses the
 $B.to.coef$ and $coef.to.B$ routines to translate from one to the other.
 The $B$ matrix will have a lot of zeros, since most parameters will refer to
 a single transition.
+
+
 Let $\theta$ be an arbitrary parameter, then since $\eta = XB$
 \begin{equation*}
   \frac{\partial \theta}{\beta} = X\frac{\partial\theta}{\eta}
 \end{equation*}
 
+Consider a single element of $P_{jk}$A given transition matrix $P$ corresponds to a single row of $X$.
+The following code fragment will do the expansion for a set of rows $j$
+belonging to 
+<<eval=FALSE, echo=TRUE>>=
+temp <- dim(Pderiv)
+dim(Pderiv) <- c(temp[1]*temp[2], temp[3])
+crossprod(X[,j], Pderiv)
+@ 
 In R, this can be done by temporarily changing the dimension of the derivative
 to (nstate^2, 
 \begin{align}
