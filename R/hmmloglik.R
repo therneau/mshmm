@@ -132,9 +132,47 @@ hmm1 <- function(who, beta) {
     attr(loglik, "counts") <- ucount
     loglik
 }
-environment(hmm1) <- environment(hmmfit)
+parent.env(hmm1) <- environment(hmmfit)
 
 # Helper function for the derivatives in hmm2
+# first the derivative of the transition matrix P
+# See "derivatives, eta to beta" in the code vignette, the definition of
+#  Z particularly needs the longer explanation
+Ptrans <- function(alpha, dP, cmap, x) {
+    dd <- dim(dP)  
+    # dP will have dim(nstate, nstate, number of etas)
+    #  it contains the deriviative wrt each eta, for each element of P
+    # cmap has a row for each variable, column for each eta
+    # Z transforms from d/deta to d/dbeta (derivatives), the R code is arcane
+    nbeta <- max(cmap)
+    Z <- matrix(0,dd[3], nbeta)
+    cz <- which(cmap>0)
+    Z[cbind(col(cmap)[cz], cmap[cz])] <- x[row(cmap)[cz]]
+   
+    # A simple transform is
+    #   for (i in 1:nstate) {
+    #      for (j 1:nstate) newd[i,j,] <- dP[i,j,] %*% Z }
+    # That is, treat each i,j element separately in the chain rule equation
+    #   of the eta to beta section of the code vignette
+    # Try to be faster using matrix mult, but use the above to validate.
+    #  Temporarly make dP an (nstate*nstate, dd[3]) matrix to allow this.
+    # Changing an attrbute should not force a copy of dP to be made.
+    dim(dP) <- c(dd[1]*dd[1], dd[3])
+    newd <- dP %*% Z 
+
+    # If we think of newd as (nstate, nstate, beta), then newd[,,1] is the
+    #  derivative of each element of P wrt beta[1], etc.
+    # We want a new matrix whose jth row is alpha %*% newd[,,j].  
+    # Can we do it without a loop?
+    dim(newd) <- c(dd[1], dd[1]*nbeta)
+    temp <- crossprod(newd, alpha)
+    matrix(temp, ncol=dd[1], byrow=TRUE)
+}
+
+Rtrans <- function(index, dR, cmap, x) {
+    # Similar to Ptrans, but simpler: each response function is a separate
+    #  set of eta vectors, pointed to by index.
+
 makeindex <- function(cmap, all=cmap) {
     nonzero <- (cmap > 0)
     parms <- sort(unique(all[all>0]))  # the parameter numbers for this group
@@ -186,56 +224,6 @@ if (bcount[3]) { #if there are initial probability  parameters
 }
 cmap.b1 <- makeindex(cmap[,b1, drop=FALSE])
 
-# This funtion will first convert from derivatives wrt eta, to derivatives
-#  with respect to beta, given cmap and a single row of the X matrix
-#  per eta.
-Ptrans <- function(alpha, dP, cmap, x) {
-    dd <- c(dim(dP), nrow(cmap))  #length(x) = nrow(cmap)
-    # dP will have dim(nstate, nstate, number of etas)
-    # cmap has a row for each variable, column for each eta
-    # the transform matrix Z has dd[3] rows and dd[4] columns, with
-    # Z[j,i] = 0 if cmap[i,j]=0 or x[cmap[i,j] =0, 1/x[cmap[i,j]] otherwise
-    nbeta <- max(cmap)
-    Z <- matrix(0,dd[3], nbeta)
-    cpos <- c(cmap>0)
-    rc <- c(row(cmap))
-    Z[cbind(c(col(cmap)), c(cmap))[cpos,]] <- ifelse(x==0, 0, 1/x)[rc[cpos]]
-   
-    # A simple transform is
-    # for (i in 1:nstate) {
-    #   for (j 1:nstate) newd[i,j,] <- dP[i,j,] %*% Z }
-    # Try to be faster using matrix mult, but use the above to validate
-    browser()
-    dd <- c(dim(dP), nrow(cmap))
-    dim(dP) <- c(dd[1]*dd[1], dd[3])
-    newd <- dP %*% Z 
-
-    # If we think of newd as (nstate, nstate, beta), [,,1] is the derivative
-    #  of each element of P wrt beta[1], etc., we want a new matrix whose
-    #  jth row is alpha %*% newd[,,j].  Can we do it without a loop?
-    dim(newd) <- c(dd[1], dd[1]*dd[4])
-    temp <- alpha %*% newd
-    dim(temp) <- c(d[1], dd[1])
-    temp
-}
-
-
-if (!missing(exact)) {  
-    dtemp <- col(qmatrix)[rindex]
-    exactcol  <- which(dtemp== exact)  # list of linear predictors
-    exacttrans <- function(R, x, map=cmap.b1) {
-        rows <- which(qmatrix[,exact] > 0)  #non-zero elements of column d
-        dmat <- matrix(0, nstate, map$dim[1])
-        for (i in 1:length(rows)) 
-            dmat[rows[i], exactcol[i]] <- R[rows[i], exact]
-
-        tmat <- matrix(0., map$dim[1], map$dim[2])
-        tmat[map$tindex] <- x[map$xindex]
-        dmat %*% tmat
-    }
-}
-
-
 hmm2 <- function(who, beta) {
     rows <- which(id ==uid[who])  # the subjects of interest
     eta <- X[rows,] %*% beta
@@ -252,7 +240,7 @@ hmm2 <- function(who, beta) {
         attr(alpha, 'gradient') <- NULL  # no longer needed
     }
     
-    # Execute the response functions, over the uncensored obs
+    # Execute the response functions, over the censored obs
     rlist <- rgrad <- vector("list", ny)
     rneed <- (otype[rows]==3)  # observed markers
     for (k in 1:ny) {
@@ -412,5 +400,5 @@ hmm2 <- function(who, beta) {
     list(alpha=alpha, deriv= rbind(P.d, t(R.d), t(pi.d)), ecount=ecount,
          offset = offset)
 }
-
-environment(hmm2) <- environment(hmmfit)
+# This causes it to inherit multiple variables
+parent.env(hmm2) <- environment(hmmfit)

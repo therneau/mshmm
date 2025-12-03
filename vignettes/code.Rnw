@@ -1,9 +1,10 @@
 \documentclass[11pt]{article}
 \usepackage{amsmath}
+\usepackage{makeidx}
+
 \title{Further documentation on code and methods for the mshmm package}
 \author{Terry Therneau}
 \addtolength{\textwidth}{1in}
-
 \addtolength{\oddsidemargin}{-.5in}
 \setlength{\evensidemargin}{\oddsidemargin}
 \newcommand{\code}[1]{\texttt{#1}}
@@ -69,6 +70,7 @@ numbers and labels change).
 
 \section{Parsing the formulas}
 \subsection{Overview}
+\index{parse!formula}
 Here is the transition matrix for a moderately complex model.
 We have two latent amyloisis states, and 3 latent cognitive states.
 
@@ -249,6 +251,7 @@ which is used to create the model frame and the X matrix.
 The left hand sides information and the options are dealt with in pass 2.
 
 \paragraph{Markers}
+\index{parse!markers}
 The markers formulas can be a bit more complex.
 Here are some valid ones
 \begin{itemize}
@@ -670,6 +673,7 @@ If B is the matrix of coefficients, $XB = (XT)(T^$
 
 
 \section{Likelihood}
+\index{likelihood!simple}
 The likelihood for a subject has 3 parts: initial value, transition
 matrices, and observation matrices, with I will call $p(0)$, $P(s,t)$
 and $D(t)$.
@@ -729,7 +733,8 @@ The msm package also allows for a state with known exit time, but I have not
 yet found a need for this.
 
 For a non-zero element of $q_{jk}$ of $Q$, the derivative of $R_{jk}$ with
-respect to $\eta_{jk}$ is $R_{jk}$, and 0 for all other elements of $R$.
+respect to $\eta_{jk}$ is $R_{jk}$, and 0 for all other elements of $R$.%
+\index{probability in state matrix!derivative}
 The derivative of $P$ with respect to $\eta_{jk}$ is more complex, since each
 element of $P$ depends on all the elements of $R$.
 This is returned by the pade routine as a matrix of dimension 
@@ -757,17 +762,17 @@ a single linear predictor $q$, which is a single row of \code{P.d} and the
 matrix multiply, we can do it as a loop over the linear predictors, each 
 interation updates a single row of \code{P.d}.
 
+\index{derivative!$\eta$ to $\beta$}
 So far so good, but the above is not quite what we need. The maximizer wants
-to have the derivative with respect to $\beta$, not $\eta = XB$.
+to have the derivative with respect to $\beta$, not $\eta = XB$.%
+\index{derivative!$\eta$ to $\beta$}
 If there are no time dependent covariates for a subject, then all rows of
 $\eta$ for a given subject are identical, and we could transform to derivatives
 wrt $\beta$ at the end of processing this subject.  But many data sets will
 have TD covariates, i.e., rows of $X$ for a subject will vary over time.
 
 The transformation of derivatives from $\eta$ to $\beta$ is however simple.
-The first term of \eqref{productderiv} is simple matrix multiplication, just
-as before, where $P.d$ has a row for each element of $\beta$.
-For the second we use the chain rule
+Apply the chain rule
 \begin{equation*}
 \frac{\partial P_{jk}}{\partial beta_m} &=
   \sum_{s=1}^q \frac{\partial P_{jk}}{\partial eta_s} 
@@ -783,14 +788,36 @@ So a ncol(cmap) by length(beta) transformation matrix $Z$ will have
    X_{ij} & C_{jm}=k\\
    0       & otherwise \end{array} \right.
 \end{equation*}
-This can set up once using matrix subscripts, i.e., let
-etabeta be a matrix with rows of (m,k,j) from the above equation, 
-one row/value for each nonzero element of cmap.
-Then for row $i$ if X we have \code{Z[etabeta[,1:2]] <- X[i, etabeta[,3]]}.
+The 3 lines of code that create \code{Z} from \code{cmap} in the \code{Ptrans}
+routine capture the above equation, and will be completely opaque for anyone
+reading them without this documentation.
+Per the quote at the top of this document this is unwise, but it is run
+$O(nk)$ times where $n$ is the number of rows in the $X$ matrix and $k$ the
+number of iterations.
 
-or more efficienty by temporarily treating the derivative as a matrix with
-nstate*nstate rows and using the crossprod function.
-
+The second complexity in the routine is multiplication. 
+Formula \ref{productderiv} applies separately to \emph{each} element $P_{jk}$
+of the transition matrix.
+Let \code{P.d} be the derivative matrix, one row for each parameter $\beta$
+and one column per state.  The first term in the equation is easy,
+\code{P.d \%*\% P} updates all of the rows of P.d at once.  For the
+second term, we first have to transform the matrix of derivatives
+\code{temp$dmat} from dimension (nstate, nstate, ncol(cmap)) to 
+(nstate, nstate, nrow(cmap)), transforming from derivatives wrt $\eta$ to
+those wrt $\beta$.  The straightforward way to do this is a pair of
+1:nstate nested loops, followed by creation of each row of the second term
+of formula \ref{productderiv}
+<<echo=TRUE, eval=FALSE>>=
+for (j in 1:nstate) {
+    for (k in 1:nstate) 
+        newd[j,k, ] <- deriv[j,k,] %*% Z
+}
+for (k in 1: dim(newd)[3]) { # for each element of $\beta
+    secondterm[k,] <- alpha %*% newd[,,k]
+}
+@  
+Faster is to use matrix manipulations, which again will be a bit obscure.
+The test file ptrans.R suggests that there is a significant speed up.
 
 Aside:The \code{cmap} matrix tracks the mapping between the matrix form of the
 parameters $B$ and the vector form $\beta$;
@@ -798,8 +825,8 @@ the matrix form is what we want for $XB$ and the vector form is what the
 maximization functions want.
 We use both so often the hmm code keeps track of both, and uses the
 $B.to.coef$ and $coef.to.B$ routines to translate from one to the other.
-The $B$ matrix will have a lot of zeros, since most parameters will refer to
-a single transition.
+The $B$ matrix may have a lot of zeros, if some covariates refer to only a
+single transition.
 
 
 Let $\theta$ be an arbitrary parameter, then since $\eta = XB$

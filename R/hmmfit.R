@@ -79,6 +79,10 @@ hmmfit <- function(ytime, ystat, x, id, otype, qmatrix, cmap, rfun,
         pderiv  <-  c(param %*% penmat)
     }
     else penalty <- 0
+ 
+    for (i in 1:nrow(cmap)) {
+        for (j in 1:ncol(cmap)) {
+            if (cmat[i,j] >0) etabeta[j, cmap[i,j]] 
     list(loglik= flog, beta=beta)
 }
     
@@ -89,8 +93,8 @@ hmmfit <- function(ytime, ystat, x, id, otype, qmatrix, cmap, rfun,
 #    hmmboth  : loglik and derivative, plus a bit more
 #    hmmdb: for debugging, pass back everything, no iteration
 # To avoid having to pass all of the argument through the maximizer and 
-#   out the other side, we will reset their envionment to hmmfit after they
-#   are defined
+#   out the other side, we will reset their parent to hmmfit after they
+#   are defined (as though they were defined within hmmfit).
 # After these are hmm1 (loglik) and hmm2 (loglik and deriv), which do the
 #  real work. They are called for each separate id to take advantage of
 #  parallel processing.
@@ -132,7 +136,7 @@ hmmloglik <- function(param, ...) {
     hmm_count_of_calls <<- hmm_count_of_calls + rowSums(count)
     loglik
 }
-envirnoment(hmmloglik) <- environment(hmmfit)
+parent.env(hmmloglik) <- environment(hmmfit)
 
 # hand back everything (debug)
 hmmdb <- function(param, ...) {
@@ -179,7 +183,7 @@ hmmdb <- function(param, ...) {
     #}
     rval
 }
-environment(hmmdb) <- environment(hmmfit)
+parent.env(hmmdb) <- environment(hmmfit)
 
 # This function is used by the score based iteration
 hmmboth <- function(param, ...) {
@@ -238,7 +242,7 @@ hmmboth <- function(param, ...) {
     
     list(loglik = loglik, deriv= deriv, S=S, S2=S2)
 }
-environment(hmmboth) <- environment(hmmfit)
+parent.env(hmmboth) <- environment(hmmfit)
 
 hmmgrad <- function(param, ...) {
     beta[cmap>0] <- param[c(cmap)]
@@ -280,4 +284,4 @@ hmmgrad <- function(param, ...) {
     #}
     deriv
 }
-environment(hmmgrad) <- environment(hmmfit)
+parent.env(hmmgrad) <- environment(hmmfit)

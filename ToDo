@@ -1,0 +1,8 @@
+hmm1: X, beta, id, uid
+	iprob, b3, pfun, p0fixed
+	otype, ny, b2map, yobs = markers, ytime
+	nstate, ny= nmarker,
+	entrytime, exactabsorb
+	
+hmm2: hmm1 + psetup, Rtrans, bcount, b1, cmap, Ptrans, exact, qmatrix, parmcount, 
+	rindex, pcount
