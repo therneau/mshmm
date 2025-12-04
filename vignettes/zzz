@@ -1,0 +1,83 @@
+Now assume that the rates for each of 7 valid transitions in the figure 
+is constant over some
+period $(s,t)$, with event rates $q_{jk} = exp(\eta_{jk})$ for the $j:k$
+transition, 0 for transitions that cannot occur directly such as 0MC:2MC.
+Define the nstate by nstate hazard matrix $H$ as
+\begin{align}
+H_{jk} &= \left{ \array{cc} exp(\eta_{jk}) & Q_{jk} =1 \\
+             0 & Q_{jk}=0, j\ne k \end{array} \right. \label{qfill}\\
+\sum_kH_{jk} &=0 \label{hdiag} \\
+ P(s,t) &= e^H
+\end{align}
+Equation \ref{qfill} state that row sums of $H$ are zero, 
+which defines the diagonal elements of $H$; the diagonal of $Q$ is always 0.
+$P(s,t)$ is the probability transition matrix from $s$ to $t$, where exp is
+the matrix exponential.
+
+The exponential of a matrix is defined parallel to the simple exponential
+\begin{align*}
+\exp(A) &= I + A + A^2/2! + A^3/3! + \ldots \\
+        &= lim_{n \rightarrow \infty} (I + A/n)^n
+\end{align*}
+The function has a reputation for computational difficulty \cite{Dongarra},
+but modern software is quite good, and it turns out that transition matrices
+are one of the more benign cases for the algorithms.
+Nevetheless, repeated compuation of matrix exponentials consumes most of the
+computational time for an icmsh fit.
+
+If the process is Markov, i.e., transition rates at any time $t$ depend only
+on the true state at time $t$ and not otherwise on the past, then
+\begin{equation}
+P(t_0, t_1) P(t_1, t_2) \ldots P(t_{k-1}, t_k) = P(t_0, t_k)
+\end{equation}
+If there were 4 states and 7 time points, there are $4^7 > 16000$ different
+possible sample paths, but they are all summarized by this simple matrix
+multiplication.
+
+The likelihood can be computed separately for each subject $i$, and over the 
+next 2 paragraphs we suppress any $i$ subscript for simplicity.
+Let $\alpha(t)$ be a vector with one element per state, containing the estimated
+probability in state for the subject at time $t$.
+Using timeline data, the initial value for $\alpha$ will be found in the first
+data row for a subject, i.e., their initial state and
+$\alpha(t)= (0, 0, ldots, 1, 0, \ldots 0)$, i.e, a 1 in the observed intial 
+state.
+Now march forward over time intervals $(t_0, t_1, ....t_k)$ for this subject
+\begin{enumerate}
+  \item Compute $H(t_0)$ using covariate value at time $t_0$
+  \item Set $\alpha(t_1) = \alpha(t_0) \exp[(t_1-t_0) H(t_0)]$
+    \begin{itemize}
+      \item If censored at $t_1$ then $\alpha(t_1)= \alpha(t_0)$
+      \item If observed to be in state $k$ at $t_1$, set $\alpha_j=0$ for all
+        $j\ne k$. (The probability of being in a different state is 0.)
+      \item If dead at $t_1$ then  $\alpha(t_1)= \alpha(t_0) D$, where 
+        $D$ is a copy of $H(t_0)$ with all columns zeroed except the 
+        death state.
+    \end{itemize}
+  \item Compute $H(t_1)$, $P(t_1,t_2)$ and $\alpha(t_2)$  
+    using covariate values at $t_1$
+  \item Update $\alpha(t_2)$ based on the state at $t_2$
+   \item ...
+\end{enumerate}
+
+This can be written as
+$$
+ \alpha_0 P(t_0,t_1) D_1 P(t_1, t_2) D_2 \ldots D_k
+$$
+where each $D$ matrix is either the identity, if that row is censored, 
+$D$ is diagonal with $d_{kk}=1$ if this is an interval censored observation
+observed to be in state $k$,
+and if death is observed the non-diagonal matrix
+\begin{equation}
+ D_{jk} = \left{ \begin{array}{cc}
+        H_{jk} & j /ne k, k= \rm{death} \\
+        0 , otherwise
+        \end{array} \right.
+\end{equation}
+The final result will be a vector with nstate elements, the likelihood for this
+subject is the sum of the elements.
+
+Two further notes are that it is possible to have exact states other than
+death, e.g., a surgical procedure's timing will be known.  Death is different,
+however, in that at any censoring time we can set $\alpha_{death}=0$: any 
+observation of the subject implies that they are not dead.

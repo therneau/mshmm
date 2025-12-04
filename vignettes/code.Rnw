@@ -829,22 +829,89 @@ The $B$ matrix may have a lot of zeros, if some covariates refer to only a
 single transition.
 
 
-Let $\theta$ be an arbitrary parameter, then since $\eta = XB$
-\begin{equation*}
-  \frac{\partial \theta}{\beta} = X\frac{\partial\theta}{\eta}
-\end{equation*}
+\section{Lexical scoping}
+The code has the following overall structure:
+\begin{itemize}
+  \item hmm accepts user input and calls hmm.fit to do the work, important
+    data objects are passed
+  \item hmm.fit call does more work to set up for the solution, some helper
+    matrices etc, and calls one of several optimization routines to do the
+    work: hmmscore, mcmc1, mcmc, hmmloglik, passing the name of one or more
+    evaluation routines(hmmloglik, hmmgrad, or hmmboth) to the optimizer.
+    Users can plug in their own routine.
+  \item The optimizer calls e.g. hmmboth with a target set of parameter
+    values. That routine uses mclapply to invoke copies of the compute routine,
+    one per subject, to compute the loglik (hmm1), or loglik and 
+    derivatives (hmm2).
+  \item The hmm1 and hmm2 routines make use of several of the variables 
+    defined in hmmfit to do their task. How do they find them.
+\end{itemize}
 
-Consider a single element of $P_{jk}$A given transition matrix $P$ corresponds to a single row of $X$.
-The following code fragment will do the expansion for a set of rows $j$
-belonging to 
-<<eval=FALSE, echo=TRUE>>=
-temp <- dim(Pderiv)
-dim(Pderiv) <- c(temp[1]*temp[2], temp[3])
-crossprod(X[,j], Pderiv)
+Two standard solutions to this are
+\begin{enumerate}
+  \item Pass all those extra arguments to hmmscore (or optim or whatever),
+    which uses its ... argument to pass them to
+    hmmboth, which uses ... to pass them on to hmm2.  There is a baker's
+    dozen or so.
+  \item Define all 6 of the above routines within the hmmfit function.
+    Then via lexical scoping, they all will inherit access to these
+    variables.  For each of them parent.env(environment(f)) will be the
+    environment of hmmfit, i.e., things are found using standar search
+    semantics.
+\end{enumerate}
+
+The problem with number 2 is that the hmmfit.R file simply becomes unweildy, it
+is essentially too large to grok what is going on and to edit it. We now have
+hmmfit.R, hmmloglik.R, hmmscore.R, hmmmcmc1.R, etc. as separate files.
+In my original development hmm package I had used noweb which does allow a large
+number of individual files that are automaticaly stitched together to form this
+large file.  But the noweb project is mortibund.  If I want to pass this on
+another path was needed.
+
+The strength of number 1 is that it is transparent, and there is a lot to be
+said for that. A disadvantage is that it is a bit clunky due to long argument
+lists, and there is a concern that it may be a bit slow for the current
+problem at hand (6000 subjects times 20--30 iterations).  
+
+What we would like to do is to modify hmm2 so that if you called parent.env()
+within hmm2, you would see the result of environment() as invoked
+from within hmmfit, i.e., the result that would occur if hmm2 had indeed been
+defined within the hmmfit function. 
+But it turns out that there is no static way to do that: the environment
+created within hmmfit, the one that hmm2 would like to inherit, does not exist
+until hmmfit ``comes to life'', and it winks out when hmmfit exits. The
+result of \code{environment(hmmfit)} is the environment that hmmfit itself
+lives within.  I think
+I was mislead by the a phrase that lexical scoping can be determined at
+compile time (read somewhere), that made me think of it as something fixed 
+at the time of package creation, i.e., ``R COMPILE mshmm''; which is in 
+retrospect an impractical notion. 
+
+Duncan Murdoch provided two approaches. The first is to update the environment
+of hmm2 \emph{within} hmmfit by adding the line
+\code{environment(hmm2) <- environment()}, somewhere before calling the 
+maximizer, which gives hmm2 acess to everything.  A safer one is a limited
+scope using a single passage of arguments.  
+In the loglik.R file define a function
+<<echo=TRUE, eval=FALSE>>=
+makehmm2 <- function(arg1, arg2, arg3, ..., arg10) {
+    force(arg1); force(arg2); ...force(arg10)
+    function(coef) {
+        # the current hmm2 function, which can now see arg1, arg2, etc
+    }
+}
 @ 
-In R, this can be done by temporarily changing the dimension of the derivative
-to (nstate^2, 
-\begin{align}
+And then add the line
+<<echo=TRUE, eval=FALSE>>=
+hmm2 <- makehmm2(arg1, arg2, ..., arg10)
+@ 
+to the function that calls hmm2, e.g., hmmboth.  Recursively, we would then
+need a makehmmboth function that can be called by hmmfit. 
+ \code{hmm2 <- makehmm2(arg1, arg2, ...)} in the hmmfit call.
+What this does is create a local copy of hmm2 that has already resolved those 
+variables. (I think, but am not sure, that without the force calls, each of the
+mcapply uses would redo the name search.  But that is probably a trivial
+compute burden.)
+Recursively, we would then need a makehmmboth function that can be 
+called by hmmfit. 
 
-
-number of non-zero $Q$. 
