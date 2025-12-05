@@ -1,6 +1,6 @@
 \documentclass{article}
 \usepackage{amsmath}
-\title{The HMM fitter}
+\title{Censored multistate hazard (MSH) models}
 \author{Terry Therneau}
 
 \addtolength{\textwidth}{1in}
@@ -8,13 +8,14 @@
 \setlength{\evensidemargin}{\oddsidemargin}
 \newcommand{\code}[1]{\texttt{#1}}
 
-%\VignetteIndexEntry{Using hmm}
+%\VignetteIndexEntry{Censored multistate hazard (MSH) models}
 %\VignetteEngine{knitr::knitr}
 %\VignetteEncoding{UTF-8}
 
 <<setup, echo=FALSE>>=
 library(survival)
 library(hmm)
+library(msm)
 library(knitr)
 opts_chunk$set(tidy=FALSE, fig.keep='none',
                fig.path='compete',fig.width=6,fig.height=4)
@@ -32,7 +33,7 @@ palette("Okabe-Ito")
 \section{Introduction}
 The two main functions of this package deal with interval censored data
 from a multi-state hazard (MSH) model, where the states are either known
-(\code{icmsh} function) or latent (\code{hmm} function).
+(\code{cmsh} function) or latent (\code{hmm} function).
 An MSH model with latent states is known as a hidden
 Markov model since the true states are not directly observed, they are
  ``hidden''.  HMM fits have been a primary driver of this work and so will
@@ -42,10 +43,9 @@ and a useful stepping stone in the theory, so will appear first.
 
 We should state at the outset that these two problems are also the target of
 the \code{msm} package, so why create a new one?
-There are currently four primary differences between the
-two packages.
+There are currently four primary differences between the two packages.
 \begin{enumerate}
-  \item From a user point of view, mshmm is designed to have similar structure
+  \item From a user point of view, cmsh is designed to have similar structure
     and code to the survival package.  The two packages share a 
     primary author, who (of course) finds this style more natural.
   \item For more complex data, like the dementia example found further below in
@@ -53,21 +53,15 @@ two packages.
     not successful at finding the maximum, and very slow when they did succeed.
     Expermentation with more robust approaches, along with a need for these 
     models within our dementia research program, 
-    were the primary drivers for the mshmm package.  
-    The addition of optional constraints was particularly helpful. 
-    We have data sets where certain obvious constraints, e.g., 
-    death rates increase with disease state, are not active at the final
-    solution point, but nevertheless guide the maximizer away from bad
-    intermediate guesses.  My imperfect analogy is to ``never pass through the
-    bad part of town''.
+    have been the primary drivers for the cmsh package.  
   \item Follow-up summaries of the model, e.g., mean time in state, are more
     fully fleshed out in the msm package.
-%  \item Simple interval censored models and HMM models are set out as two
-%    separate function in mshmm, the msm::msm function fits both.
+  \item Simple interval censored models and HMM models are set out as two
+    separate function in cmsh, the msm::msm function fits both.
 \end{enumerate}
-As a user, 1 and 2 might recommend mshmm, while item 3, a longer history, and 
+As a user, 1 and 2 might recommend cmsh, while item 3, a longer history, and 
 a deserved reputation for reliability would recommend msm.  
-We emphatically do not claim that mshmm is superior. Use what works for you.
+We emphatically do not claim that cmsh is superior. Use what works for you.
 Christopher Jackson, the author of msm, has provided invaluable feedback
 about techincal aspects of the models, along with comments about fits and issues
 with particular data sets; both of which have been a key to the success of this
@@ -94,8 +88,8 @@ The data for hmm should be in \emph{timeline} form.
 
 A timeline data set is actually more natural in the sense that it mimics the 
 way in which data is gathered. 
-It also may be easier to create, since one can use a wider variety of tools.
-For ordinary survival however,  a Kaplan-Meier say,
+It also may be easier to create, since one can use a wider variety of R tools.
+For ordinary survival, however, a Kaplan-Meier say,
 data in timeline form requires two observations per subject, which differs
 from the usual practice for censored data.
 The first observation at time 0 will have baseline covariates along with a
@@ -116,28 +110,55 @@ CAV is a post-transplant deterioration of the aterial walls in patients who
 have recieved a heart transplant. 
 Make a few changes to
 the data set to set it up for the hmm function, and show some summaries. 
-This first fits treat the CAV outcome as interval censored. 
+This fit treats the CAV outcome as interval censored. 
 
 <<newcav>>=
 library(msm)
 cav2 <- cav
 names(cav2) <- casefold(names(cav2))  # lower case (personal preference)
 
+# The model
+cstates <- c("no CAV", "mild/mod", "severe", "death")
+cmat <- matrix(0, 4, 4, dimnames=list(cstates, cstates))
+cmat[1,2] <- cmat[2,1] <- cmat[2,3] <- cmat[3,2] <- 1
+cmat[1:3,4] <- 1
+statefig(rbind(3,1), cmat, offset=.02)
+
 #  multi-state status for Surv(), first level has to be "no event at this time"
 cav2$cstate <- factor(cav2$state, 0:4,  
                       c("censor", "no CAV", "mild/mod", "severe", "death"))
-table(cav2$cstate)       # no off study FU
-table(table(cav2$ptnum)) # everyone has at least 1 follow-up visit
-hist(cav2$years[cav2$cstate != "death"], breaks=c(0:18),
-     xlab="Visit year (post enrollment)", main=NULL)
+table(cav2$cstate)       # no off study FU!
+with(cav2, table(from= cstate[duplicated(ptnum, fromLast=TRUE)],
+                 to = cstate[duplicated(ptnum)]))[-1, -1]
+table(table(cav2$ptnum)) # number with 1, 2, 3, ... visits
+@
 
+For cmsh we use a standard multi-state Surv(time, state) form of the survival
+package, where the state variable is a factor, subject to the restriction that
+the first level of the factor represents censoring.  The state labels are
+arbitrary.
+This data is unusual in that there are no censored observations, each interval
+ends in one of the 3 states.
+The 622 subjects have betwen 2 and 15 assessments, 
+less than 1/2 have more than 4.
+The transitions table shows the count of observed transtition pairs, a 
+subject with 5 visits will contribute 4 counts to the table.
+Remaining in the no CAV state accounts for the largest number of visit
+pairs. As should be the case, there are no transitions from death to another
+state.
+
+As seen below, the inter-visit intervals vary widely, a situation that favors
+an interval censored model.
+
+<<cinterval>>=
 # what are the inter-visit intervals?
 interval <- c(0, diff(cav2$years))
 igroup <- with(cav2, ifelse(duplicated(ptnum), 1*(cstate=="death"), 2))
 #between visits
-round(quantile(interval[igroup==0], c(0,.25, .5, .75, .9, .95,1)), 1)
-#last visit to death
-round(quantile(interval[igroup==1], c(0,.25, .5, .75, .9, .95,1)), 1)
+hist(interval[igroup==0], nclass=20, main=NULL,
+     xlab="Time between consecutive visits")
+hist(interval[igroup==1], nclass=20, main=NULL,
+     xlab="Time between last visit and death")
 @
 
 The data set is unusual in that there is no off study follow-up, i.e., a
@@ -351,7 +372,7 @@ never mistaken for another state, and the time of death is known.
 If all states are exact, then the hmm fit will be very similar to a
 multi-state hazards fit using survival::coxph,
 but with a parametric rather than non-parametric baseline hazard.
-Though such a model could be fit, it is not the target of the mshmm
+Though such a model could be fit, it is not the target of the cmsh
 pacakge. (An hmm fit is likely to much slower, as well.)
 Interval censored states are also not the primary focus of the function, but
 will be illustrated in examples.
@@ -359,7 +380,7 @@ will be illustrated in examples.
 \section{What is a hidden Markov model (HMM)?}
 The answer to this is that HMM is a general technique, and we see the
 label applied to many different problems in many different subfields.
-The mshmm package addresses a particular structure, one that has been useful
+The cmsh package addresses a particular structure, one that has been useful
 in our analyses of data from the Mayo Clinic Study of Aging (MCSA).
 
 Our models can be thought of having two levels.  Level 1 is a multi-state
