@@ -1,12 +1,9 @@
 # Do the actual fit of an hmm model
-#
+# ytime, ystat, x: from parent
+# id: subject id, as 1,1,1,2,2,2 etc
 hmmfit <- function(ytime, ystat, x, id, otype, qmatrix, cmap, rfun, 
                    beta, mfun, mpar, iter, contstraint, penalty,
                    mc.cores, control) {
-
-    uid <- unique(id)
-    nid <- length(uid)
-    id <- match(id, uid)  # turn it into 1, 2, 3, ...
 
     if (all(qmatrix[row(qmatrix) > col(qmatrix)] == 0)) uppertri <- TRUE
     else  uppertri <- FALSE

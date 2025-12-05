@@ -9,7 +9,6 @@ hmm <- function(formula, data, subset, weights, na.action,
                 control= cmsh.control(), ...) {
     Call <- match.call()
     time0 <- proc.time()
-    mfunname <- deparse(substitute(mfun))
 
     ## We want to pass any ... args to cmsp.control, but not pass things
     ##  like "dats=mydata" where someone just made a typo.  The use of ...
@@ -53,6 +52,7 @@ hmm <- function(formula, data, subset, weights, na.action,
     if (any(qmatrix < 0)) stop("qmatrix elements must be >=0")
     qmap <- which(qmatrix != 0)   
     ntransitions <- length(qmap)
+
     # a 0 row in qmap = an absorbing state (you never leave)
     absorb <- (rowSums(qmatrix>0) ==0)
     # an exact state that is absorbing: a censored obs can't be in this state
@@ -158,8 +158,9 @@ hmm <- function(formula, data, subset, weights, na.action,
     # subject need to be contiguous. 
     Y <- model.response(mf)
     id <- model.extract(mf, "id")
-    if (is.matrix(Y)) index <- order(id, Y[,1])
-    else index <- order(id, Y)
+    id2 <- match(id, unique(id))   # the id's themselves need not be ordered
+    if (is.matrix(Y)) index <- order(id2, Y[,1])
+    else index <- order(id2, Y)
     if (any(diff(index) != 1)) stop("data not sorted by time within each id")
 
     # Get the first pass of the X matrix, and from that information create
@@ -193,20 +194,28 @@ hmm <- function(formula, data, subset, weights, na.action,
     #  sometimes the marker columns or initial state cols, other times 
     #  we will want them all. Hence bcount.
                            
+    # mark out the exact states
+    iexact <- match(exact, statenames, nomatch=0)
+    if (missing(exact)) {
+        iexact <- iexact[iexact >0]  #don't complain if our default "death" is
+                                     # not present
+    } else if (any(iexact==0))
+        stop("exact argument not found in the qmatrix: ", exact[iexact==0])
+
     # The response will normally be a Surv object, with known states as the
     # status
     if (inherits(Y, "Surv")) {
         if (attr(Y, "type") == "right") {
             if (length(exact)==1 && exact %in% statenames) {
                 # special case: 0/1 status can be used if there is 1 exact state
-                iexact <- match(exact, statenames)
                 ystat <- Y[,2]* iexact  # make it  0/exact instead of 0/1
             } else stop("simple Surv() only allowed if there is 1 exact state")
         } else if (attr(Y, "type") == "mright") {
             ystate <- attr(Y, "states")
-            iexact <- (match(ystate, statenames))
-            if (any(is.na(iexact)))
+            temp <- (match(ystate, statenames))
+            if (any(is.na(temp)))
                 stop("response has a state not found in qmatrix")
+            iexact <- match(e
             ystat <- Y[,2] -1L  # 0 = censored
 
             # states with biomarkers should not appear in ystate
@@ -254,6 +263,7 @@ hmm <- function(formula, data, subset, weights, na.action,
         id   <- id[keep]
         ytime <- ytime[keep]
         ystate <- ystat[keep]
+        mf <- mf[keep,]  # the markers have not yet been pulled out
         # message for printout
         removed <- c(subjects= length(toss), y= sum(ymiss), rate=sum(xmiss),
                      id= sum(idmiss))

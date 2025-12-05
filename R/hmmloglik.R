@@ -1,15 +1,11 @@
 # These two functions compute the loglik distribution for a single subject,
 #  hmm1 = without derivatives, hmm2 = with derivative
 # They are called via a chain of hmmfit -> maximizer -> (hmmloglik, hmmgrad, or
-#  hmmboth) ->  (hmm1 or hmm2).  To avoid having to pass a stack of arguments
-#  down the chain (X matrix, id, etc) we set their environment to hmmfit.
-# If we included these at the bottom of the hmmfit.R file they would inherit
-#  that automatically, but that makes the source file way too large.
-# Note that this file name "hmmloglik.R" is after "hmmfit.R": they are run in
-#  the right order by R CMD build.
-# 
-
-hmm1 <- function(who, beta) {
+#  hmmboth) ->  (hmm1 or hmm2). The original hmm code defined all the routines
+#  within the hmm function, which allows all the variables to be found by
+#  inheritance (lexical scope), but the final .R file was just too unwieldy.
+#  This version passes arguments down the call chain via ...
+hmm1 <- function(who, X, ytime, ystate, id, uid, beta) {
     rows <- which(id ==uid[who])  # the subjects of interest
     eta <- X[rows,] %*% beta
     # starting probability
@@ -132,12 +128,15 @@ hmm1 <- function(who, beta) {
     attr(loglik, "counts") <- ucount
     loglik
 }
-parent.env(hmm1) <- environment(hmmfit)
 
 # Helper function for the derivatives in hmm2
-# first the derivative of the transition matrix P
+
 # See "derivatives, eta to beta" in the code vignette, the definition of
-#  Z particularly needs the longer explanation
+#  Z particularly needs the longer explanation.
+# This function is for P, the nstate by nstate transition matrix.
+#  alpha = vector of probality in state
+#  dP = derivatives of P wrt eta
+#   x = one row of the X matrix, for the observation in question
 Ptrans <- function(alpha, dP, cmap, x) {
     dd <- dim(dP)  
     # dP will have dim(nstate, nstate, number of etas)
@@ -169,10 +168,7 @@ Ptrans <- function(alpha, dP, cmap, x) {
     matrix(temp, ncol=dd[1], byrow=TRUE)
 }
 
-Rtrans <- function(index, dR, cmap, x) {
-    # Similar to Ptrans, but simpler: each response function is a separate
-    #  set of eta vectors, pointed to by index.
-
+if (FALSE) {
 makeindex <- function(cmap, all=cmap) {
     nonzero <- (cmap > 0)
     parms <- sort(unique(all[all>0]))  # the parameter numbers for this group
@@ -223,7 +219,7 @@ if (bcount[3]) { #if there are initial probability  parameters
     formals(pitrans)[[3]] <- makeindex(cmap[,b3, drop=FALSE])
 }
 cmap.b1 <- makeindex(cmap[,b1, drop=FALSE])
-
+}
 hmm2 <- function(who, beta) {
     rows <- which(id ==uid[who])  # the subjects of interest
     eta <- X[rows,] %*% beta
@@ -400,5 +396,3 @@ hmm2 <- function(who, beta) {
     list(alpha=alpha, deriv= rbind(P.d, t(R.d), t(pi.d)), ecount=ecount,
          offset = offset)
 }
-# This causes it to inherit multiple variables
-parent.env(hmm2) <- environment(hmmfit)

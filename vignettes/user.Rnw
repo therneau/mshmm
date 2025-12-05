@@ -119,10 +119,10 @@ names(cav2) <- casefold(names(cav2))  # lower case (personal preference)
 
 # The model
 cstates <- c("no CAV", "mild/mod", "severe", "death")
-cmat <- matrix(0, 4, 4, dimnames=list(cstates, cstates))
-cmat[1,2] <- cmat[2,1] <- cmat[2,3] <- cmat[3,2] <- 1
-cmat[1:3,4] <- 1
-statefig(rbind(3,1), cmat, offset=.02)
+cqmat <- matrix(0, 4, 4, dimnames=list(cstates, cstates))
+cqmat[1,2] <- cqmat[2,1] <- cqmat[2,3] <- cqmat[3,2] <- 1
+cqmat[1:3,4] <- 1
+statefig(rbind(3,1), cqmat, offset=.02)
 
 #  multi-state status for Surv(), first level has to be "no event at this time"
 cav2$cstate <- factor(cav2$state, 0:4,  
@@ -134,11 +134,11 @@ table(table(cav2$ptnum)) # number with 1, 2, 3, ... visits
 @
 
 For cmsh we use a standard multi-state Surv(time, state) form of the survival
-package, where the state variable is a factor, subject to the restriction that
+package, where the state variable is a factor such that
 the first level of the factor represents censoring.  The state labels are
 arbitrary.
 This data is unusual in that there are no censored observations, each interval
-ends in one of the 3 states.
+ends in one of the 4 states.
 The 622 subjects have betwen 2 and 15 assessments, 
 less than 1/2 have more than 4.
 The transitions table shows the count of observed transtition pairs, a 
@@ -156,15 +156,10 @@ interval <- c(0, diff(cav2$years))
 igroup <- with(cav2, ifelse(duplicated(ptnum), 1*(cstate=="death"), 2))
 #between visits
 hist(interval[igroup==0], nclass=20, main=NULL,
-     xlab="Time between consecutive visits")
-hist(interval[igroup==1], nclass=20, main=NULL,
-     xlab="Time between last visit and death")
+     xlab="Time between consecutive visits (years)")
+hist(interval[igroup==1], nclass=30, main=NULL,
+     xlab="Years between last visit and death")
 @
-
-The data set is unusual in that there is no off study follow-up, i.e., a
-date last known alive, other than a study visit, for those who are not dead.
-The 622 subjects have betwen 2 and 15 assessments, 
-less than 1/2 have more than 4.
 
 For interval censored data we need to specifiy the set of
 valid transitions $Q$.  This is a matrix of 0/1 values, which can
@@ -173,25 +168,11 @@ also be used by the statefig routine.
 lines in statefig.)
 The row/column names of the transition matrix are the names of the states,
 levels in the Surv object need to match these.
-As initial estimates for the rates we will use the values from
-the msm vignette.
-
 <<cavstates>>=
-cstates <- c("no CAV", "mild/mod", "severe", "death")
-cqmat <- matrix(0,4,4, dimnames= list(from=cstates, to=cstates))
-cqmat[1,2] <- cqmat[2,1] <- 1
-cqmat[2,3] <- cqmat[3,2] <- 1
-cqmat[1:3,4] <- 1
-statefig(rbind(3,1), cqmat, offset=.02)
+cqmat
 
-init <- c(.166, .25, .25, .166, .25, .166, .25) #rates per year
-# The coefs are in the same order as the non-zero entries in qmat; remember 
-#  that R matrices are stored in column major order.
-# It might seem more natural to read across, like a book (msm does), but 
-#  both as a user and within the package code we found that this quickly 
-#  becomes an exercise in swimming upstream. 
-hfit0 <- hmm(Surv(years, cstate) ~ 1, data= cav2, id= ptnum,
-               qmatrix= cqmat, exact="death", intercept= log(init))
+cfit1 <- icmsh(Surv(years, cstate) ~ 1, data= cav2, id= ptnum,
+               qmatrix= cqmat, exact="death")
 hfit0  #msm vignette, 2.5, model 1
 @
 
