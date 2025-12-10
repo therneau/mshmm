@@ -3,6 +3,9 @@
 #  The matrices are usually very nice
 #  If I need derivatives, then deriv is an (n,n, k) array, the first
 #  slice is dA/(d theta1), and etc for the second, third etc.
+# On input A is the matrix, deriv an array with deriv[,,1] containing the 
+#   derivative of A wrt theta1, deriv[,,2] the derivative wrt theta2, etc
+#   what whatever set of "theta" parameters the caller has decided upon.
 #
 pade <- function(A, deriv) {
     n <- nrow(A)
@@ -65,7 +68,8 @@ pade <- function(A, deriv) {
         }
     }
     else {
-        # This section should be rarer than rare
+        # This section should be very rare: there is a state where somthing like
+        #   95% of the subjects enter or leave it over the interval
         s <- log2(nA/5.4)
         B <- A
         ## Scaling
@@ -107,19 +111,21 @@ pade <- function(A, deriv) {
                             c.[7]*dB6 + c.[5]*dB4 + c.[3]*dB2
 
                 dX <- -solve(V-U, dV-dU)%*% X + solve(V-U, dV + dU)
+                dmat[,,dk] <- dX
             }
-            if (s > 0) for (t in 1:s) {
-                dX <- X %*% dX + dX %*% X
-                X <- X %*% X
-            }
-            dmat[,,dk] <- dX
+            if (s > 0) 
+                for (t in 1:s) {
+                    for (dk in 1:nderiv)
+                       dmat[,,dk] <- X%*% dmat[,,dk] + dmat[,,dk]%*% X   
+                    X <- X %*% X
+                }
         }
         else if (s>0) for (t in 1:s) {
                  X <- X %*% X
         }
         
     }
-    if (nderiv > 0) list(P=X, dmat=dmat, nterm=nterm)
-    else list(S=X, nterm=nterm)
+    if (nderiv > 0) list(P=X, deriv=dmat, nterm=nterm)
+    else list(P=X, nterm=nterm)
 }
 

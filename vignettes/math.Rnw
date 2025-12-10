@@ -79,7 +79,7 @@ line transtions in Figure \ref{nafld1}.
 
 The MSH model fit by coxph treats the transition times between states as
 exact.  An observation of first diabetes on day 257 creates a jump in the
-hazard, and an addition to the partial likelhood, at day 257.  
+hazard, and an addition to the partial likelhood, at exactly day 257.  
 For simplicity assume that day 257 was the first physician appointment after
 enrollment at day 0, and only diabetes was observed at that appointment.
 The interval censored multistate model fit by \code{imsh} adds the
@@ -102,8 +102,7 @@ qmat[1:4, 5] <- 1
 qmat
 @ 
 
-The code needs to distinguish death, 
-which is not interval censored. 
+The code needs to distinguish death, which is not interval censored. 
 We might not learn of a death until well after the fact, but the
 actual date of will have been recorded and it will enter the data set
 as the actual death time.
@@ -117,8 +116,8 @@ of age or time.
 
 It turns out that there is a close connection between the simple interval
 censored multi-state models discussed so far, and multi-state hidden
-Markov models (msHMM), i.e., there is enough code overlap that both are fit
-with the same function.
+Markov models (msHMM), i.e., one can fit them both using the same underlying
+function.
 HMM models as applied to clinical studies were actually the motivation for 
 this package.
  For multistate hidden Markov model the assumption is that the internal
@@ -172,7 +171,7 @@ but not much else.)
   \item Jackson's msm manual has
     \begin{itemize}
       \item $Q$ is the rate matrix, $P$ the transition probability matrix,
-        and $E$ the error matrix.
+        and $E$ an error matrix.
       \item Subject $i$ progresses through true states $s_{ij}$ with
         $j=1, \ldots, n_i$ and has observed values $y_{ij}$.
     \end{itemize}
@@ -196,7 +195,7 @@ Then $p(t,\theta)= p(0) P(0,t)$ will be the probability in state
 vector at time $t$.
 
 Let $R$ be an $m$ by $m$ rate matrix, the $jk$ element is the rate of transition
-from state $j$ to state $k$, and assume that the rates are constant over a
+from state $j$ to state $k$; rates are assumed to be constant over a
 time window from $s$ to $t$.
 Set the diagonal of $R$ such that row sums are 0, then it is well known that 
 $P(s,t) = \exp[(t-s)R]$. 
@@ -204,6 +203,10 @@ In every actual problem we will work with the rates will be a function of time,
 either time since enrollment, subject age, or often both.
 What is uniformly done is to break time into smaller segments and assume
 that $R$ is constant over each segment.
+As a historical footnote, the assumption of constant rates over 
+age/sex/calendar year strata is the basis for national death rate tables, with
+two centuries experience that this quite adequate for adult ages.
+
 Assume that $t_0, t_1, t_2, \ldots$ are the
 time points that partition the line, with often $t_0=0$.  
 Then
@@ -232,7 +235,7 @@ only the solid lines; in a simple cognitive model of
 we might assume that subjects can only go forward from CU to MCI to Dementia.
 However, if the data contains any who were observed to be CU after an MCI
 visit, the likelhood of the data, under this model, is 0; which is an issue
-we will address using the HMM.
+we will address using the hidden Markov model (HMM).
 In the MSH models of coxph function, we need to add arrows for every observed
 transition.
 
@@ -278,22 +281,19 @@ lower average rate due to less frequent observation.
 This is shown in the left panel of Figure \ref{fig:simple}, the red line
 is lower on average.
 A standard response is to add extra censored cutpoints
-at 1 or 2 year age intervals in order to force an update of $t$, as shown
+at 1 year age intervals in order to force an update of $t$, as shown
 in the right panel. 
-The reason for piecewise constant is that the probability transformation matrix 
-$P(s,t) =\exp(R[t-s])$ has a simple form when the matrix of hazards $R$
-is constant from $s$ to $t$, i.e., the exponential of a matrix.
+A more rigorous approach will add all observed time points to every subject,
+but this is overkill (IHMHO).
 
-
-Adding dummy observations for \emph{each} subject so that all share these
+Adding dummy observations for each subject so that all share these yearly
 cutpoints is a nuisance, but the R tools are effective.
 As a contrast, in the \code{icmstate} package the baseline is treated as
 non-parametric.  The cutpoints will be the set of observed event times,
 and if time is measured in days it is likely that there is only one observed 
 event at any given event time, leading to a sparse $R$ matrix and faster
 computation.
-(Computing a lot of matrix exponentials is a major part of the compute
-time for icmsh.)
+(Computing a lot of matrix exponentials is a major part of the compute time.)
 A disadvantage is that an EM algorithm is needed at each time point to
 estimate the baseline rate.
 
@@ -302,34 +302,39 @@ states $s_{j}$, where $t_{0}=0$ is the starting time.
 The likelihood computation for interval censored models can be thought of 
 in three parts, for each subject $i$
  \item The initial probability in state vector $p(t_0)$.
- \item The transtion matrix from $t_{i} to t_{i_1}$.
- \item Restrictions on the current state at each observed observation time.
+ \item The transtion matrix from $t_{m-1} to t_{m}$ for $m>0$
+ \item Restrictions on the current state at each observed observation time
+   $t_{m}$
 \end{itemize}
 For a simple interval censored model (suppressing the $i$ subscript) the
-initial probability vector has matches the intial state at enrollment.
-The afasf;kj
-\begin{align*}
-  p_j(t_0) &= I(y(t_0) =j) \\
-  P(t_i, t_{i_1}) &= e^{H(t_i)[t_{i+1}- t_i]} \\
-  D(t_i)
-
-
- and set 
-$p_j(0) = I(j= s_0)$, i.e., probability 1 for the observed starting state.
-Then 
-\begin{equation}
-  p(t_{i}) = p(t_{i-1})e^{(t_i-t_{i-1})R_{i-1}} D(t_i) 
-\end{equation}
-Where the $D$ matrix has 3 types
+initial probability vector matches the intial state at enrollment.
+The algorithm is
+\begin{enumerate}
+  \item $p_j(t_0) = I(s(t_0) =j)$
+  \item For $m=1, \ldots, k$, where $t_k$ is the last observation for the 
+    subject
+    \begin{itemize}
+      \item $P(t_{m-1}, t_m) = \exp(R(t_{m-1}[t_m- t_{m-1}])$
+      \item $p(t_m) = p(t_{m-1})P(t_{m-1}, t_m) D(t_m)$
+    \end{itemize}
+\end{enumerate}
+where $D$ is one of 3 forms.
 \begin{itemize}
-  \item If the status at $t_i$ is censored, the $D$ is the identity matrix,
-    but with diagonal element 0 for the death state (if present)
-  \item If $t_i$ corresponds to a state $k$ with exactly known time, $D(t_i)$ is
-    a copy of $R_{i-1}$ with all columns zeroed except $k$.
-  \item If $t_i$ corresponds to state $k$ and $k$ is not death, $D$ is a
-    zero matrix except for $D_{kk}=1$
+  \item If $s(t_m)= d$ where $d$ is a death or other absorbing state, then
+    $D_{jk} = exp[R_{jk}(t_{m-1})]$ for all $j \ne k$.
+  \item If $s(t_m) =k$, $k$ not a death state, then $D_{kk}=1$ and 0 otherwise,
+    i.e., all elements of $p$ except the $k$th are zeroed.
+  \item If this is a censored observation, then $D_{kk}=1$ for all non-death
+    states $k$, i.e., we know they are not dead, but not which other state.
 \end{itemize}
-      
+A way to think of this is that the probability matrices $P$ march forward
+in time, with a new interval for each change in covariates. 
+Whenever a subject is actually observed, then the $p$ vector becomes 
+constrained to smaller set of possibilities.
+An interesting aside is that the last action above need not be exercised until
+the final row of a subject, updating at intermediate censoring points is not
+necessary.
+
 If one subject is measured a lot more often than others, the $P$ matrices
 become close to the identity; they do not contribute a lot more to the
 loglik due to multiple measurements, i.e., this does not add a bias.
@@ -363,21 +368,6 @@ round(temp1, 4)
 temp2 <- P2[1,2]
 round(c(temp2, sum(temp1)), 4) # probability some time during the year
 @ 
-
-A special case is the impact of censored observations.
-That is, assume an intermediate visit where it is only known that the patient 
-is still alive. 
-An example are extra observations that are added to a data set in order
-to update age.  For these, the matrix readout would be
-P(alive at $t_j | $ alive at $t_{j-1}$), i.e., a sum over all the states 
-except death. 
-But since P(alive at t) = P(alive at s)* P(alive at t, given alive at s),
-adding a term to the calcualtion at these intermediate points does
-not change the result. If $R$ changes at these points, of course, we have
-no choice but to do the computation piecemeal.
-(Minor note: the sum will be over all states that are not exact, i.e., one
-knows precisely when the state was entered, since a censored obs cannot be
-one of those.  Death is normally the only such state.)
 
 The rates in the hazard matrix $R$ will normally be functions of $X\beta$
 where $X$ is a matrix of per-subject covariates and $\beta$ is a matrix
@@ -786,28 +776,168 @@ One can then use \code{A0:A1 ~ x1} in the formula as an alias for all 9 matching
 row pairs of statedata, only 3 of which are actual transitions.
 (The underlying code takes care of that part).
 
+\section{Matrix exponential}
+We tend to forget that deep in the standard libraries the standard exp()
+function is defined using an approximation.  One idea is that 
+\begin{align*}
+  \exp(x) & = \left(e^{x/2}\right)^2 \\
+          &=  \left(\left(e^{x/4}\right)^2\right)^2 \\
+          &=  \left(\left(\left(e^{x/8}\right)^2\right)^2\right)^2) \\
+          &= \vdots
+\end{align*}
+along with the fact that for a limited range $a < z < b$, $\exp(z)$ is well
+appoximated by a simple polynomial or ratio of polynomials. 
+Compute $\exp(x/2^k)$ for an approriate $k$, then repeatedly square the result. 
+The actual code is more sophisticated but the basic idea is the same.
 
+The exponetial of a matrix $A$ is defined similarly to the standard exponential
+\begin{align*}
+  exp(x) &= 1+ x + x^2/2 + x^3/3! + x^4/4! + \ldots \\
+         &= lim_{n \rightarrow \infty} \left( 1+ 1/n\right)^n \\
+  exp(A) &= I + A + A^2/2 + A^3/3! + A^4/4! + \ldots \\
+         &= lim_{n \rightarrow \infty} \left( I+ A/n\right)^n
+\end{align*}
+Moler and van Loan's famous 1978 paper ``Nineteen dubious ways to compute the 
+exponential of a matrix'' \cite{Moler78, Moler03} showed that the compuation 
+can be difficult and inspired much work on the topic.
+A basic problem is that the elements of a matrix can be of quite different
+magnitudes, which makes a simple scaling method delicate.
+The \code{Matrix} library includes an \code{expm} function and the \code{exmp}
+library a more refined version, both based on more work by Highsmith
+\cite{Higham22}.
+Both turn out to be refinements of the simple ``scale and square'' algorithm 
+shown above for exp.
 
-\section{Parameters}
+If we don't need derivatives it is difficult to improve on the \code{expm}
+library, certainly in terms of reliability.  But we do need derivatives.
+The survival library contains a set of 3 routines which are duplicated in
+this library, \code{survexpsetup}, \code{survexp} and \code{derivexp}.
+It considers 3 cases.
 
-Let $R$ be the matrix of underlying rates for some interval, then 
-the transition probability matrix is $P_{im} = \exp(R t)$ for the transition
-from time $m$ to time $m+1$, $t = t_{i,m+1}-t_{im}$
-is the length of
-time for the interval and $\exp$ is a matrix exponential.
-The $jk$ element of $P$ is the probability that the subject will be in
-state $k$ at the end of the interval given that they began the interval in
-state $j$. 
-The off diagonal elements of $R$ are our modeled rates, and each will depend
-on covariates and parameters via
-$r= \exp(X\beta)$, $r$ being the element in question;
-the exponential guarrantees that elements are positive.
-Those elements of $R$ that correspond to non-possible transitions are 0.
-The rows of $R$ are constrained
-to sum to zero and this determines the diagonal elements.
+Case 1: If all the positive elements of R lie in a single row or a single
+column, then there are simple closed form formulas. This occurs quite often
+in the survival package, namely for any time point with a single event; very
+rarely if at all for this package.  
 
-For the matrix as a whole $\beta$ is an $p$ by $k$ matrix where $p$ is
-the number of columns of $X$ and $k$ is the number of non-zero transitions.
+Case 2: Based on Kalbfleisch and Lawless \cite{Kalbfleisch85} the
+rate matrix $R$ can be written as $ADA^{-1}$ for some matrix $A$, where
+$D$ is a diagonal matrix of eigenvalues, provided all of the eigenvalues
+are distinct.
+Then $\exp(R) = A \exp(D) A^{-1}$, and the exponential of a diagonal
+matrix is simply a diagonal matrix of the exponentials.
+The matrix $Rt$ for a scalar $t$ has decomposition $A(Dt)A^{-1}$; a
+single decompostion suffices for all values of $t$.
+\index{matrix exponential!eigen formula}
+
+If the model in question does not allow backwards transtions, the rate
+matrix $R$ can be made upper triangular, simply put the states in the
+right order. In such a case the eigenvalues lie on the diagonal;
+if none are repeated then the Prentice result applies. 
+ The decompostion is quite simple since $R$ is triangular.
+We want the eigenvectors, i.e. solutions to 
+\begin{align*}
+  R v_i &= r_{ii} v_i \\
+  R v_2 &= r_{22} v_2 \\
+  R v_3 &= r_{33} v_3 \\
+  \vdots &= \vdots
+\end{align*}
+where $v_i$ are the eigenvectors. 
+
+A sneaky fact is that the set of eigenvectors is
+also upper triangular; we can solve for them one by one
+using back substitution.
+For the first eigenvector we have 
+$v_1 = (1, 0,0,0,0,0)$.
+For the second we have the equations
+\begin{align*}
+  r_{11} x + r_{12}y &=  r_{22} x \\
+             r_{22}y &=  r_{22} y
+\end{align*}
+which has the solution $(r_{12}/(r_{22}- r_{11}), 1, 0,0,0,0)$,
+and the process recurs for other rows.
+Since $V$ is triangular the inverse of $V$ is upper triangular
+and also easy to compute.
+This approach fails if there are tied eigenvalues.
+Kalbfleice and Lawless comment that this case is rare,
+but one can then use a decomposition to Jordan canonical form re
+Cox and Miller, the Theory of Stochastic Processes, 1965.
+Although this leads to some nice theorems it does not give a 
+simple comutational form, however, 
+and it is easier to fall back on the expm() routine.
+
+For the derivatives, from \cite{Kalbfleisch85}
+\begin{align}
+  P  &= e^{Rt} \\
+     &= Ae^{tD}A^{-1} \\
+ \frac{\partial P}{\partial \theta} &= AVA^{-1} label{kderiv1}\\
+     V_{ij} &= \left\{ \begin{array}{ll}
+         G_{ij}(\theta)(e^{d_i t} - e^{d_j t})/(d_i - d_j) & i \ne j \\
+         G_{ii}(\theta)t e^{d_it} & i=j 
+         \end{array} \right. \\
+  G(\theta) &= A^{-1}\frac{\partial R}{\partial \theta}A \label{kderiv2}\\
+\end{align*}
+The formula for the off diagonal elements collapses to give the formula for
+the diagonal ones by an application of L'Hospital's rule (for the math
+geeks).
+
+The off diagonal element of R are $\exp(X_iB)$ for a fixed vector $X_i$ and
+coefficient matrix $B$ with one column for each non-zero rate.
+In equations \eqref{kderiv1} to \eqref{kderiv2} we can decide to think of
+$\theta$ as either $\eta$ or $\exp(\eta)$. 
+Assume the former and consider the derivative with respect to the linear
+predictor the $\eta_{(jk)}$ for element $jk$ of $R$.
+The partial derivative in the center of equation \eqref{kderiv2} will be a
+matrix with $jj$ element of $-\exp(\eta_{(jk)}$, $jk$ element 
+$\exp(\eta_{(jk)}$ and 0 elsewhere.  Remember rows of $R$ sum to zero, which 
+determines the diagonal.
+The first derivative with respect to $\beta_j$, a coefficient in the model is
+then 
+\begin{equation}
+  \frac{\partial P}{\partial \beta_j} = \sum_{k=1}^m  
+  \frac{\partial P}{\partial \theta_m} \exp(\eta_{im}) 
+  \frac{\partial\eta_{im}}{\partial \beta_j} \label{pbderiv}
+\end{equation}
+Not every covariate nor every coefficient will be associated with a given
+linear predictor; that information is found in the \code{cmap} matrix.
+The last term in equation \eqref{pbderiv} will either be either 0 or an 
+element of $X_i$.
+
+Notes
+\begin{itemize}
+  \item The derivative with respect to $\exp(\eta)$, the element of the $R$
+    matrix itself,  will have elements of 
+    -1 and 1; this is the derivative returned by the survexpm routine.
+    \item We have thought about whether one could take advantage of the 
+      sparsity of $dR/d\eta$ to speed up computation of $G(\theta)$, 
+      but have never persued it.
+\end{itemize}
+
+The \code{survexpsetup} routine attempts to create reordering of the states such
+that the $Q$ matrix is upper triangluar.
+Such an ordering is often possible for models where there are no loops or
+reversions, but may be difficult to find.
+Fertin \cite{Fertin15} et al show that the problem is
+NP-complete and provide an exponential time algorithm. 
+Our code takes a very simple minded approach, and will often succeed if the
+user places the states in approximately the right order.
+
+Case 3: If neither of the above hold then we use the method found in the
+expm function of the expm library. This first finds an integer $k$ such that
+the values $A= R*2^k$ have an acceptable range, computes $\exp(A)$ using a
+Pade approximation $f(A)g^-1(A)$ where $f$ and $g$ are polynomial functions,
+and then rescales the result. Our code also keeps track of the derivatives
+of $A$, a tedious but straightforward task that involves a lot of matrix
+multiplications.  
+Note that even if $Q$ can be rearranged into an upper triangular form, a given
+$R$ matrix for a particular subject and time point, at some step during the 
+iteration, may well have two diagonal
+elements that are within $\epsilon$ of each other.  Even if they are not
+exactly tied, a near tie can lead to significant round off error, so the Pade
+approach will be used for that particular exponential.
+
+Case 4: The \code{msm} package takes a different approach, which is to create
+a library of special cases, working out the explicit matrix exponential for
+each case.  We looked at this but have not persued it.
 
 
 \section{Fisher scoring}

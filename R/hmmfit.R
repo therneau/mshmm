@@ -77,9 +77,9 @@ hmmfit <- function(ytime, ystat, x, id, otype, qmatrix, cmap, rfun,
     }
     else penalty <- 0
  
-    for (i in 1:nrow(cmap)) {
-        for (j in 1:ncol(cmap)) {
-            if (cmat[i,j] >0) etabeta[j, cmap[i,j]] 
+#    for (i in 1:nrow(cmap)) {
+#        for (j in 1:ncol(cmap)) {
+#            if (cmat[i,j] >0) etabeta[j, cmap[i,j]] 
     list(loglik= flog, beta=beta)
 }
     
@@ -133,7 +133,6 @@ hmmloglik <- function(param, ...) {
     hmm_count_of_calls <<- hmm_count_of_calls + rowSums(count)
     loglik
 }
-parent.env(hmmloglik) <- environment(hmmfit)
 
 # hand back everything (debug)
 hmmdb <- function(param, ...) {
@@ -180,7 +179,6 @@ hmmdb <- function(param, ...) {
     #}
     rval
 }
-parent.env(hmmdb) <- environment(hmmfit)
 
 # This function is used by the score based iteration
 hmmboth <- function(param, ...) {
@@ -239,7 +237,6 @@ hmmboth <- function(param, ...) {
     
     list(loglik = loglik, deriv= deriv, S=S, S2=S2)
 }
-parent.env(hmmboth) <- environment(hmmfit)
 
 hmmgrad <- function(param, ...) {
     beta[cmap>0] <- param[c(cmap)]
@@ -281,4 +278,3 @@ hmmgrad <- function(param, ...) {
     #}
     deriv
 }
-parent.env(hmmgrad) <- environment(hmmfit)

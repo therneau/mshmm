@@ -4,7 +4,7 @@ icmsh <- function(formula, data, subset, weights,
                 mc.cores = getOption("mc.cores", 2L),
                 icoef, scale=TRUE, penalty, constraint,
                 statedata, exact ="death",
-                control= cmsh.control(), ...) {
+                control= icmsh.control(), ...) {
     Call <- match.call()
     time0 <- proc.time()
 
@@ -13,7 +13,7 @@ icmsh <- function(formula, data, subset, weights,
     ##  is simply to allow things like "eps=1e6" with easier typing
     extraArgs <- list(...)
     if (length(extraArgs)) {
-        controlargs <- names(formals(cmsp.control)) #legal arg names
+        controlargs <- names(formals(icmsp.control)) #legal arg names
         indx <- pmatch(names(extraArgs), controlargs, nomatch=0L)
         if (any(indx==0L))
             stop(gettextf("Argument %s not matched", 

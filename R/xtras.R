@@ -18,7 +18,7 @@ B.to.coef <- function(B, cmap) {
     new
 }       
 
-cmsh.control <- function(smallpos= 1e-3, debug= FALSE,
+icmsh.control <- function(smallpos= 1e-3, debug= FALSE,
                          makecluster= .Platform$OS.type=="windows") {
     if (!is.numeric(eps1) || length(eps1) >1 || eps1 <=0)
         stop("eps1 must be a single value >0")

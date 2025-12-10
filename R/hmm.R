@@ -6,7 +6,7 @@ hmm <- function(formula, data, subset, weights, na.action,
                 mc.cores= getOption("mc.cores", 2L),
                 icoef, intercept, scale=TRUE, penalty, constraint,
                 statedata, exact ="death",
-                control= cmsh.control(), ...) {
+                control= icmsh.control(), ...) {
     Call <- match.call()
     time0 <- proc.time()
 
@@ -15,7 +15,7 @@ hmm <- function(formula, data, subset, weights, na.action,
     ##  is simply to allow things like "eps=1e6" with easier typing
     extraArgs <- list(...)
     if (length(extraArgs)) {
-        controlargs <- names(formals(cmsp.control)) #legal arg names
+        controlargs <- names(formals(icmsh.control)) #legal arg names
         indx <- pmatch(names(extraArgs), controlargs, nomatch=0L)
         if (any(indx==0L))
             stop(gettextf("Argument %s not matched", 
@@ -215,14 +215,13 @@ hmm <- function(formula, data, subset, weights, na.action,
             temp <- (match(ystate, statenames))
             if (any(is.na(temp)))
                 stop("response has a state not found in qmatrix")
-            iexact <- match(e
             ystat <- Y[,2] -1L  # 0 = censored
 
             # states with biomarkers should not appear in ystate
-            if (nmarker >1) {
-                cat("nmarker code\n")
-                browser()  # to be filled in
-            }
+            #if (nmarker >1) {
+            #    cat("nmarker code\n")
+            #    browser()  # to be filled in
+            #}
         }
         ytime <- Y[,1]
     } else {
