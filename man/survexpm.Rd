@@ -64,11 +64,15 @@ survexpm(R, time = 1, setup, deriv = 0, all=FALSE, eps = 1e-06)
   The matrix exponential has the reputation of being a difficult
   computation due to multiple edge cases, but transition rate matrices
   are one of the more benign arguments to the function.
-  A very rough check using a simple 5 state model
-  showed relative run times of about 1, 1 and 2.6
+  A very rough check using a simple 5 state model with 7 transitions
+  showed relative run times of approximately 1, 1 and 2.6
   for the eigenvalue based, Pade, and expm functions, resepectively,
   versus 2.5 and 9.2 for the eigenvalue and Pade versions with
-  derivatives. See the code in tests/survexpm.R.
+  derivatives. A more complex one with 17 states and 40 transitions
+  had ratios relative to the first (7.5, 6.2, 19.8) without derivatives,
+  and (109, 558) with derivatives.
+
+  See the code in tests/survexpm.R.
   (Though our Pade code is based on that in the expm package, our guess
   is that the speedup is due to the benign nature of rate matrices,
   which allows skipping several checks and special cases.) 

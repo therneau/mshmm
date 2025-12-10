@@ -17,9 +17,9 @@ icmfit <- function(ytime, ystat, X, fid, otype, qmatrix, cmap, B,
     time1 <- proc.time()
     if (iter>0) {
         # compute and save the loglik for the initial parameters
-        beta <- coef.to.B(B
-        fit0 <- hmmloglik(
-    
+        beta <- B.to.coef(B, cmap)
+        fit0 <- hmmloglik()
+        }
 
 
     time1 <- proc.time()

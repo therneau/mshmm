@@ -4,8 +4,8 @@ survexpminit <- function(rmat) {
     if (!is.matrix(rmat) || nrow(rmat) != ncol(rmat) || any(diag(rmat) > 0) ||
         any(rmat[row(rmat) != col(rmat)] < 0))
         stop ("input is not a transition matrix")
-    if (!is.logical(all.equal(rowSums(rmat), rep(0, ncol(rmat)))))
-        stop("input is not a transition matrix")
+    temp <- all.equal(rowSums(rmat), rep(0, ncol(rmat)), check.attributes=FALSE)
+    if (!isTRUE(temp)) stop("input is not a transition matrix")
     nc <- ncol(rmat)
     lower <- row(rmat) > col(rmat)
     if (all(rmat[lower] ==0))  return(0)  # already in order
@@ -16,9 +16,10 @@ survexpminit <- function(rmat) {
     # exponential time algorithm.  The crude algorithm below can get lucky if
     # the transition matrix is sparse, which many are, but it is best if the
     # user orders states in a way that makes it easy.
-    temp <- 1*(rmat >0) # 0/1 matrix
-    indx <- order(colSums(temp) - rowSums(temp))
+    ztemp <- 1*(rmat >0) # 0/1 matrix
+    indx <- order(colSums(ztemp) - rowSums(ztemp))
     temp <- rmat[indx, indx]  # try that ordering
+    browser()
     if (all(temp[lower]== 0)) indx  # it worked!
     else -1  # no ordering found: there is a loop in the states (or we failed)
 }

@@ -12,7 +12,7 @@ rmat <- q1
 rmat[rmat>0] <- exp(runif(7, -1, 1))
 diag(rmat) <- -rowSums(rmat)
 
-s1 <- survexpmsetup(rmat)
+s1 <- survexpminit(rmat)
 e1 <- survexpm(rmat, 2, s1)  # use the decomposition method
 e2 <- survexpm(rmat, 2)      # use my Pade
 e3 <- as.matrix(expm(2*rmat)) # use Matrix
@@ -51,6 +51,25 @@ if (FALSE) {
     t1c <- system.time({for (i in 1:n) expm(tt*rmat)})
     t2a <- system.time({for (i in 1:n) survexpm(rmat, tt, s1, deriv=TRUE)})    
     t2b <- system.time({for (i in 1:n) survexpm(rmat, tt, deriv=TRUE)})
-    temp <- rbind(eigen= t1a, pade=t1b, expm=t1c, 
+    temp1 <- rbind(eigen= t1a, pade=t1b, expm=t1c, 
                   "eigen/deriv"= t2a, "pade/deriv"=t2b)
+
+    # try a bigger matrix, corresponds to A1-A4 x C1-C4, + death
+    sdata <- data.frame(state= c(paste0("S", 1:16), 'death'),
+                        A= c(rep(1:4, 4), 5),
+                        C= c(rep(1:4, each=4), 5),
+                        D= rep(0:1, c(16,1)))
+    r2 <- qplus(sdata, death='death')
+    r2[r2>0] <- exp(runif(sum(r2>0), -1,0))
+    diag(r2) <- -rowSums(r2)
+    n <- 5e4
+    tt <- .5
+    s2 <- survexpminit(r2)
+    x1a <- system.time({for (i in 1:n) survexpm(r2, tt, s2, deriv=FALSE)})    
+    x1b <- system.time({for (i in 1:n) survexpm(r2, tt, deriv=FALSE)})
+    x1c <- system.time({for (i in 1:n) expm(tt*r2)})
+    x2a <- system.time({for (i in 1:n) survexpm(r2, tt, s2, deriv=TRUE)})    
+    x2b <- system.time({for (i in 1:n) survexpm(r2, tt, deriv=TRUE)})
+    temp2 <- rbind(eigen= x1a, pade=x1b, expm=x1c, 
+                  "eigen/deriv"= x2a, "pade/deriv"=x2b)
 }
