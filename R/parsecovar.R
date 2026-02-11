@@ -185,7 +185,7 @@ statepair <- function(lhs, statemap) {
 #  Sort rows into the same order and find matching columns.
 
 termmatch <- function(f1, f2) {
-    # f1 = attr(terms, 'factor') of smaller formula, f2 =  master formula
+    # f1 = attr(terms, 'factors') of smaller formula, f2 =  master formula
     if (length(f1)==0) return(NULL)   # a formula with only ~1
     irow <- match(rownames(f1), rownames(f2))
     if (any(is.na(irow))) stop ("termmatch failure 1") # should never happen
@@ -237,12 +237,16 @@ parsecovar2 <- function(parse1, statedata, dformula, Terms, qmatrix,
     to   <- col(qmatrix)[qmatrix>0]
     tran.id <- paste(from, to, sep=':') # col labels for tmap and cmap
     ntran <- length(from)
+    if (Xassign[1] != 0) {
+        # I am not sure that this can every happen, nevetheless
+        # make sure that our versions of tmap and cmap have an intercept row
+        # If it turns out to be all zeros, we can remove it at the end
+        # 
+        Xname <- c(Xname, "(Intercept)")
+        Xassign <- c(0, Xassign)
+    }
     ncoef <- length(Xname)  # Xattr is the same length
-    Xindex <- split(1:ncoef, Xassign) 
-    # Xindex is a list, ith element = rows of cmap that arise from row i of tmap
-    Xcount <- sapply(Xindex, length)
-    Xoffset <- lapply(Xcount, function(i) 1:i -1L) # increment for coef id
-    Xhash <- max(Xcount) # used to give unique cmat values
+    Tfac <- attr(Terms, "factors") # save some typing later
 
     # Create tmap: a row for each term and a column for each transition.
     #  value of 0 = this term isn't used for this transition
@@ -254,46 +258,44 @@ parsecovar2 <- function(parse1, statedata, dformula, Terms, qmatrix,
     # Xattr points to the term (0 = intercept) each column of X descends from
     # 
     tmap <- matrix(0L, nterm, ntran)
-    dmap <- matrix(seq_len(length(tmap)), ncol= ntran) # term numbers
-    cmap <- matrix(0L, ncoef, ntran)
+    dmap <- matrix(seq_len(ncoef*ntran), ncol= ntran) # term numbers
+    cmap <- matrix(0L, ncoef, ntran)    
     init <- matrix(NA, ncoef, ntran) # fill in user supplied initial values
+    # init is not yet implemented
+
+    # these two functions deal with the fact that tmap has a row per term
+    # and cmap and dmap a row per covariate, in both cases i is a term number
+    tindx <- function(i) match(i, 1+Xassign)
+    cindx <- function(i) which(Xassign %in% (i-1))
 
     # initialize every column with the default formula, which cannot have a
     #  /common option
     temp <- delete.response(terms(dformula))
-    dterm <- termmatch(attr(temp, "factors"), attr(Terms, "factors"))
-    if (attr(Terms, "intercept") ==1) dterm <- c(1, 1L + dterm)
-    else dterm <- dterm + 1L
+    dterm <- 1L + termmatch(attr(temp, "factors"), Tfac)
+    if (attr(temp, "intercept") ==1) dterm <- c(1L, dterm)
     for (i in 1:ntran) {
-        tmap[dterm,i] <- dmap[dterm,i]
-        cmap[unlist(Xindex[dterm]), i] <- unlist(Xoffset[dterm]) + 
-            Xhash * rep(dmap[dterm,i], Xcount[dterm])
+        tmap[dterm,i] <- dmap[tindx(dterm),i]
+        cmap[cindx(dterm),i] <- dmap[cindx(dterm), i]
     }
-
-    # In the above, assume for a moment that Xhash=10, dterm=c(1,5,6)= the
-    #  rows to be marked in tmap, Xcount[1,5,6] = 1,3,2, Xindex[1,5,6]=
-    #  {1}, {10,11,12}, {13,14}. Xoffset for these 3 will be 1, 1:3, and 1:2
-    # tmap row 1 is the intercept (almost certainly) and maps to cmap row 1,
-    # tmap row 5 maps to cmap rows 10:12 and tmap row 5 to 13:14.  
-    # If dmap[dterm,i] assigned coefs 8,12, 13 to the three elements in column i
-    # of tmap, then cmap[1,i] = 80+1, cmap[10:12, i] = 120 + 1:3, and
-    # cmap[13:14,i]= 130+ 1:2.  The goal is a set of unique labels.
-    if (is.null(parse1)) {
-        # only a default formula! We're done
-        dimnames(tmap) <- list(c("(Intercept)", attr(Terms, "term.labels")),
-                               tran.id)
-        dimnames(tmap) <- list(Xname, tran.id)
-        return(list(tmap= tmap, cmap= cmap, mapid= rbind(from, to)))
-    }
-               
-    # Process the list of formulas, one per transition. Elements will be updated
-    # with update.formula in order to keep track of -1 or -covariate deletions
-    # Start with ntran copies dformula, without the response
+    # Create a list of working formulas, one per transition. Each starts as the
+    #  default formula. 
     formlist <- lapply(1:ntran, function(i) dformula[-2])  
 
-    # the transitions targeted by each formula.  The result will be a list,
-    # one element for each formula (except the default) giving the columns
-    # of tmap affected by that line, i.e., which transitions
+    # Discover whether each formula contains an explicit +1.  The way that I
+    #  have found is to paste an explicit "-1 +" to the front, and see if
+    #  if the resulting intercept attribute is 0 or 1
+    has1 <- sapply(parse1$rhs, function(x) {
+        tform <- ~ -1 +zed     # dummy formula
+        tform[[2]][[3]] <- x   # replace 'zed' with the element of parse1$rhs
+        attr(terms.formula(tform), "intercept")
+    })
+
+    # The transitions targeted by each formula in the list of model formulas,
+    #  These are the formulas in the model statement,
+    #  contained in parse1$lhs.  (If there is only a default formula, lhs is
+    #  NULL and translist will be a list with 0 elements.)
+    # Each element of translist gives the columns of tmap affected by that
+    #  formula line, ie. the set of transitions.The result will be a list,
     translist <- lapply(parse1$lhs, function(x) {
         temp <- statepair(x, statedata)
         id <- paste(temp[1,], temp[2,], sep=':')
@@ -308,59 +310,47 @@ parsecovar2 <- function(parse1, statedata, dformula, Terms, qmatrix,
         indx[!is.na(indx)]
     })
 
-    # Process each formula in turn
+    # Process each formula in turn, there might be none (rare)
     for (k in seq(along.with= parse1$lhs)) {
         kform <- (parse1$rhs[[k]]) # the formula for this update,
         kcommon <- hascommon(parse1$options[[k]])
-        j <- translist[[k]] # the transitions, cols of tmat
-        i <- 1L + termmatch(attr(terms(kform), "factors"), 
-                       attr(Terms, "factors")) # which terms, rows of tmat
-        # if the new formula included -1, set intercept terms to 0.  If it
-        # included an *explicit* +1, then add row 1 to vector "i".  To check
-        # for explicit +1, one has to temporarily paste "-1 +" on the front
-        # of the formula: terms() will declare that  "~ -1 + x1 + x2 +1" has 
-        # intercept attribute of 1
-        if (attr(terms(kform), "intercept") ==0) tmap[1,j] <- 0 # explicit -1
-        else {
-            tform <- ~ -1+ x # dummy formula
-            tform[[2]][[3]] <- kform[[2]]  # portion after the ~
-            if (attr(terms(tform), "intercept") ==1) i <- c(1L, i)
+        j <- translist[[k]] # cols of tmat that this kform applies to
+
+        add <- 1L + termmatch(attr(terms(kform), "factors"), Tfac)
+        if (has1[k]==1) add <- c(1L, add)
+        if (length(add) >0) { # false for a formula with only "-" terms
+            if (kcommon) {
+                tmap[add,j] <- dmap[tindx(add), j[1]]
+                cmap[cindx(add),j] <- dmap[cindx(add), j[1]]
+            } else {
+                tmap[add,j] <- dmap[tindx(add), j]
+                cmap[cindx(add),j] <- dmap[cindx(add), j]
+            }
         }
-
-        d <- dmap[i,j, drop=FALSE]  # the "is part of the model" marker
-        if (kcommon) d <- d[,1] # single set of coefs
-        tmap[i,j] <- d  # make additions to tmap
-        cmap[unlist(Xindex[i]), j] <- unlist(Xoffset[i])+ 
-            Xhash* rep(d, Xcount[i])
-
+        
         # Update the running formula for each transition using update.formula
-        # To do this temporarily paste "~ . " on the front if the addition
-        #  starts with unary minus, or "~ . +" otherwise.
-        # Any term not mentioned in the updated formula either was never there,
-        #  or just got removed, so set those elements of tmap to 0.
-        # 
-        if (substring(deparse(kform[[2]]), 1,1) == '-') {
-            # manipulating strings seems to be the only way to get - in
-            #  the right place.  For the formula "~ -age + x1" the - sign
-            #  is well down the tree, and ~. + (-age + x1) does not work
-            #  in update.formula
-            tform <- parse(text= paste("~.", deparse(kform[[2]]), collapse=" "))
-            tform <- tform[[1]]  # get rid of expression()
-        } else { # usual case
-            tform <- ~ . + x  #dummy formula
-            tform[[2]][[3]] <- kform[[2]]
-        }
-        for (jj in j) { # for each affected term:
-            # update the transition's formula
-            formlist[[jj]] <- update.formula(formlist[[jj]], tform)
-            # was any term dropped?
-            ii <- 1L + termmatch(attr(terms(formlist[[jj]]), "factors"),
-                                   attr(Terms, "factors")) # are in the formula
-            ii <- c(1L, ii) # also leave the intercept alone
-            if (any(tmap[-ii,jj] > 0)) {
-                # some variable "x" was dropped using "-x"
-                tmap[-ii, jj] <- 0L   # -1L = 'leave the intercept alone'
-                cmap[-unlist(Xindex[ii]), jj] <- 0L
+        # To do this temporarily paste "~ ." on the front if the formula starts
+        #  with a leading minus or minus sign, or "~. +" otherwise.
+        # Manipulating strings seems to be the only way to do this.
+        # uform = arg 2 of update.formula, that I want to apply.
+        if (substring(deparse(kform[[2]]), 1,1) %in% c("-", "+")) 
+            utemp <- "~." else utemp <- "~.+"
+        uform <-parse(text= paste(utemp, deparse(kform[[2]]), collapse=""))[[1]]
+        for (jj in j) { # for each affected term separately
+            # update this transition's formula
+            had.intercept <- attr(terms(formlist[[jj]]), "intercept")
+            formlist[[jj]] <- update.formula(formlist[[jj]], uform)
+            fterm <- terms.formula(formlist[[jj]])
+            keep <- 1L + termmatch(attr(fterm, "factors"), Tfac)
+            if (attr(fterm, "intercept") == 0 && had.intercept) 
+                warning("-1 term in a formula was ignored")
+            keep <- c(1L, keep)
+
+            # anything not in the formula should be 0 in tmap/cmap
+            toss <- (1:nterm)[-keep]
+            if (length(toss) >0 && any(tmap[toss,jj] >0)) {
+                tmap[toss, jj] <- 0L
+                cmap[cindx(toss),jj] <- 0L
             }
         }
     }

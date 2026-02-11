@@ -37,13 +37,14 @@ We will first talk about interval censored models, then build on that for
 HMM
 
 \section{Multi-state hazard models}
-The survival package deals with multistate hazard models that are based on a 
+The survival package deals with multistate hazard (MSH) models which are 
+based on a 
 non-parametric baseline hazard.
 The Aalen-Johansen estimator is a natural extension of the Kaplan-Meier,
-and those MSH models a natural extension of the Cox model.
+and the MSH models a natural extension of the Cox model.
 The \code{survfit} routine produces both the KM and AJ estimates, and the
 \code{coxph} function estimates both the simple proportional hazards (Cox)
-model and its multistate extention.
+MSH model fits.
 
 \begin{figure}
 <<nafld1, echo=FALSE>>=
@@ -62,9 +63,9 @@ metabolid comorbidites.}
 This library deals with interval censored variants of these models. 
 As an illustration consider Figure \ref{fig:nafld}, 
 which shows the state space diagram for the NAFLD data set, an
-example used in the survival vignette [ref].  
-At any given visit subjects will
-have 0--3 of three predefined metabolic comorbidites (MC):
+example used in the survival vignette on multistate models.  
+At any given visit, subjects will have accumulated
+0--3 of three predefined metabolic comorbidites (MC):
 diabetes, hypertension, and hyperlipidemia.
 If measured continuously, subjects will progress via the solid arrows from 0 
 to 1 to 2 to 3 comorbidities.
@@ -75,25 +76,31 @@ state at one visit, and in the 2MC state at their next visit; as that following
 visit might be several years later.  Such visit pairs lead to the dashed
 line transtions in Figure \ref{nafld1}.
 (Since comorbidities in the study were defined as ``history of diabetes'', 
-``history of dyslipidemia'', etc. no one can go backwards.)
+``history of dyslipidemia'', and ``history of hypertension''
+no one can go backwards.)
 
-The MSH model fit by coxph treats the transition times between states as
-exact.  An observation of first diabetes on day 257 creates a jump in the
-hazard, and an addition to the partial likelhood, at exactly day 257.  
-For simplicity assume that day 257 was the first physician appointment after
-enrollment at day 0, and only diabetes was observed at that appointment.
-The interval censored multistate model fit by \code{imsh} adds the
-value Pr(in state 1MC at time 257 $|$ in state 0MC at time 0) to the likelihood
-at this point, where \code{coxph} adds $\lambda($tranferred from 0MC to 1MC on
-exactly day 257) where $\lambda$ is the hazard function. 
-This is the primary conceptual difference between the models.
+The primary underlying difference between the two approaches is
+that the semiparametric MSH model fit by coxph is a model for
+observed \emph{transitions} while the interval censored MSH model of mshmm
+is a model for observed \emph{states}.  
+Say that subject X was seen at age 55, 58.2 and 61.4 with their first
+MC of diabetes at the second visit.
+The coxph fit assumes that a 0MC:1MC transition has occured at exactly age
+58.2, while the IC model assumes that there was a transtion at some 
+unknown time betwee 55 and 58.2.
+Interval censored data is also known as panel data, from studies where
+the particpants come back at a regular interal and each visit involves
+a panel of tests. The state at each visit is known, but not when between
+state transitions had occured.
 
 The perceptive user will have noticed that a call to ismh looks remarkably
-like a call to coxph.  This is on purpose, but there remain two major
-differences. The first is that imsh requires
+like a call to coxph.  This is on purpose, but there are some important
+differences between the calls.
+The first is that imsh requires
 a matrix of valid transions $Q$.  For the above data this is shown below,
 and corresponds to the solid arrows in figure \ref{nafld}.
-
+(The computer won't know that a direct 0MC to 2MC transition is impossible
+without being told.)
 <<qmatrix>>=
 states <- c("0MC", "1MC", "2MC", "3MC", "death")
 qmat <- matrix(0, 5,5, dimnames=list(from=states, to=states))
@@ -102,17 +109,11 @@ qmat[1:4, 5] <- 1
 qmat
 @ 
 
-The code needs to distinguish death, which is not interval censored. 
-We might not learn of a death until well after the fact, but the
-actual date of will have been recorded and it will enter the data set
-as the actual death time.
-Interval censored data is also known as panel data, from studies where
-the particpants come back at a regular interal and each visit involves
-a panel of tests. The state at each visit is known, but not when between
-state transitions had occured.
 A second difference is that the icmsh routine uses a parametric baseline
 hazard for each state to state transition, most often a spline function
-of age or time.
+of age or time.  As a consequence the rates include an intercept term.
+Last, some states will not be interval censored, e.g., death; the likelihood
+term at a death time is somewhat different.
 
 It turns out that there is a close connection between the simple interval
 censored multi-state models discussed so far, and multi-state hidden
@@ -785,10 +786,10 @@ function is defined using an approximation.  One idea is that
           &=  \left(\left(\left(e^{x/8}\right)^2\right)^2\right)^2) \\
           &= \vdots
 \end{align*}
-along with the fact that for a limited range $a < z < b$, $\exp(z)$ is well
+along with the fact that for a limited range $a < x < b$, $\exp(x)$ is well
 appoximated by a simple polynomial or ratio of polynomials. 
 Compute $\exp(x/2^k)$ for an approriate $k$, then repeatedly square the result. 
-The actual code is more sophisticated but the basic idea is the same.
+The actual code is more sophisticated but this is the basic.
 
 The exponetial of a matrix $A$ is defined similarly to the standard exponential
 \begin{align*}
@@ -798,147 +799,194 @@ The exponetial of a matrix $A$ is defined similarly to the standard exponential
          &= lim_{n \rightarrow \infty} \left( I+ A/n\right)^n
 \end{align*}
 Moler and van Loan's famous 1978 paper ``Nineteen dubious ways to compute the 
-exponential of a matrix'' \cite{Moler78, Moler03} showed that the compuation 
-can be difficult and inspired much work on the topic.
+exponential of a matrix'' and its 2003 update \cite{Moler78, Moler03}
+showed that the compuation can be difficult and inspired much work on the topic.
 A basic problem is that the elements of a matrix can be of quite different
-magnitudes, which makes a simple scaling method delicate.
-The \code{Matrix} library includes an \code{expm} function and the \code{exmp}
-library a more refined version, both based on more work by Highsmith
+magnitudes.
+
+Our matrix $A$ is a transition rate matrix, where the off diagonal $jk$ element
+contains the transition rate from state $j$ to state $k$
+\begin{itemize}
+  \item $A_{jk} \ge 0$, $j \ne k$
+  \item $A_{jj} = -\sum_{k\ne j} A_{kj}$
+  \item $A_{jk} =0$ if and only if the transtion cannot occur
+  \item The transition probability matrix $P= \exp(A)$ satisfies
+    \begin{itemize}
+      \item $sum_k P_{jk} =1$, all rows sum to 1
+      \item $0 \le P_{jk} \le 1$
+    \end{itemize}
+\end{itemize}
+This means that the matrices are better behaved than the general case.
+There are three different approaches that will be of interest to us.
+
+\subsection{Closed form solutions}
+Case 1: If all of the positive elements of $A$ lie in a single row or a single
+column, then there are simple closed form formulas. This occurs quite often
+in the survival package, e.g., for any time point at which only a single
+of transition occurs, but rarely if at all in this package.
+
+Case 2: There is a small set of designs for which the closed form formulas 
+exists, though they are more complicated. The msm package pursued this 
+approach, we have not.
+
+\subsection{Matrix decomposition}
+If the eigenvectors of $A$ are linearly independent, then 
+\begin{equation*}
+  e^A = U{\rm diag}(e^\lambda)U^{-1}
+\end{equation*}
+where $U$ is the matrix of right eigenvectors and $\lambda$ the eigenvalues.
+A (right) eigenvector $u$ satisfies $Au= \lambda u$.
+If the matrix of eigenvectors $U$ is non-singular, and with 
+$\Lambda$ the diagonal matrix of eigenvalues we have
+\begin(align*) {
+    AU &= = U\Lambda\\
+    A &= (AU)U^{-1} \\
+      &= U \Lambda U^{-1} \\
+    exp(A) &= U \exp(\Lambda) U^{-1}
+\end{align*}
+The exponential of a diagonal matrix $D$ is a diagonal matrix with 
+$jj$ element $\exp(D_{jj})$; the final equation above arises directly from 
+the Taylor series for exp.
+
+A left eigenvector matrix $V$ satisfies $VA = \Lambda V$. 
+This can also be defined as the transpose of the right eigenvectors of 
+$A$ transpose. 
+The eigenvalues that correspond to left and right eigenvectors are identical, 
+and it turns out that $VU=I$. 
+(I found this last identity listening to a lecture, but have not found it 
+mentioned in any of the texts I have looked at.)
+The lapack eigen routines wil return both left and right eigenmatrices if
+requested; there is no need for our routine to compute $U$-inverse.
+
+\begin{itemize}
+  \item If the eigenvalues $\lambda$ are distinct, then $U$ must be full rank.
+  \item If $A$ is upper triangular, which is true if there are no loops or
+    returns in the state space (a feature of many of our models),
+    then there is a fast algorithm to calculate $U$, $\lambda$, and $U^{-1}$.
+  \item If there are tied eigenvalues, $U$ will still often be full rank,
+    and if it is not the Jordan canonical form applies.
+  \item If $U$ is close to singular, then this algorithm for the matrix
+    exponential can be imprecise,
+    with error proportional to the condition number of $U$ times the underlying
+    machine precision. When $U$ is exactly singular, computation of the
+    Jordan form is very difficult; small round off errors cause the problem to
+    flip back and forth between \emph{exactly} singular and \emph{almost}
+    singular.
+  \item The better approach, exemplified in the expm-eigen.c function in the
+    expm package, is to pay attention to the condition number, and switch to
+    a Pade approach if it is large.  They use an inverse condition number
+    of \code{.Machine\$double.eps}, which is fairly aggressive.
+\end{itemize}
+
+A primary attraction of the decompostion method is that it gives an immediate
+solution for computing the derivatives of $\exp(A)$ with respect to the
+parameters and derivatives are something that we need
+for many of the solution methods. Per Kalbfleisch and Lawless 
+\cite{Kalbfleisch85}
+\begin{align*}
+ \frac{\partial e^A}{\partial \theta} &= UVU^{-1} \\
+ V_{jk} &= \left( \begin{array}{cc} G_{jk}\frac{(e^{\lambda_j} - e^{\lambda_k}}
+     \lambda_j- \lambda_k} & \lambda_j/ne \lambda_k \\
+                  G_{jj}te^{\lambda_j} & \lambda_j= \lambda_k \end{array} \\
+ G &=  U^{-1} \frac{\partial A}{\partial \theta} U
+\end{align*}
+
+In our code we take a chained approach.  The matrix exponential routines
+calculate the above derivatives with $\theta$ as the individual elements of
+$A$, i.e., $dA/d\theta$ will be a matrix of zeros with a single 1 off the
+diagonal and -1 on the diagonal.
+If $A$ contains $m$ non-zero transition rates this leads to $m$ derivative
+matrices for $\exp(A)$. 
+
+The individual elements of $A$ are the linear predictors $\exp(\eta)$,
+$\eta=XB$, one linear predictor for each non-zero rate in $A$. 
+Then by the chain rule
+\begin{align*}
+  \theta_m &= \exp(\eta_m) \\
+  \eta_m   &= \sum_j X_{ij}\beta_j
+  \frac{\partial f(e^\eta)}{\partial \beta_j} &= 
+  \frac{\partial f(\theta)}{\partial \theta} 
+  \frac{\partial \theta}{\partial\eta} \frac{\partial \eta}{\partial \beta_j}
+    \\
+   &= \frac{\partial f(\theta)}{\partial \theta} e^\eta X_{ij}
+\end{align*}
+To keep the notation simple the above has focused on a single transition rate
+$k$, for a covariate/coefficient that does not participate in that transition
+treat $X$ as zero.
+The upshot is that our matrix exponential routines can return the derivatives 
+with respect to$\theta$, and the rest of the computation done by simpler R code.
+
+\subsection{Pade approximation}
+The \code{Matrix} library includes an \code{expm} function and the \code{expm}
+library a more refined version, both based on more recent work by
 \cite{Higham22}.
 Both turn out to be refinements of the simple ``scale and square'' algorithm 
-shown above for exp.
+mentioned above for the simple exponent.
+If the elements of $A/s$ are bounded to $\le 1$ then
+$$
+  e^{A/s} \approx p(A/s)/q(A/s)
+$$
+where $p$ and $q$ are polynomials in $A/s$. The order of the polynomial is 2
+to 8, chosen dynamically based on matrix values.
+The coefficients of the polynomials are
+The scale factor $s$ is chosen as the power of 2 the properly bounds the 
+elements, and at the end the result $\exp(A/s)$ is repeatedly squared to
+create $\exp(A)$. 
 
 If we don't need derivatives it is difficult to improve on the \code{expm}
 library, certainly in terms of reliability.  But we do need derivatives.
-The survival library contains a set of 3 routines which are duplicated in
-this library, \code{survexpsetup}, \code{survexp} and \code{derivexp}.
-It considers 3 cases.
+We have created a clone of one of the simpler methods (Wards method) from
+the expm library --- it skips the more sophisticated preconditioning steps ---
+and then compute the derivative by brute force. 
+This is based on the unproven assertion that transition matrices are ``nice''
+and we can skip these preconditioning steps, and working out the impact 
+of these steps on the derivative is well beyond my skill set.
 
-Case 1: If all the positive elements of R lie in a single row or a single
-column, then there are simple closed form formulas. This occurs quite often
-in the survival package, namely for any time point with a single event; very
-rarely if at all for this package.  
-
-Case 2: Based on Kalbfleisch and Lawless \cite{Kalbfleisch85} the
-rate matrix $R$ can be written as $ADA^{-1}$ for some matrix $A$, where
-$D$ is a diagonal matrix of eigenvalues, provided all of the eigenvalues
-are distinct.
-Then $\exp(R) = A \exp(D) A^{-1}$, and the exponential of a diagonal
-matrix is simply a diagonal matrix of the exponentials.
-The matrix $Rt$ for a scalar $t$ has decomposition $A(Dt)A^{-1}$; a
-single decompostion suffices for all values of $t$.
-\index{matrix exponential!eigen formula}
-
-If the model in question does not allow backwards transtions, the rate
-matrix $R$ can be made upper triangular, simply put the states in the
-right order. In such a case the eigenvalues lie on the diagonal;
-if none are repeated then the Prentice result applies. 
- The decompostion is quite simple since $R$ is triangular.
-We want the eigenvectors, i.e. solutions to 
-\begin{align*}
-  R v_i &= r_{ii} v_i \\
-  R v_2 &= r_{22} v_2 \\
-  R v_3 &= r_{33} v_3 \\
-  \vdots &= \vdots
-\end{align*}
-where $v_i$ are the eigenvectors. 
-
-A sneaky fact is that the set of eigenvectors is
-also upper triangular; we can solve for them one by one
-using back substitution.
-For the first eigenvector we have 
-$v_1 = (1, 0,0,0,0,0)$.
-For the second we have the equations
-\begin{align*}
-  r_{11} x + r_{12}y &=  r_{22} x \\
-             r_{22}y &=  r_{22} y
-\end{align*}
-which has the solution $(r_{12}/(r_{22}- r_{11}), 1, 0,0,0,0)$,
-and the process recurs for other rows.
-Since $V$ is triangular the inverse of $V$ is upper triangular
-and also easy to compute.
-This approach fails if there are tied eigenvalues.
-Kalbfleice and Lawless comment that this case is rare,
-but one can then use a decomposition to Jordan canonical form re
-Cox and Miller, the Theory of Stochastic Processes, 1965.
-Although this leads to some nice theorems it does not give a 
-simple comutational form, however, 
-and it is easier to fall back on the expm() routine.
-
-For the derivatives, from \cite{Kalbfleisch85}
-\begin{align}
-  P  &= e^{Rt} \\
-     &= Ae^{tD}A^{-1} \\
- \frac{\partial P}{\partial \theta} &= AVA^{-1} label{kderiv1}\\
-     V_{ij} &= \left\{ \begin{array}{ll}
-         G_{ij}(\theta)(e^{d_i t} - e^{d_j t})/(d_i - d_j) & i \ne j \\
-         G_{ii}(\theta)t e^{d_it} & i=j 
-         \end{array} \right. \\
-  G(\theta) &= A^{-1}\frac{\partial R}{\partial \theta}A \label{kderiv2}\\
-\end{align*}
-The formula for the off diagonal elements collapses to give the formula for
-the diagonal ones by an application of L'Hospital's rule (for the math
-geeks).
-
-The off diagonal element of R are $\exp(X_iB)$ for a fixed vector $X_i$ and
-coefficient matrix $B$ with one column for each non-zero rate.
-In equations \eqref{kderiv1} to \eqref{kderiv2} we can decide to think of
-$\theta$ as either $\eta$ or $\exp(\eta)$. 
-Assume the former and consider the derivative with respect to the linear
-predictor the $\eta_{(jk)}$ for element $jk$ of $R$.
-The partial derivative in the center of equation \eqref{kderiv2} will be a
-matrix with $jj$ element of $-\exp(\eta_{(jk)}$, $jk$ element 
-$\exp(\eta_{(jk)}$ and 0 elsewhere.  Remember rows of $R$ sum to zero, which 
-determines the diagonal.
-The first derivative with respect to $\beta_j$, a coefficient in the model is
-then 
-\begin{equation}
-  \frac{\partial P}{\partial \beta_j} = \sum_{k=1}^m  
-  \frac{\partial P}{\partial \theta_m} \exp(\eta_{im}) 
-  \frac{\partial\eta_{im}}{\partial \beta_j} \label{pbderiv}
-\end{equation}
-Not every covariate nor every coefficient will be associated with a given
-linear predictor; that information is found in the \code{cmap} matrix.
-The last term in equation \eqref{pbderiv} will either be either 0 or an 
-element of $X_i$.
-
-Notes
 \begin{itemize}
-  \item The derivative with respect to $\exp(\eta)$, the element of the $R$
-    matrix itself,  will have elements of 
-    -1 and 1; this is the derivative returned by the survexpm routine.
-    \item We have thought about whether one could take advantage of the 
-      sparsity of $dR/d\eta$ to speed up computation of $G(\theta)$, 
-      but have never persued it.
+  \item Start with $dA/\theta_k$ as above, the derivative with respect to a
+    change in the $k$th rate.
+  \item Then $dA^2/\theta_k = A(dA/\theta_k) + (dA/\theta_k)A$
+  \item $dA^3/\theta_k = A^2(dA/\theta_k) + (dA^2/\theta_k) A$
+  \item etc
 \end{itemize}
+The allows accumulation of the derivatives of $p(A)$ (one per element, each
+a matrix), and similarly for $q(A)$.
+Then use the identity that
+$$
+\frac{\partial A^{-1}}/{\partial \theta} = A^{-1}
+  \frac{\partial A}/{\partial \theta} A^{-1}
+$$
+And finally, update the derivatives yet again throughout the squaring steps.
 
-The \code{survexpsetup} routine attempts to create reordering of the states such
-that the $Q$ matrix is upper triangluar.
-Such an ordering is often possible for models where there are no loops or
-reversions, but may be difficult to find.
-Fertin \cite{Fertin15} et al show that the problem is
-NP-complete and provide an exponential time algorithm. 
-Our code takes a very simple minded approach, and will often succeed if the
-user places the states in approximately the right order.
+\subsection{Using BLAS}
+One last important point with respect to speed is visible by looking at the
+code for expm.c in the expm library: all matrix operations are performed
+by calls to LAPACK routines, which in turn are based on BLAS.
+The BLAS (basic linear algebra subprograms) are carfully tuned to each
+particular computer achitecture and hardware. Using them can result
+in surprising speedups: 50 to 100 fold for larger matrices, though we
+anticipate less for our smaller problems.
 
-Case 3: If neither of the above hold then we use the method found in the
-expm function of the expm library. This first finds an integer $k$ such that
-the values $A= R*2^k$ have an acceptable range, computes $\exp(A)$ using a
-Pade approximation $f(A)g^-1(A)$ where $f$ and $g$ are polynomial functions,
-and then rescales the result. Our code also keeps track of the derivatives
-of $A$, a tedious but straightforward task that involves a lot of matrix
-multiplications.  
-Note that even if $Q$ can be rearranged into an upper triangular form, a given
-$R$ matrix for a particular subject and time point, at some step during the 
-iteration, may well have two diagonal
-elements that are within $\epsilon$ of each other.  Even if they are not
-exactly tied, a near tie can lead to significant round off error, so the Pade
-approach will be used for that particular exponential.
+There are multiple routines for eigenvalues in LAPACK, the R eigen routine
+uses dgeev (function La\_rs, src/modules/lapack/Lapack.c).
+They make a first call to determine the optimal size of a work array, 
+allocate the array, then call the routine. 
+The expm-eigen code in the expm package also uses dgeev in the same way.
 
-Case 4: The \code{msm} package takes a different approach, which is to create
-a library of special cases, working out the explicit matrix exponential for
-each case.  We looked at this but have not persued it.
-
+An alternate route is to use dgees, which utilizes a Schur decomposition.
+This satisfies $A= QSQ'$ where $Q$ is orthagonal and Schur matrix $S$ is 
+quasi-triangular. That is, the block diagonal of $S$ is made up of 1x1 elements
+containing the real eigenvalues, and 2x2 elements for each complex pair of
+eigenvalues $a \pm \sqrt{bc}$
+$$
+\left( \begin{array} cc a& b\\ c&d \end{array} \right)
+$$
+The eigenvalues of an upper triangular matrix are real and on the diagonal.
+When we have an upper triangular matrix, we can use the dtrevc routine directly,
+which expects a Schur factor. 
+Note that since the row sums of a transition matrix are 0, the final row of
+an upper triangular transition matrix is 0 (the death state, which absorbs from
+all others.) 
 
 \section{Fisher scoring}
 The hmm function allows ``Fisher scoring'' as a choice of algorithm for finding

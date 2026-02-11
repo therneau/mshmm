@@ -1,118 +1,45 @@
-# Do the actual fit of an hmm model
-# ytime, ystat, x: from parent
-# id: subject id, as 1,1,1,2,2,2 etc
-hmmfit <- function(ytime, ystat, x, id, otype, qmatrix, cmap, rfun, 
-                   beta, mfun, mpar, iter, contstraint, penalty,
-                   mc.cores, control) {
-
-    if (all(qmatrix[row(qmatrix) > col(qmatrix)] == 0)) uppertri <- TRUE
-    else  uppertri <- FALSE
-    rindex <- which(qmatrix >0)  # these are where the linear predictors map
-
-    #Give this next variable a long name that won't be found in calling
-    #  routines.  It is updated farther down the calling chain.
-    hmm_count_of_calls <- c(0, 0)  #total calls to expm, number with tied eigens
-    # get a component from a list, but don't fail if it isn't there
-    grab <- function(x, what) 
-        if (what %in% names(x)) x[[what]] else NULL
-
-    # set up for parallel
-    fork <- !control$makecluster  # Windows can't fork, others can
-    if (mc.cores > 1 && control$makecluster)
-        hmm_cluster <- makeCluster(mc.cores) #start up parallel
-    time1 <- proc.time()
-
-    # get an initial loglik, at the intial parameters
-    # if the maximizer fails it returns the intial value
-    param <- B.to.coef(beta, cmap)
-    initial.loglik <- numeric(0)
-    initial.loglik <- hmmloglik(param)
-    if (length(initial.loglik)==0)
-        stop("unable to evalutate the likelihood at the intial parameters")
-    # Compute the intial penalty too
-    if (!is.null(penmat))
-        penalty0 <- sum(param *(penmat %*% param))/2
-    else penalty0 <- 0
-
-    if (iter==0 || is.null(mfun) || missing(mfun)) {
-        # This is a call with no iteration
-        if (mc.cores > 1 & !fork) stopCluster(hmm_cluster)
-        time2 <- proc.time()
-        return(list(loglik= initial.loglik, penalty= penalty0, beta=B,
-                    htime = time2-time1))
-    }
-
-    # do the fit in earnest
-    fit <- do.call(mfun, mpar)
-    if (mc.cores > 1 & !fork) stopCluster(hmm_cluster)
-    time2 <- proc.time() 
-
-    # find the fitted coefs in the output, and the loglik
-    nfit <- names(fit)
-    indx <- pmatch(c("coef", "par", "log", "value"), nfit, nomatch=0)
-
-    fcoef <- if (indx[1] >0) fit[[indx[1]]] else
-                 if (indx[2]>0) fit[[indx[2]]] else {
-                     zz <- seq_along(nfit)[-indx]
-                     fit[[zz[1]]]
-                 }
-
-    if (is.matrix(fcoef)) {
-        if (ncol(fcoef) == nparm) {
-            param <- fcoef[nrow(fcoef),]  # the last parameters used
-            beta <- coef.to.B(param, cmap, B)
-        } else stop("wrong number of columns in coefficient matrix")
-    }
-    else {
-        param <- fcoef
-        beta <- coef.to.B(param, cmap, B)
-    }
-    flog <-  if (indx[3] >0) fit[[indx[3]]] else
-                 if (indx[4]>0) fit[[indx[4]]] else NULL
-
-    # Compute the penalties
-    if (!is.null(penmat)) {  #matrix ones later
-        penalty <- sum(param * (penmat %*% param))/2
-        pderiv  <-  c(param %*% penmat)
-    }
-    else penalty <- 0
- 
-#    for (i in 1:nrow(cmap)) {
-#        for (j in 1:ncol(cmap)) {
-#            if (cmat[i,j] >0) etabeta[j, cmap[i,j]] 
-    list(loglik= flog, beta=beta)
-}
     
-# This next set of functions hmmloglik, hmmderiv, hmmboth, and hmmdb
-#  can be called by a maximization function.
+# This next set of functions hmmloglik, hmmderiv, hmmboth will normally be
+#  called via a maximization function,  hmmloglik or hmmdebug are called
+#  directly by hmm for the zeroth iteration.
 #    hmmloglik: just the loglik, no derivatives
 #    hmmgrad  : just the derivatives
 #    hmmboth  : loglik and derivative, plus a bit more
-#    hmmdb: for debugging, pass back everything, no iteration
-# To avoid having to pass all of the argument through the maximizer and 
-#   out the other side, we will reset their parent to hmmfit after they
-#   are defined (as though they were defined within hmmfit).
-# After these are hmm1 (loglik) and hmm2 (loglik and deriv), which do the
-#  real work. They are called for each separate id to take advantage of
-#  parallel processing.
+#    hmmdb: for debugging, pass back everything
+# These functions in turn call hmm1 (loglik) and hmm2 (loglik and deriv)
+#   to do the actual work, they are called for each separate id, in parallel.
+# Because of the call chain hmm -> hmmscore -> hmmboth -> hmm2 for 
+#   instance, we need to pass everthing that hmm1/hmm2 need all the way down
+#   the chain. I originally had these all functions' code within
+#   the outer {} of hmm itself, which allows arguments to be found via lexical 
+#   scoping, but code simply became too unweildy to be managable.
+# "logfun" is a copy of hmm1 or hmm2, properly scoped, and passed down the chain
+#  Those two get their first two arguments "who" (the id for which to compute
+#  a loglik) and "beta" from here, all others are found in the hmm frame
+# 
+# A reminder: B is the matrix of parameters, of the same shape as cmap; it will
+#  have zeros if some covariates that are not used for all transitions.
+#  "param" is the label used by the maximizer, for the vector of parameters
+#  "coefficients" is what it is labeled in the result, to match lm, glm, etc.
+#  \beta is what we call the vector of parameters within the math documentation
 
-hmmloglik <- function(param, ...) {
-    beta[cmap>0] <- param[c(cmap)]   #param[cmap] =bad if cmap has 2 columns
+hmmloglik <- function(param, B, cmap, id, mc.cores, fork, logfun) {
+    B[cmap>0] <- param[c(cmap)]   #"param[cmap]" fails if cmap has 2 columns
     if (mc.cores > 1) {
         if (!fork)
-            mcfit <- parLapply(hmm_cluster, 1:nid, hmm1, beta=beta)
-        else mcfit <- mclapply(1:nid, hmm1, beta=beta, 
-                               mc.set.seed=FALSE, mc.cores=mc.cores)
+            mcfit <- parLapply(hmm_cluster, unique(id), logfun, B=B) 
+        else mcfit <- mclapply(unique(id), logfun, B= B,
+                               mc.cores= mc.cores, mc.set.seed=FALSE)
     }
-    else mcfit <- lapply(1:nid, hmm1, beta=beta)
+    else mcfit <- lapply(unique(id), logfun, B=B)
     
     if (any(sapply(mcfit, is.character))) {
         # failure
         words <- sapply(mcfit, function(x) ifelse(is.character(x), x, ""))
         if (any(words == "underflow")) {
-            if (debug > 1) browser()
+            # if (debug > 1) browser()
             # assume a bad guess from a maximizer, return a bad hit
-            return(-2 * abs(initial.loglik))
+            return(NA)
         }
         words <- words[words!=""]
         stop(words[1])
@@ -127,23 +54,21 @@ hmmloglik <- function(param, ...) {
     #    temp <-  conmat %*% tpar
     #    loglik <- loglik + sum(log(pmax(temp,0)))# -Inf if there are violations
     #}
-    count <- sapply(mcfit, function(x) attr(x, "counts"))
-    # this next line reaches back and changes the variable in parent of parent
-    #  (the parent called the maximizer, which calls this)
-    hmm_count_of_calls <<- hmm_count_of_calls + rowSums(count)
     loglik
 }
 
-# hand back everything (debug)
-hmmdb <- function(param, ...) {
-    beta[cmap>0] <- param[c(cmap)]
+# hand back everything (debug).
+# Called as the zero iteration rather than hmmloglik during the debugging phase
+#  it returns a list with one element per id.
+hmmdb <- function(param, B, cmap, id, mc.cores, fork, logfun) {
+    B[cmap>0] <- param[c(cmap)]
     if (mc.cores > 1) {
         if (!fork)
-            mcfit <- parLapply(hmm_cluster, 1:nid, hmm2, beta=beta)
-        else mcfit <- mclapply(1:nid, hmm2, beta=beta, 
-                               mc.set.seed=FALSE, mc.cores=mc.cores)
+            mcfit <- parLapply(hmm_cluster, unique(id), logfun, B= B) 
+        else mcfit <- mclapply(unique(id), logfun, B= B,
+                               mc.cores= mc.cores, mc.set.seed=FALSE)
     }
-    else mcfit <- lapply(1:nid, hmm2, beta=beta)
+    else mcfit <- lapply(unique(id), logfun, B=B)
 
     alpha <- sapply(mcfit, function(x) grab(x, "alpha"))
     offset <- sapply(mcfit, function(x) grab(x, "offset"))
@@ -163,7 +88,6 @@ hmmdb <- function(param, ...) {
     else loglik <- sum(log(colSums(alpha)) + offset)
     
     ecount <- sapply(mcfit, function(x) grab(x, "ecount"))
-    hmm_count_of_calls <<- hmm_count_of_calls + rowSums(ecount)
     dd <- dim(mcfit[[1]]$deriv)
     rval <- list(alpha = alpha,
                  offset = offset,
@@ -181,15 +105,15 @@ hmmdb <- function(param, ...) {
 }
 
 # This function is used by the score based iteration
-hmmboth <- function(param, ...) {
-    beta[cmap>0] <- param[c(cmap)]
+hmmboth <- function(param, x, ytime, ystate, id, rindex, B, cmap, logfun) {
+    B[cmap>0] <- param[c(cmap)]
     if (mc.cores > 1) {
         if (!fork)
-            mcfit <- parLapply(hmm_cluster, 1:nid, hmm2, beta=beta)
-        else mcfit <- mclapply(1:nid, hmm2, beta=beta, 
+            mcfit <- parLapply(hmm_cluster, unique(id), logfun, B=B)
+        else mcfit <- mclapply(unique(id), logfun, B=B,
                                mc.set.seed=FALSE, mc.cores=mc.cores)
     }
-    else mcfit <- lapply(1:nid, hmm2, beta=beta)
+    else mcfit <- lapply(unique(id), hmm2, B=B)
 
     alpha <- sapply(mcfit, function(x) sum(grab(x, "alpha")))
     offset <- sapply(mcfit, function(x) grab(x, "offset"))
@@ -208,9 +132,13 @@ hmmboth <- function(param, ...) {
     }
     else loglik <- sum(log(alpha) + offset)
     
+    # total number of expm calls, total number that used the pade() function
     ecount <- rowSums(sapply(mcfit, function(x) grab(x, "ecount")))
+    # hmm_count_of_calls was set to (0,0) before iteration 
+    # This was a question of how often tied eigenvalues show up, across
+    #  iterations
     hmm_count_of_calls <<- hmm_count_of_calls + ecount
-    
+
     d.alpha <- sapply(mcfit, function(x) rowSums(grab(x, "deriv")))
     u <- d.alpha * rep(1/alpha, each=nparm)
     # this will be a matrix with nparm rows, one col per subject
@@ -238,15 +166,17 @@ hmmboth <- function(param, ...) {
     list(loglik = loglik, deriv= deriv, S=S, S2=S2)
 }
 
-hmmgrad <- function(param, ...) {
-    beta[cmap>0] <- param[c(cmap)]
+# This is used by optim
+hmmgrad <- function(param, x, ytime, ystate, id, rindex, B, cmap, 
+                    grfun) {
+    B[cmap>0] <- param[c(cmap)]
     if (mc.cores > 1) {
         if (!fork)
-            mcfit <- parLapply(hmm_cluster, 1:nid, hmm2, beta=beta)
-        else mcfit <- mclapply(1:nid, hmm2, beta=beta, 
+            mcfit <- parLapply(hmm_cluster, unique(id), grfun, B=B)
+        else mcfit <- mclapply(unique(id), grfun, B=B,
                                mc.set.seed=FALSE, mc.cores=mc.cores)
     }
-    else mcfit <- lapply(1:nid, hmm2, beta=beta)
+    else mcfit <- lapply(unique(id), grfun, B=B)
     
     if (any(sapply(mcfit, is.character))) {
         # failure
@@ -262,9 +192,6 @@ hmmgrad <- function(param, ...) {
         }
     }
 
-    ecount <- rowSums(sapply(mcfit, function(x) grab(x, "ecount")))
-    hmm_count_of_calls <<- hmm_count_of_calls + ecount
-    
     alpha <- sapply(mcfit, function(x) sum(grab(x, "alpha")))
     d.alpha <- sapply(mcfit, function(x) rowSums(grab(x, "deriv")))
     # this will be a matrix with npar rows, one col per subject

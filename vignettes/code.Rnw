@@ -147,8 +147,8 @@ But we paste together terms.labels attributes, which only contain the terms that
 do appear (no - signs) and all is well.
 One special case would be if sex appeared in the default formula, and then was
 removed from every transition in the formula list: sex would then be in the
-data frame though we don't need it. If sex also had missing values you could lose
-rows we don't intend to.
+data frame though we don't need it. 
+If sex also had missing values you could lose rows we don't intend to.
 This error requires almost malicous intent on the part of the user, so we have
 decided not to worry about it.
 
@@ -329,7 +329,72 @@ or ns() term has multiple coefficients.  The term() function (and users) work
 with terms, the assign attribute of the X matrix translates this to 
 coefficients.
 
-not yet done, document the details of parsecovar2
+\begin{quote}
+These things must be done delicately, or you hurt the spell.
+\emph{Wicked witch of the West} \end{quote}
+Creating the \code{tmap} matrix proved to be interesting.
+Consider the following model formula for a case with 3 transitions:
+\begin{verbatim}
+ list(Surv(time, state) ~ ns(age,3) + male,
+      1:2 ~ -male + apoe4,
+      1:3 + 2:3 ~ male /common)
+\end{verbatim}
+One approach that doesn't work is to first create a working formula for each
+transition via repeated applications of update.formula, then use those final
+formulas to fill each colum of tmap.
+But that does not properly deal with /common.
+
+In the above example tmap will have 4 rows --- Intercept), ns(age,3), male, 
+apoe4 --- and three columns for the 1:2, 1:3, and 2:3 transitions. 
+The cmap matrix will have 6 rows.
+\begin{enumerate}
+ \item First create a 6 by 3 dmap matrix containing the values 1-18; the maximum
+   number of coefficients in the model, and a list of working formulas 
+   (formlist), one working formula per column.
+ \item Initialize the 3 working formulas to ~ns(age,3) + male.
+   Initialize each column of tmap and cmap by copying across the appropriate 
+   rows of dmap.  (The default formula is not allowed to have /common.)
+ \item For line 2, \code{1:2 ~ -male + apoe4}, kform[[1]] in the code
+   \begin{itemize}
+     \item Add any terms in the formula (apoe4) to column 1:2 of tmap and 
+       cmap.  This includes an \emph{explicit} intercept of +1
+     \item Use \code{update.formula(flist[[1]], ~. -male + apoe4)} to update
+       the 1:2 formula. Any variables not found in the resulting formula are
+       then zeroed in the 1:2 column of tmap and cmap. This includes the
+       intercept.
+   \end{itemize}
+ \item For line 3, \code{1:3 + 2:3 ~ male/common}, kform[[2]] in the code
+   \begin{itemize} 
+     \item Add any terms in the formula (male) to the 1:3 and 2:3 columns of
+       tmap and cmap.  Because of common, the same marker value is used for
+       both columns.
+     \item Update the 1:3 working formula, any term not present in this 
+       updated formula is zeroed.
+     \item Update the 2:3 working formuila. Any term not present in this
+       formula is zeroed.
+   \end{itemize}
+\end{enumerate}
+
+How does one tell a formula with +1 from one without, since they lead to
+exactly the same terms structure? 
+The solution I found is to explicity add -1 to the front and then apply
+terms.  If there is a +1 the intercept attribute of terms will be 1, else
+0.  A primary reason we need to know about an explicit intercept is
+for the case that as user has /common, i.e., wants a common intercept.
+Statistically, it's hard for me to see a case where this is a good idea,
+but one likely exists.
+
+A few edge case examples convinced me that update.formula was more reliable 
+than trying to do updates myself by walking the tree, interactions in 
+particular.
+One edge case for which I do not see a solution occurs if someone had a
+3 level factor zed with levels A, B, C and used 
+\code{Surv(time, state) ~ age + zed -1} as the
+lead model, based on the reasonable desire to have an intercept per group
+instead of two contrasts.
+For later formula of \code{2:4 ~ zed +1} the addition of the intercept is
+essential, but I don't see any way to deduce this automatically and add it for
+them.  
 
 \paragraph{Markers}
 To understand the role of markers, first write out the likelihood.
@@ -823,95 +888,99 @@ Aside:The \code{cmap} matrix tracks the mapping between the matrix form of the
 parameters $B$ and the vector form $\beta$;
 the matrix form is what we want for $XB$ and the vector form is what the
 maximization functions want.
-We use both so often the hmm code keeps track of both, and uses the
-$B.to.coef$ and $coef.to.B$ routines to translate from one to the other.
-The $B$ matrix may have a lot of zeros, if some covariates refer to only a
-single transition.
+The $B$ matrix will normally have many zeros, if some covariates apply to
+only a single transition.
+It may also contain fixed coefficients that are not subject to optimization.
+Thus there is a back and forth: \code{B.to.coef} to create the parameters for
+the maximizer, which calls hmm1 or hmm2 to compute the likelihood, which
+in turn uses \code{coef.to.B} to insert the maximizer's trial paramters and
+compute $\eta= X\beta$.
 
 
 \section{Lexical scoping}
-The code has the following overall structure:
+\index{lexical scoping}
+A key idea of the code is to use parallel processing, at the lowest level
+the loglik is obtained for a single subject by either hmm1 (loglik only)
+or hmm2 (loglik + derivative).
+So we have the following tasks:
 \begin{itemize}
-  \item hmm accepts user input and calls hmm.fit to do the work, important
-    data objects are passed
-  \item hmm.fit call does more work to set up for the solution, some helper
-    matrices etc, and calls one of several optimization routines to do the
-    work: hmmscore, mcmc1, mcmc, hmmloglik, passing the name of one or more
-    evaluation routines(hmmloglik, hmmgrad, or hmmboth) to the optimizer.
-    Users can plug in their own routine.
-  \item The optimizer calls e.g. hmmboth with a target set of parameter
-    values. That routine uses mclapply to invoke copies of the compute routine,
-    one per subject, to compute the loglik (hmm1), or loglik and 
-    derivatives (hmm2).
-  \item The hmm1 and hmm2 routines make use of several of the variables 
-    defined in hmmfit to do their task. How do they find them.
+  \item The top level routines primary job is to parse user input, assemble
+    the necessary matrices, compute the initial loglik, 
+    call the maximization function (if iter >0), and return
+    results.  
+  \item The maximizer (hmmscore, optim, mcmc1, etc) is given the intial
+    values, and a pointer to a loglik function
+    \begin{itemize}
+      \item For the MCMC routines, hmmloglik
+      \item For hmmscore, hmmboth, which returns both the loglik and the
+        derivatives
+      \item For optim, fn=hmmloglik and gr= hmmderiv, the second gives only
+        derivatives.  
+      \item A user supplied maximizer uses the grad argument to tell us which
+        of the above setups should apply.
+    \end{itemize}
+  \item The loglik functions each use the parallel library to call hmm1 or
+    hmm2, as appropriate, to compute the loglik per subject, then add up
+    the results and report back a single value and vector of derivatives.
 \end{itemize}
+
+The nuisance in all this is that loglik functions use some of the variables
+defined in the main hmm function, hmm1 and hmm2 make use of a lot of them.
+How do I pass these forward?
 
 Two standard solutions to this are
 \begin{enumerate}
-  \item Pass all those extra arguments to hmmscore (or optim or whatever),
-    which uses its ... argument to pass them to
-    hmmboth, which uses ... to pass them on to hmm2.  There is a baker's
-    dozen or so.
-  \item Define all 6 of the above routines within the hmmfit function.
-    Then via lexical scoping, they all will inherit access to these
-    variables.  For each of them parent.env(environment(f)) will be the
-    environment of hmmfit, i.e., things are found using standar search
-    semantics.
+  \item Pass all those extra arguments down the chain of 
+    hmm $\rightarrow$ optimizer $\rightarrow$ hmmboth $\rightarrow$ hmm2;
+    the optimizer uses its ... argument to pass them forward, hmmboth ditto
+    for the majority.  There is a baker's dozen or so.
+  \item Define the hmm1 and hmm2 routines within the hmm function.
+    Then via lexical scoping, they will inherit access to all the variables
+    found there.  Ditto for the loglik functions.
+  \item A hybrid: pass the arguments needed by the loglik functions (mc.cores,
+    fork, beta, cmap) directly, and use scoping for hmm1, hmm2, and hmmgrad.
 \end{enumerate}
 
-The problem with number 2 is that the hmmfit.R file simply becomes unweildy, it
-is essentially too large to grok what is going on and to edit it. We now have
-hmmfit.R, hmmloglik.R, hmmscore.R, hmmmcmc1.R, etc. as separate files.
-In my original development hmm package I had used noweb which does allow a large
-number of individual files that are automaticaly stitched together to form this
-large file.  But the noweb project is mortibund.  If I want to pass this on
-another path was needed.
+The advantage with number 1 is that the code is transparent, and there is
+a lot to be said for that.  The disadvantage
+is that the argument list is quite long.  I suspect that the process of 
+assembling this argument list thousands of times (number of iterations times
+number of subjects) will add measurable overhead. For MCMC methods, the
+number of iterations is in the thousands. I have not done the profiling to
+verify or disprove this guess.
 
-The strength of number 1 is that it is transparent, and there is a lot to be
-said for that. A disadvantage is that it is a bit clunky due to long argument
-lists, and there is a concern that it may be a bit slow for the current
-problem at hand (6000 subjects times 20--30 iterations).  
+The problem with number 2 is that the hmm.R file simply becomes unweildy, it
+is essentially too large to grok what is going on and very difficult to edit.
+
+In my original development hmm package I had used noweb, an implementation of
+Knuth's literate probramming paradym,  which does allow for multiple .Rnw
+files that are automaticaly stitched together to form this large .R file.
+But the noweb project is mortibund: Knuth's ideas simply never caught on in the
+R community.  If I want to pass this on another path was needed, this led to
+the current strategy of a code vignette that contains detail like this.
 
 What we would like to do is to modify hmm2 so that if you called parent.env()
 within hmm2, you would see the result of environment() as invoked
-from within hmmfit, i.e., the result that would occur if hmm2 had indeed been
-defined within the hmmfit function. 
+from within hmm, i.e., the result that would occur if hmm2 had indeed been
+defined within the hmm function. 
 But it turns out that there is no static way to do that: the environment
-created within hmmfit, the one that hmm2 would like to inherit, does not exist
-until hmmfit ``comes to life'', and it winks out when hmmfit exits. The
-result of \code{environment(hmmfit)} is the environment that hmmfit itself
-lives within.  I think
-I was mislead by the a phrase that lexical scoping can be determined at
-compile time (read somewhere), that made me think of it as something fixed 
-at the time of package creation, i.e., ``R COMPILE mshmm''; which is in 
-retrospect an impractical notion. 
+created within hmm, the one that hmm2 would like to inherit, does not exist
+until hmm ``comes to life'', and it winks out when hmm exits.
+I chased multiple dead ends before this became clear.
 
-Duncan Murdoch provided two approaches. The first is to update the environment
-of hmm2 \emph{within} hmmfit by adding the line
-\code{environment(hmm2) <- environment()}, somewhere before calling the 
-maximizer, which gives hmm2 acess to everything.  A safer one is a limited
-scope using a single passage of arguments.  
-In the loglik.R file define a function
+What does work is the following dynamic paradym.
+Within the hmm function add the lines
 <<echo=TRUE, eval=FALSE>>=
-makehmm2 <- function(arg1, arg2, arg3, ..., arg10) {
-    force(arg1); force(arg2); ...force(arg10)
-    function(coef) {
-        # the current hmm2 function, which can now see arg1, arg2, etc
-    }
-}
+hmm1 <- hmm1; environment(hmm1) <- environment()
+hmm2 <- hmm2; environment(hmm2) <- environment()
 @ 
-And then add the line
-<<echo=TRUE, eval=FALSE>>=
-hmm2 <- makehmm2(arg1, arg2, ..., arg10)
-@ 
-to the function that calls hmm2, e.g., hmmboth.  Recursively, we would then
-need a makehmmboth function that can be called by hmmfit. 
- \code{hmm2 <- makehmm2(arg1, arg2, ...)} in the hmmfit call.
-What this does is create a local copy of hmm2 that has already resolved those 
-variables. (I think, but am not sure, that without the force calls, each of the
-mcapply uses would redo the name search.  But that is probably a trivial
-compute burden.)
-Recursively, we would then need a makehmmboth function that can be 
-called by hmmfit. 
+This has created verions of hmm1 and hmm2 that behave as though the source code 
+was encapsulated within hmm, now pass these new functions down the calling 
+chain.  Then use ... to pass hmm1 and hmm2 through to the loglik function(s)
+There is now no ... in the mclapply call, which is where we worried about
+efficiency.
+
+Duncan Murdoch suggested this, and also a second hybrid approach that makes use
+of the force() function. It was a bit more complex, but it causes only select
+variables in hmm() to be exposed and so is a perhaps a bit safer.
 

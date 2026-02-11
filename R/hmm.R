@@ -1,8 +1,7 @@
 # The main function
 hmm <- function(formula, data, subset, weights, na.action, 
-                id, qmatrix, markers,
-                pfun= hmminit, pcoef, entry, iprob, 
-                mfun, mpar= list(), iter=20,
+                id, qmatrix, markers, iprob,
+                mfun= hmmscore, mpar= list(), mgrad, iter=20,
                 mc.cores= getOption("mc.cores", 2L),
                 icoef, intercept, scale=TRUE, penalty, constraint,
                 statedata, exact ="death",
@@ -10,17 +9,19 @@ hmm <- function(formula, data, subset, weights, na.action,
     Call <- match.call()
     time0 <- proc.time()
 
-    ## We want to pass any ... args to cmsp.control, but not pass things
-    ##  like "dats=mydata" where someone just made a typo.  The use of ...
+    ## We want to pass any ... args to icmsh.control, but not pass things
+    ##  like "dats=mydata", i.e., where someone made a typo.  The use of ...
     ##  is simply to allow things like "eps=1e6" with easier typing
     extraArgs <- list(...)
-    if (length(extraArgs)) {
+    if (length(extraArgs) && missing(control)) {
         controlargs <- names(formals(icmsh.control)) #legal arg names
         indx <- pmatch(names(extraArgs), controlargs, nomatch=0L)
         if (any(indx==0L))
             stop(gettextf("Argument %s not matched", 
                           names(extraArgs)[indx==0L]), domain = NA)
-    }
+        control <- do.call(icmsh.control, extraArgs)
+    } else if (missing(control)) control <- icmsh.control()
+
 
     # create a call to model.frame() that contains the formula (required)
     #  and any other of the relevant optional arguments
@@ -53,22 +54,25 @@ hmm <- function(formula, data, subset, weights, na.action,
     qmap <- which(qmatrix != 0)   
     ntransitions <- length(qmap)
 
-    # a 0 row in qmap = an absorbing state (you never leave)
-    absorb <- (rowSums(qmatrix>0) ==0)
-    # an exact state that is absorbing: a censored obs can't be in this state
-    # (hidden states are censored too)
-    exactabsorb <- (absorb & (statenames %in% exact))
-
-    if (!is.numeric(iter) || length(iter) >1 || iter <=0) 
-        stop("iter must be a postive integer")
-    else iter <- ceiling(iter)
-
+    # If the user did not provide an exact argument, don't complain if
+    #  our default value of "death" is not one of the known states, instead
+    #  treat the default as NULL
     if (missing(exact) || length(exact) ==0) exact <- NULL
     else {
         exact <- match(exact, statenames)
         if (any(is.na(exact)))
             stop("exact argument contains a state not in qmatrix")
     } 
+
+    # a 0 row in qmap = an absorbing state (you never leave)
+    absorb <- (rowSums(qmatrix>0) ==0)
+    # an exact state that is absorbing: a censored obs is known to not 
+    #  be in an 'exactabsorb' state at that time (there is no way to get there)
+    exactabsorb <- which(absorb & (statenames %in% exact))
+
+    if (!is.numeric(iter) || length(iter) >1 || iter <0) 
+        stop("iter must be a non-negative integer")
+    else iter <- ceiling(iter)
 
     # Is there state data?
     if (!missing(statedata)) { # check that it is okay
@@ -157,10 +161,11 @@ hmm <- function(formula, data, subset, weights, na.action,
     # check that the data is sorted by time within subject, all rows for a
     # subject need to be contiguous. 
     Y <- model.response(mf)
-    id <- model.extract(mf, "id")
-    id2 <- match(id, unique(id))   # the id's themselves need not be ordered
+    id2 <- model.extract(mf, "id")
+    uid <- unique(id2) # the id's themselves need not be ordered
+    id  <- match(id2, unique(id2))   # relabel as 1,2, etc for code
     if (is.matrix(Y)) index <- order(id2, Y[,1])
-    else index <- order(id2, Y)
+    else index <- order(id, Y)
     if (any(diff(index) != 1)) stop("data not sorted by time within each id")
 
     # Get the first pass of the X matrix, and from that information create
@@ -194,35 +199,30 @@ hmm <- function(formula, data, subset, weights, na.action,
     #  sometimes the marker columns or initial state cols, other times 
     #  we will want them all. Hence bcount.
                            
-    # mark out the exact states
-    iexact <- match(exact, statenames, nomatch=0)
-    if (missing(exact)) {
-        iexact <- iexact[iexact >0]  #don't complain if our default "death" is
-                                     # not present
-    } else if (any(iexact==0))
-        stop("exact argument not found in the qmatrix: ", exact[iexact==0])
+    # mark out the exact states as an integer, used in the fitting portion
+    if (length(exact)==0) iexact <- NULL
+    else iexact <- match(exact, statenames)
 
     # The response will normally be a Surv object, with known states as the
     # status
     if (inherits(Y, "Surv")) {
         if (attr(Y, "type") == "right") {
-            if (length(exact)==1 && exact %in% statenames) {
-                # special case: 0/1 status can be used if there is 1 exact state
-                ystat <- Y[,2]* iexact  # make it  0/exact instead of 0/1
+            if (length(exactabsorb)==1) {
+                # special case: 0/1 status can be used if there is only one
+                # exact absorbing state
+                # make it 0/exact rather than 0/1
+                ystate <- ifelse(Y[,2]==0, 0L, exactabsorb)
             } else stop("simple Surv() only allowed if there is 1 exact state")
         } else if (attr(Y, "type") == "mright") {
             ystate <- attr(Y, "states")
-            temp <- (match(ystate, statenames))
+            # all states in Y must appear in statenames, but are allowed to
+            #  be in a different order. ystat will be in statenames order, with
+            #  0= censored
+            temp <- match(ystate, statenames)
             if (any(is.na(temp)))
                 stop("response has a state not found in qmatrix")
-            ystat <- Y[,2] -1L  # 0 = censored
-
-            # states with biomarkers should not appear in ystate
-            #if (nmarker >1) {
-            #    cat("nmarker code\n")
-            #    browser()  # to be filled in
-            #}
-        }
+            ystate <- c(0L, temp)[1 + Y[,2]]
+         }
         ytime <- Y[,1]
     } else {
         # "time" will be the response, all states are latent
@@ -232,7 +232,7 @@ hmm <- function(formula, data, subset, weights, na.action,
         exact <- NULL
         if (!is.numeric(Y)) stop("response must be numeric or Surv")
         ytime <- Y
-        ystat <- rep(0, nrow(mf))
+        ystate <- rep(0L, nrow(mf))
     }   
 
     weights <- model.weights(mf)
@@ -241,18 +241,22 @@ hmm <- function(formula, data, subset, weights, na.action,
 
     # Now deal with missings, which we couldn't do before
     # Y, id and weights can't be missing
+    # rate variables will be fixed up using lvcf
     # markers can be missing
-    # rate variables can only be missing for the last obs of a subject
     idmiss <- is.na(id)
     ymiss <-  is.na(Y)
     first <- !duplicated(id)
     # apply last-value-carried-forward to the rate variables
-    # this doesn't work if the first obs for a subject is missing
-    xmiss <- apply(is.na(X[first,,drop=FALSE]), 2, any) 
+    # this doesn't work (statistically) if the first obs for a person is NA
+    for (i in 1:ncol(X)) {
+        if (any(is.na(X[,i]))) X[,i] <- lvcf(id, X[,i], ytime)
+    }
+    xfirstmiss <- apply(is.na(X[first,,drop=FALSE]),1, any)         
 
     # we are cruel: anyone with a hole is no longer a valid timeline
     #  toss the entire subject
-    tossid <- unique(id[ymiss | idmiss | xmiss | is.na(weights)])
+    tossid <- unique(c(id[ymiss | idmiss | is.na(weights)], 
+                       (id[first])[xfirstmiss]))
     if (length(tossid) >0 ) {
         keep <- !(id %in% tossid)
         na.action <- which(!keep)
@@ -261,7 +265,7 @@ hmm <- function(formula, data, subset, weights, na.action,
         X    <- X[keep,, drop=FALSE]
         id   <- id[keep]
         ytime <- ytime[keep]
-        ystate <- ystat[keep]
+        ystate <- ystate[keep]
         mf <- mf[keep,]  # the markers have not yet been pulled out
         # message for printout
         removed <- c(subjects= length(toss), y= sum(ymiss), rate=sum(xmiss),
@@ -286,7 +290,7 @@ hmm <- function(formula, data, subset, weights, na.action,
     B <- 0*cmap
     indx <- match(1:nparam, cmap)
     beta.names <- paste(rownames(cmap)[indx], colnames(cmap)[indx], sep='.')
-    beta <- rep(0, nparam)
+    param <- rep(0, nparam)
     if (!missing(icoef)) {
         if (!missing(intercept)) stop("only one of intercept or icoef allowed")
         if (is.matrix(icoef)) {
@@ -310,7 +314,7 @@ hmm <- function(formula, data, subset, weights, na.action,
                 if (length(icoef) != nparam) stop("wrong length for icoef")
                 else param <- icoef
             }
-            B <- coef.to.B(param, cmap, mmap)
+            B <- coef.to.B(param, cmap, B)
         } else stop("icoef must be a numeric vector or matrix")
     }
 
@@ -322,7 +326,7 @@ hmm <- function(formula, data, subset, weights, na.action,
     # factor(group)-1, we can't do so.
     #  Markers are not in the X matrix, so not scaled
     if (xassign[1]!=0 || any(cmap[1,] ==0)) {
-        if (!missing(scale) && scale)
+        if (scale)
             warning("not possible to scale the data")
         scale <- FALSE
     }
@@ -338,7 +342,7 @@ hmm <- function(formula, data, subset, weights, na.action,
         # see rescaling in the code vignette for more detail
         btrans <- diag(Xscale)   # T matrix, transforms B
         btrans[1, rvar] <- Xmean[rvar]
-        xtrans <- diag(1/Xscale)      # T inverse, transforms X
+        xtrans <- diag(1/Xscale)      # btrans inverse, transforms X
         xtrans[1, rvar] <- -(Xmean/Xscale)[rvar]
         B <- btrans %*% B  # the coefs were in terms of unscaled X
     }
@@ -381,26 +385,38 @@ hmm <- function(formula, data, subset, weights, na.action,
         penmat <- crossprod(penalty)
     } else penmat <- NULL
     
-    if (missing(entry)) entry <- rep(1.0, nstate)  # so it has no effect
     tempfun <- function(x) length(unique(x[x>0]))
     parmcount <- c(tempfun(cmap[,b1]), tempfun(cmap[,b2]), tempfun(cmap[,b3]))
 
     # initial probabilities for each subject
-    if (missing(iprob)) iprob <- NULL
-    else if (nmarker ==0) {
-        warning("no markers, iprob ignored")
-        iprob <- NULL
-    } else {
+    # Anyone who has a non-censored first obs is assumed to start in
+    #  that state
+    fstate <- ystate[!duplicated(id)]  # first state for each subject
+    nid <- length(fstate)
+    if (all(fstate>0)) { 
+        # simple interval censored, or known start, iprob ignored if present
+        iprob <- matrix(0, nid, nstate)
+        iprob[cbind(1:nid), fstate] <- 1
+    }
+    else if (missing(iprob))
+        stop("initial probability not available for all subjects")
+    else if (is.formula(iprob))  
+        stop("iprob = formula, code yet completed")
+    else if (!is.numeric(iprob))
+        stop("iprob must be numeric or a formula")
+    else {
         if (any(is.na(iprob))) stop("iprob cannot contain missing values")
-        if (!is.numeric(iprob) || any(iprob<0) || any(iprob >1))
+        if (any(iprob<0) || any(iprob >1))
             stop("iprob must contain values between 0 and 1")
         if (is.vector(iprob)) {
             if (length(iprob) != nstate) stop("wrong length for iprob")
             iprob <- iprob/sum(iprob)
             # an init per subject makes later code a bit easier
             iprob <- matrix(rep(iprob, each= length(uid)), ncol=nstate)
-        } else {
-            if (ncol(iprob) != nstate) 
+        } else if (!(is.matrix(iprob) && length(dim(iprob))==2))
+            stop ("iprob must be a vector or matrix")
+        else {
+            if (ncol(iprob) != nstate)
                 stop("iprob should have one column per state")
             iname <- rownames(iprob)
             if (!is.null(iname)) {
@@ -419,6 +435,19 @@ hmm <- function(formula, data, subset, weights, na.action,
             } else stop("an iprob matrix must have id as the row names")
         }
     }  
+
+    if (!(all(fstate> 0) || all(fstate==0))) {
+        # someone is using exact start for some, and probabalistic start
+        # for others. 2:1 odds this was a mistake
+        warning("Exact starting state for some subjects but not others. ",
+                "Really?") 
+        for (i in 1:nid) {
+            if (fstate[i] !=0) {
+                iprob[i,] <- 0
+                iprob[i, fstate[i]] <-1
+            }
+        }
+    }
 
     # Set up response functions
     if (nmarker > 0) {
@@ -439,66 +468,194 @@ hmm <- function(formula, data, subset, weights, na.action,
     # the otype variable: 1= interval censored = is in a known state at
     #  this time point; 2= exact = known state and we know exactly when it
     #  was entered (e.g. death), 3= one or more markers, 0 = none of these
-    # interval censored or exact + markers = an error
+    # ymarker is a data.frame, not a matrix, hence sapply
+    # What to do with an obs where markers are measured, but the state is
+    #  known, i.e., ystate>0?  I think it is data dependent, so we warn the
+    #  user. The current hmm1/hmm2 code will ignore the markers.
     temp1 <- ystate %in% iexact
+    temp2 <- ystate %in% exactabsorb
     if (nmarker >0 ) {
         temp3 <- rowSums(sapply(ymarker, is.na)) >0
         if (any(temp3 & ystate>0))
-            stop("marker variables present for an obs with known state")
+            warning("marker variables present for an obs with known state")
     } else temp3 <- 0
-    otype <- 1L*(ystate>0) + 1L*temp1 + 3L*temp3
+    otype <- ifelse(temp1, 2L,
+                    ifelse(ystate>0, 1L, 3L*temp3))
     
-    # initial values
-    #if (bcount[3] ==0 && is.null(iprob)) p0fixed <- pfun(nstate)
-    #else p0fixed <- NULL
+    
+    # Set up copies of the hmm1 and hmm2 functions to have the scope
+    #  of this function. See "scope" in the code vignette for details.
+    # I pass them down the calling chain as "logfun" as a way (I hope)
+    #  to make it a little clearer in following routines that they are copies
+    hmm1 <- hmm1; hmm2 <- hmm2
+    environment(hmm1) <- environment()
+    environment(hmm2) <- environment()
 
-    # set the argument list for the maximizer call
-    if (missing(mfun)) {
-        if (iter ==0) {
-            mfun <- "hmmloglik"
-            if (is.null(mpar)) mpar <- list(fn= mfun)
-            if (is.null(mpar$fn)) mpar$fn <- mfun
+    # Set up parallel, Windows can't fork, others can
+    if (mc.cores >1 && control$makecluster) {
+        fork <- FALSE
+        hmm_cluster <- makeCluster(mc.cores) #start up parallel
         }
-        else { # the default
-            mfun <- "hmmscore"
-            if (is.null(mpar)) mpar$fn <- "hmmboth" # special for hmmscore
-            if (is.null(mpar$fn)) mpar$fn <- "hmmboth"
-            mpar$iter <- iter
+    else fork <- TRUE
+    time1 <- proc.time()
+
+    # get the initial loglik and penalty
+    rindex <- which(qmatrix >0)
+    param <- B.to.coef(B, cmap)
+    initial.loglik <- hmmloglik(param, B, cmap, id, mc.cores, fork, 
+                                logfun= hmm1)
+    if (length(initial.loglik) ==0) 
+        stop("unable to evaluate at the intial parameters")
+
+    if (!is.null(penmat))
+        penalty0 <- sum(param *(penmat %*% param))/2
+    else penalty0 <- 0
+
+    mfunname <- Call[["mfun"]]
+    # if the default for mfun is changed in the hmm call, this needs to 
+    #  change too, Call does not contain default arguments
+    if (is.null(mfunname)) mfunname <- "hmmscore"
+
+    # Do we need to iterate?
+    # setting mfun to hmmloglik was an older way of doing 0 iterations, if
+    #  so then we are already done via the initial loglik above
+    if (mfunname== "hmmloglik" || (!missing(iter) && iter ==0)) {
+        # no iteration
+        loglik <- NULL
+        penalty <- NULL
+        fit <- NULL
+    }
+    else { # Yes, iterate
+        if (mfunname== "hmmscore") {
+            # hmmscore is currently the default maximizer
+            # the user may have supplied an mpar arg with things specific
+            #  to hmmscore.  Add onto it the par, fn, B, etc args
+            mpar$par <- param
+            mpar$fn <- hmmboth
+            mpar <- c(mpar, list(B=B, cmap=cmap, id=id, 
+                                 mc.cores= mc.cores, fork= fork, logfun= hmm2))
+            if (!missing(iter)) mpar$iter <- iter
             if (length(constraint)) mpar$constraint <- constraint
             mpar$debug <- control$debug
-        }
-    } else {
-        if (!inherits(mfun, "function")) 
-            stop("mfun argument must be a function")
-        if (mfunname == "hmmscore") {
-            if (is.null(mpar)) mpar <- list(fn= hmmloglik)
-            if (is.null(mpar$fn)) mpar$fn <- hmmloglik
-        } else if (mfunname == "hmmscore") {
-            if (is.null(mpar)) mpar <- list(fn=hmmboth) # special for hmmscore
-            if (is.null(mpar$fn)) mpar$fn <- hmmboth
-            mpar$iter <- iter
-            if (length(constraint)) mpar$constraint <- constraint
-            mpar$debug <- control$debug
+            hmm_count_of_calls <- c(0,0)  # a debugging line, see hmm2
+            fit <- do.call(hmmscore, mpar)
+            if (control$debug >0) print(hmm_count_of_calls)
         } else if (mfunname== "optim") {
-            if (is.null(mpar)) mpar$fn <- hmm1
-            if (is.null(mpar$fn)) mpar$fn <- hmm1
-            if (is.null(mpar$gr)) mpar$gr <- hmmgrad
-            control <- mpar$control
+            mpar$par <- param
+            mpar$fn <- hmmloglik
+            mpar$gr <- hmmgrad
+            mpar <- c(mpar, list(B=B, cmap= cmap, id=id, 
+                                 mc.cores= mc.cores, fork= fork))
+            mpar$logfun <- hmm1
+            mpar$grfun  <- hmm2
             if (is.null(control$iter)) control$maxit <- iter
             if (is.null(control$fnscale)) control$fnscale <- -1
-            mpar$control <- control
-        }  else {
+            fit <- do.call(optim, mpar)
+        } else if (mfunname== "mcmc0" || mfunname=="mcmc1") {
+            mpar$par <- param
+            mpar$logfun = "hmmloglik"  # no derivatives needed
+            mpar <- c(mpar, list(B=B, cmap= cmap, id=id, 
+                                 mc.cores= mc.cores, fork= fork))
+            if (length(constraint)) mpar$constraint <- constraint
+            fit <- do.call(mfunname, mpar)
+        } else {
+            # User supplied function.  We assume the first 3 args,
+            #  whatever their names, are the starting estimate, the
+            #  loglik function, and optionally the gradient. The
+            #  grad argument tells us which
+            # (par, fn) or (par, fn, gn)
+            if (!inherits(mfun, "function"))
+                stop("mfun argument must be a function")
+           if (missing(mgrad)) 
+                stop("mgrad is needed for a user supplied maximizer")
+            else if (!(mgrad %in% 0:2))
+                stop("valid mgrad arguments are 0-2")
+            mfunarg <- formalArgs(mfun)  # the names of their args
+            mpar[[mfunarg[1]]] <- param
+            if (mgrad == 1) mpar[[mfunarg[2]]] <- hmmboth
+            else mpar[[mfunarg[2]]]  <- hmmloglik
+            if (mgrad==2) {
+                mpar[[mfunarg[3]]] <- hmmgrad
+                mpar$grfun <- hmm2
+            } 
+            mpar <- c(mpar, list(B=B, cmap= cmap, id=id, 
+                                 mc.cores= mc.cores, fork= fork))
+            if (mgrad==2) mpar$gr <- hmmgrad
             ff <- names(formals(mfun))
-            if (any(ff== "fn") && is.null(mpar$fn)) mpar$fn <- hmm1
-            if (any(ff== "gr") && is.null(mpar$gr)) mpar$gr <- hmmgrad
             if (any(ff== "iter") && is.null(mpar$iter)) mpar$iter <- iter
+            fit <- do.call(mfun, mpar)
         }
-        if (!is.null(constraint) && any(ff== "constraint") && 
-            is.null(mpar$constraint)) mpar$constraint <- constraint
+        
+        # find the fitted coefs in the output, and the loglik
+        # optim uses par and value, hmmscore coef and loglik
+        nfit <- names(fit)
+        indx <- pmatch(c("coef", "par", "log", "value"), nfit, nomatch=0)
+
+        param <- if (indx[1] >0) fit[[indx[1]]] 
+                 else if (indx[2]>0) fit[[indx[2]]] 
+                 else {
+                     zz <- seq_along(nfit)[-indx]
+                     fit[[zz[1]]]
+                 }
+        loglik <-  if (indx[3] >0) fit[[indx[3]]] 
+                 else if (indx[4]>0) fit[[indx[4]]] else NULL
+
+        # Compute the penalties
+        if (!is.null(penmat)) {  #matrix ones later
+            penalty <- sum(param * (penmat %*% param))/2
+        pderiv  <-  c(param %*% penmat)
+        }
+        else penalty <- 0
     }
 
-    hfit <- hmmfit(ytime, ystat, X, id, otype, qmatrix, cmap, rlist,
-                    mfun, mpar, iter, penalty, control)
+    time2 <- proc.time()
+    if (mc.cores > 1 & control$makecluster) stopCluster(hmm_cluster)
 
-    browser()
+    # Undo any scaling and centering
+    if (scale) {
+        B <- coef.to.B(param, cmap, B)
+        Bscale <- xtrans %*% B
+        param <- B.to.coef(Bscale, cmap)
+    }
+
+    # Add nice dimnames
+    bcol <- paste0(row(qmatrix)[qmatrix!=0], ":",
+                   col(qmatrix)[qmatrix!=0])
+    if (bcount[2]>0) {
+        temp <- unique(rcoef[, c("marker", "lp")])
+        lp <- temp$lp + 1 - temp$lp[match(temp$response, temp$response)]
+        bcol <- c(bcol, paste0("M", paste(temp$response, lp, sep='.')))
+    }
+    if (bcount[3]>0) bcol <- c(bcol, paste0("p", 1:bcount[3]))
+    dimnames(B) <- list(dimnames(X)[[2]], bcol)
+    dimnames(cmap) <- dimnames(beta)
+
+
+    time3 <- proc.time()
+    compute.time <- rbind(setup= time1-time0,
+                          compute= time2- time1,
+                          finish = time3 - time2)
+
+    final <- list(coefficients= param, 
+                  loglik = c(intial=initial.loglik, final=loglik),
+                  penalty= c(initial=penalty0, final=penalty),
+                  beta=beta,
+                  time = compute.time,
+                  scale =  scale,
+                  bcount = bcount,
+                  cmap=cmap, rmap=rindex,
+                  qmatrix = qmatrix,   # the structure and state names
+                  nstate = nstate,
+                  n = c(rows=nrow(mf), subjects=nid),
+                  na.action = na.action,
+                  removed = removed, 
+                  call=Call,  xlevels=xlevels,
+                  contrasts= attr(X, "contrasts"),
+                  terms = Terms
+                  )
+    if (!is.null(penmat)) fit$pen.deriv <- pderiv
+    if (!is.null(fit)) fit$fit <- fit
+
+    class(final) <- "hmm"
+    final
 }

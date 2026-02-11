@@ -20,15 +20,13 @@ B.to.coef <- function(B, cmap) {
 
 icmsh.control <- function(smallpos= 1e-3, debug= FALSE,
                          makecluster= .Platform$OS.type=="windows") {
-    if (!is.numeric(eps1) || length(eps1) >1 || eps1 <=0)
-        stop("eps1 must be a single value >0")
-    if (!is.numeric(eps2) || length(eps2) >1 || eps2 <=0)
-        stop("eps2 must be a single value >0")
-    if (!is.logical(makecluster)) stop("makecluster must be TRUE/FALSE")
+    if (!is.numeric(smallpos) || length(smallpos) >1 || smallpos <=0)
+        stop("smallpos must be a single value >0")
+     if (!is.logical(makecluster)) stop("makecluster must be TRUE/FALSE")
     if (is.logical(debug)) debug <- as.integer(debug)
-    if (!is.integer(debug) || debug < 0) 
+    if (!is.numeric(debug) || debug < 0) 
         stop("debug must be TRUE/FALSE or an integer >=0")
 
-    list(eps1= eps1, eps2= eps2, debug=debug, makecluster=makecluster)
+    list(smallpos= smallpos, debug=debug, makecluster=makecluster)
 }
                          

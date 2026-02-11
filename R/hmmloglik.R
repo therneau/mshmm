@@ -4,10 +4,19 @@
 #  hmmboth) ->  (hmm1 or hmm2). The original hmm code defined all the routines
 #  within the hmm function, which allows all the variables to be found by
 #  inheritance (lexical scope), but the final .R file was just too unwieldy.
-#  This version passes arguments down the call chain via ...
-hmm1 <- function(who, X, ytime, ystate, id, uid, beta) {
-    rows <- which(id ==uid[who])  # the subjects of interest
-    eta <- X[rows,] %*% beta
+#
+# A local copy of this is now made within hmm, which accomplishes the same
+#  thing.  See 'scope' in the code vignette.
+#
+# Remember that B is a matrix of coefficients, of the same shape as cmap,
+#  while the vector of coefficients is "param": that's what the maximizer
+#  functions use.  
+# But in my mathematics, the vector of coefs is a Greek beta, so you will see
+#  'beta' used a lot in the comments and description.
+#
+hmm1 <- function(who, B) {
+    rows <- which(id == who)  # the subjects of interest
+    eta <- X[rows,] %*% B
     # starting probability
     if (!is.null(iprob)) alpha <- iprob[who,]
     else if (is.null(p0fixed))
@@ -16,20 +25,22 @@ hmm1 <- function(who, X, ytime, ystate, id, uid, beta) {
     
     # Now the response functions for this set
     rneed <- (otype[rows]==3)
-    rlist <- vector("list", ny)
-    #    cat("in hmm1\n"); browser()
-    for (k in 1:ny) {
-        j <- b2map[[k]]  #columns of beta for this response
-        indx <- rneed & !is.na(yobs[rows, k])
-        yy <- yobs[rows[indx], k]
-        if (length(yy) >0) {
-            if (length(j)==0) 
-                rlist[[k]] <-rfun[[k]](yy, nstate, gradient=FALSE)
-            else rlist[[k]] <- rfun[[k]](yy, nstate, 
-                eta[indx, j,drop=FALSE], gradient=FALSE)
+    if (any(rneed)) {
+        rlist <- vector("list", nmarker)
+        #    cat("in hmm1\n"); browser()
+        for (k in 1:nmarker) {
+            j <- b2map[[k]]  #columns of B for this response
+            indx <- rneed & !is.na(yobs[rows, k])
+            yy <- yobs[rows[indx], k]
+            if (length(yy) >0) {
+                if (length(j)==0) 
+                    rlist[[k]] <-rfun[[k]](yy, nstate, gradient=FALSE)
+                else rlist[[k]] <- rfun[[k]](yy, nstate, 
+                    eta[indx, j,drop=FALSE], gradient=FALSE)
+            }
         }
     }
-    
+
     # Compute the collection of matrix exponentials for the subject
     # The upper routine sends back the array of results as a vector
     #  along with the number of times there were tied eigenvalues
@@ -41,7 +52,7 @@ hmm1 <- function(who, X, ytime, ystate, id, uid, beta) {
     if (length(rows) > 1) {  # but add a failsafe
         if (any(abs(eta[-r2,]) > .Machine$double.max.exp/2)) {
             # such a bad estimate that it may blow up the matrix exp
-            if (debug >1) browser()
+            if (control$debug >1) cat("underflow "); browser()
             return("underflow")
         }
         myexp <- .Call("upper", nstate, eta[-r2,,drop=FALSE], 
@@ -49,7 +60,7 @@ hmm1 <- function(who, X, ytime, ystate, id, uid, beta) {
         ucount <- c(length(rows)-1, myexp$ties)
         Pmat <- array(myexp$P, dim=c(nstate, nstate, length(rows)-1))
         
-        if (debug >2 & any(Pmat < -control$smallpos)) {
+        if (control$debug >2 & any(Pmat < -control$smallpos)) {
             cat ("stop1\n"); browser()}
         if (any(Pmat > (1+control$smallpos) | 
                 Pmat < -control$smallpos)) return("underflow")
@@ -58,26 +69,26 @@ hmm1 <- function(who, X, ytime, ystate, id, uid, beta) {
     
     # Now walk through the visits one by one
     offset <- 0   # watch out for underflow
-    nc <- integer(ny)  # the number of non-censored & non-missing so far
+    nc <- integer(nmarker)  # the number of otype=3 so far, per marker
     rmat <- matrix(0., nstate, nstate)
 
     for (jj in seq_along(rows)) {
-        j <- rows[jj] # j is the index in the original data, jj in our subset               
+        j <- rows[jj] # j is the index in the original data, jj in our subset
         if (otype[j] ==1 ) { # interval censored outcome
-            k <- ystat[j] # in this state, at this time
+            k <- ystate[j] # in this state, at this time
             alpha[-k] <- 0
         } else if (otype[j] == 2) {
             # exact event time (death)
             rmat[rindex] <- exp(eta[jj-1, b1]) #covariate just before this point
-            k <- ystat[j]  # the exact state just entered
+            k <- ystate[j]  # the exact state just entered
             alpha[k] <- sum(alpha*rmat[,k])
             alpha[-k] <- 0  # known to not be in another state
             alpha <- alpha * dtemp
-            if (debug > 2) cat("A2: j=", j, "alpha=", alpha, "\n")
+            if (control$debug > 2) cat("A2: j=", j, "alpha=", alpha, "\n")
         }
         else if (otype[j]==3) {  # one or more markers observed
             temp <- rep(1, nstate)
-            for (k in 1:ny) {
+            for (k in 1:nmarker) {
                 if (!is.na(yobs[j,k])) {
                     nc[k] <- nc[k] +1
                     alpha <- alpha* rlist[[k]][,nc[k]]
@@ -85,39 +96,28 @@ hmm1 <- function(who, X, ytime, ystate, id, uid, beta) {
                 }
             }
             if (!all(is.finite(alpha)) || sum(alpha) <=0) {
-                if (debug > 1) browser()
+                if (control$debug > 1) browser()
                 return("underflow") 
             }
-            if (debug>2) cat("B: j=", j, "alpha=", alpha, "\n")
+            if (control$debug>2) cat("B: j=", j, "alpha=", alpha, "\n")
         }
-
-        if (any(exactabsorb) & ystat[j]==0) {
+        else { # censored
+            if (length(exactabsorb)>0) alpha[exactabsorb] <- 0
             # can't be in one of the exact+absorbing states
-            alpha[exactabsorb] <- 0
         }
         
-        if (!is.null(entrytime) && entrytime[j] ==1) {
-            # entry to the study
-            temp <- sum(alpha*entry)
-            if (temp <= 0) 
-                return(paste("subject", uid[who],
-                             "enters in an impossible state"))
-            alpha <- alpha*entry /temp
-            if (debug > 2) cat("A3: j=", j, "alpha=", alpha, "\n")
-        }
-
         if (jj< r2) {  # if not the last obs
             # transition matrix
             alpha <- alpha %*% Pmat[,,jj]  # transition to next time point
-            if (debug > 2) cat("C: j=", j, "alpha=", alpha, "\n")
+            if (control$debug > 2) cat("C: j=", j, "alpha=", alpha, "\n")
 
             if (!all(is.finite(alpha)) || sum(alpha) <=0) {
-                if (debug > 1) browser()
+                if (control$debug > 1) browser()
                 return("underflow")
             }
             if (mean(alpha) < exp(-20)) { # beware underflow
                 reset <- min(-20, log(mean(alpha)))
-                if (debug > 2) cat(" offset=", offset,"reset=", reset, "\n")
+                if (control$debug > 2) cat(" offset=", offset,"reset=", reset, "\n")
                 offset <- offset + reset
                 alpha <- alpha * exp(-reset)
             }
@@ -195,14 +195,14 @@ psetup <- function(rmat, rindex, nstate) {
     out
 }
 
-Rtrans <- vector("list", ny)  #one element per response function
+Rtrans <- vector("list", nmarker)  #one element per response function
 if (bcount[2]) { #if there are response parameters
     tfun <- function(dmat, x, map) {
         tmat <- matrix(0., map$dim[1], map$dim[2])
         tmat[map$tindex] <- x[map$xindex]
         dmat %*% tmat
     }
-    for (i in 1:ny) {
+    for (i in 1:nmarker) {
         if (length(b2map[[i]]) >0 && any(cmap[, b2map[[i]]] > 0)) {
             formals(tfun)[[3]] <- makeindex(cmap[,b2map[[i]], drop=FALSE],
                                             cmap[,b2])
@@ -220,9 +220,9 @@ if (bcount[3]) { #if there are initial probability  parameters
 }
 cmap.b1 <- makeindex(cmap[,b1, drop=FALSE])
 }
-hmm2 <- function(who, beta) {
-    rows <- which(id ==uid[who])  # the subjects of interest
-    eta <- X[rows,] %*% beta
+hmm2 <- function(who,  B) {
+    rows <- which(id == who)  # the subjects of interest
+    eta <- X[rows,] %*% B
     P.d  <- matrix(0., parmcount[1], nstate)
     R.d  <- matrix(0., nstate, parmcount[2])
     pi.d <- matrix(0., nstate, parmcount[3])
@@ -237,17 +237,19 @@ hmm2 <- function(who, beta) {
     }
     
     # Execute the response functions, over the censored obs
-    rlist <- rgrad <- vector("list", ny)
+    rlist <- rgrad <- vector("list", nmarker)
     rneed <- (otype[rows]==3)  # observed markers
-    for (k in 1:ny) {
-        index <- rneed & !is.na(yobs[rows,k])
-        j <- b2map[[k]]  #linear predictors for this response
-        yy <- yobs[rows[index], k]
-        if (length(yy) > 0) {
-            temp <- rfun[[k]](yy, nstate, eta[index, j, drop=FALSE], 
-                gradient= TRUE)
-            rlist[[k]] <- temp
-            rgrad[[k]] <- attr(temp, "gradient")
+    if (any(rneed)) {
+        for (k in 1:nmarker) {
+            index <- rneed & !is.na(yobs[rows,k])
+            j <- b2map[[k]]  #linear predictors for this response
+            yy <- yobs[rows[index], k]
+            if (length(yy) > 0) {
+                temp <- rfun[[k]](yy, nstate, eta[index, j, drop=FALSE], 
+                    gradient= TRUE)
+                rlist[[k]] <- temp
+                rgrad[[k]] <- attr(temp, "gradient")
+            }
         }
     }
 
@@ -255,14 +257,14 @@ hmm2 <- function(who, beta) {
     P.d  <- matrix(0., pcount[1], nstate)
     offset <- 0  # watch out for underflow
     ecount <- c(length(rows), 0)
-    nc <- integer(ny)    #number non-censored so far
+    nc <- integer(nmarker)    #number otype==3, so far, per marker
     r2 <- length(rows)
     rmat <- matrix(0., nstate, nstate)
 
     for (jj in seq_along(rows)) {
         j <- rows[jj]
         if (otype[j] ==1) { # interval censored
-            k <- ystat[j]
+            k <- ystate[j]
             alpha[-k] <- 0
             P.d[,, -k] <- 0
         }
@@ -279,16 +281,16 @@ hmm2 <- function(who, beta) {
             if (pcount[1]) P.d  <- P.d *  rep(dtemp, each=pcount[1]) +
                                t(alpha * deathtrans(rmat, X[j-1,]))
             alpha <- alpha * dtemp
-            if (debug > 2) {
+            if (control$debug > 2) {
                 cat("\n death: alpha=", format(alpha), "\n")
                 # if (pcount[3]) print(pi.d)
                 # if (pcount[2]) print(R.d)
                 # print(P.d)
             }
-            if (debug > 2) cat("A2: j=", j, "alpha=", alpha, "\n")
+            if (control$debug > 2) cat("A2: j=", j, "alpha=", alpha, "\n")
         }
         else if (otype[j]==3) {  # marker(s) was observed
-            for (k in 1:ny) {
+            for (k in 1:nmarker) {
                 if (!is.na(yobs[j,k])) {
                     nc[k] <- nc[k] +1
                     temp <- rlist[[k]][,nc[k]]
@@ -299,9 +301,9 @@ hmm2 <- function(who, beta) {
                         dtemp <- Rtrans[[k]](rgrad[[k]][,nc[k],], X[j,])
                         R.d  <- R.d + alpha * dtemp
                     } 
-                    if (debug>3) browser()
+                    if (control$debug>3) browser()
                     alpha <- alpha * temp
-                    if (debug > 4) {
+                    if (control$debug > 4) {
                         cat("\n response: alpha=", format(alpha), "\n")
                         #if (pcount[3]) print(pi.d)
                         #if (pcount[2]) print(R.d)
@@ -310,46 +312,22 @@ hmm2 <- function(who, beta) {
                 }
             }
             if (!all(is.finite(alpha)) || sum(alpha) <=0) {
-                if (debug>1) browser()
+                if (control$debug>1) browser()
                 return("underflow")
             }
-            if (debug > 2) cat("B: j=", j, "alpha=", alpha, "\n")
-        }
-
-        if (any(exactabsorb) && ystat[j]==0) {
-            alpha[exactabsorb] <- 0
+            if (control$debug > 2) cat("B: j=", j, "alpha=", alpha, "\n")
+        } 
+        else {  # censored
+            if (length(exactabsorb)) alpha[exactabsorb] <- 0
             stop("need to fix derivatives")
         }
 
-        if (!is.null(entrytime) && entrytime[j]==1) {
-            # entry to the study
-            temp <- sum(alpha*entry)
-            if (temp <= 0) return(paste("subject", uid[who],
-                                        "enters in an impossible state"))
-            if (pcount[3]) pi.d <- (entry/temp)*( pi.d -
-                                             alpha %*% (entry %*% pi.d)/temp )
-            if (pcount[2]) R.d <- (entry/temp)* (R.d - 
-                                                 alpha %*% (entry %*% R.d)/temp)
-            # remember that P.d is (nparm, nstate)
-            if (pcount[1]) P.d  <- (rep(entry, each=pcount[1])/temp) * 
-                               (P.d - outer(c(P.d %*% entry), alpha) /temp)
-            alpha <- alpha*entry /temp
-            if (debug > 2) {
-                cat("\n entry: alpha=", format(alpha), "\n")
-                #if (pcount[3]) print(pi.d)
-                # if (pcount[2]) print(R.d)
-                # print(P.d)
-            }
-            if (debug > 2) cat("A3: j=", j, "alpha=", alpha, "\n")
-        }
-
-        
         if (jj < r2) { # not the last row
             # state matrix transformation P
             rmat[rindex] <- exp(eta[jj,b1])
             if (!all(is.finite(rmat))) {
                 # a horrible beta can overflow
-                if (debug > 1) 
+                if (control$debug > 1) 
                     save(rmat, beta, file=paste0("rfail", who, ".rda")) 
                 return("underflow")
             }
@@ -362,7 +340,7 @@ hmm2 <- function(who, beta) {
             }
             else ptemp <- derivative(rmat, ytime[j], tder)
             if (any(ptemp$P < -eps | ptemp$P >1)) {
-                if (debug>1) 
+                if (control$debug>1) 
                     save(ptemp, beta, file=paste0("pfail", who, ".rda"))
                 return("underflow")
             }
@@ -371,15 +349,15 @@ hmm2 <- function(who, beta) {
             if (pcount[1]) 
                 P.d <-  P.d %*% ptemp$P + Ptrans(alpha, ptemp$dmat, X[j,])
             alpha <- drop(alpha %*% ptemp$P)   # ditch the dimensions
-            if (debug > 4) {
+            if (control$debug > 4) {
                 cat("\n j=", j, "jj=", jj, "alpha=", format(alpha), "\n")
                 if (pcount[3]) print(pi.d)
                 if (pcount[2]) print(R.d)
             }
-            if (debug > 2) cat("C: j=", j, "alpha=", alpha, "\n")
+            if (control$debug > 2) cat("C: j=", j, "alpha=", alpha, "\n")
 
             if (!all(is.finite(alpha)) || sum(alpha) <=0) {
-                if (debug > 1) 
+                if (control$debug > 1) 
                     save(alpha, ptemp, beta, file=paste0("afail", who, "rda"))
                 return("underflow")
             }
@@ -392,7 +370,7 @@ hmm2 <- function(who, beta) {
             }
         }
     }
-    if (debug>3) browser()
+    if (control$debug >3) browser()
     list(alpha=alpha, deriv= rbind(P.d, t(R.d), t(pi.d)), ecount=ecount,
          offset = offset)
 }

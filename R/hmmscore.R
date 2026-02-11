@@ -18,7 +18,7 @@ hmmscore <- function(par, fn, gr, iter=30,
     if (ncon>0) actmat <- matrix(0L, iter+1, ncon)
     
     # initial step
-    fit <- fn(par)
+    fit <- fn(par, ...)
     logmat[1,] <- c(fit$loglik, 0, 0,0)
     if (!is.list(fit) || is.null(fit$S))
         stop("hmmscore needs to call hmmboth")

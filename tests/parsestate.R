@@ -1,17 +1,12 @@
 #
 # Test the subroutines for parsing set of states
-#  parsecovar2 is one of more subtle routines
-
-#library(mshmm)
-#parsecovar1 <- mshmm:::parsecovar1
-#parsecovar2 <- mshmm:::parsecovar2
-#parsemarker1 <- mshmm:::parsemarker1
-#parsemarker2 <- mshmm:::parsemerker2
-library(survival)
- source("ptplot.R")
- source("parsecovar.R")
- source("parsemarker.R")
- source("response.R")
+#  The parsecovar and parsemarker set are two of the more subtle routines
+# The functions are not exported, hence the need for :::
+library(mshmm)
+parsecovar1 <- mshmm:::parsecovar1
+parsecovar2 <- mshmm:::parsecovar2
+parsemarker1 <- mshmm:::parsemarker1
+parsemarker2 <- mshmm:::parsemerker2
 
 states <- c("A0N0", "A1N0", "A0N1", "A1N1", "A0N2","A1N2", "death")
 qmat <- matrix(0, 7,7, dimnames=list(states, states))
@@ -27,18 +22,17 @@ statedata <- data.frame(state= states,
                         D=c(0,0,0,0,0,0,1))
 
 # a formula with lots of bits
-tform <- list(Surv(time, status) ~ 1+ age,
+tform <- list(Surv(time, status) ~ age,
               0:"death" ~ sex,
               A0N0:D(0) ~ x1 / common,
               A(0):A(1) ~ -age + x2,
               N(0):N(1,2) + N(1):N(2) ~ x3/ init(2),
               A0N0: c('A0N1', "A1N0") ~ x4)
-
 dform <- tform[[1]]  # the default formula
-test1 <- parsecovar1(tform[-1])
 
 # Build the new right hand side, in the way that hmm does, icvol will come
 # from the markers, below
+test1 <- parsecovar1(tform[-1])
 tlab <- lapply(test1$rhs, function(x) {
               attr(terms(x), "term.labels")
           })
@@ -74,7 +68,6 @@ rownames(check3) <- Xname
 check3[,] <- match(c(check3), sort(unique(c(0, check3)))) -1L
 all.equal(check3, test2$cmap)
 
-
 # Now look at a marker list
 mlist <- list(A(0:1):log(pib) + A(0:1):log(tau) ~ 1/ gaussian,
               A(0:1):sqrt(p.tau181) ~ 1 /gaussian,
@@ -83,15 +76,15 @@ mlist <- list(A(0:1):log(pib) + A(0:1):log(tau) ~ 1/ gaussian,
 
 test1 <- parsemarker1(mlist, statedata)
 
-# the markers, needed to create the model frame
+all.equal(test1$nmarker, c(2,1,1,1)) # markers per formula
+# the markers for formula1, then formula 2, then 3, then 4
 all.equal(test1$marker, c("log(pib)", "log(tau)", "sqrt(p.tau181)", 
                          "log(wmh)", "log(wmh)"))
-all.equal(test1$nmarker, c(2,1,1,1))
 
 # stateinfo has a summary of the column of statedata that was used,
 # one element per marker
 # A(0:1) states that for statedata$A, the '0', and '1' elements will map
-#  to unique Gaussian peaks, A2 = death has no pib or tau distribution
+#  to unique Gaussian peaks, A2 = death has no pib or tau distribution.
 #  levels need not be numeric, index is of length nstate and shows which
 #  peak each state maps onto.
 #  
@@ -99,10 +92,11 @@ temp2 <- list(sname="A", levels=0:1, index=c(1,2,1,2,1,2,0))
 temp3 <- list(sname="N", levels=0:2, index=c(1,1,2,2,3,3,0))
 all.equal(test1$stateinfo, list(temp2, temp2, temp2, temp3, temp3))
 
+# options contains the information to the right of the /
 all.equal(test1$options, list(as.name("gaussian"), as.name("gaussian"),
                               as.name("logistic"),
                               expression(logistic(param="mean") +common)[[1]])) 
-
+# mterm contains the formula for each element of mlist
 all.equal(test1$mterm, list(~1, ~1, ~1, ~icvol))
 
 
@@ -119,5 +113,19 @@ all(test2$cmap[10,-c(13, 15, 17)] ==0 )
 all.equal(sapply(test2$response, function(x) x$name),
           rep(c("gaussian", "logistic"), c(3,1)))
 
-
-          
+#
+# Check what happens if someone uses -1 in a formula
+# x1 is a factor with 4 levels and someone wants A, B, C, D; no intercept
+# the answer is: it is ignored
+tform <- list(Surv(time, status) ~ age + x1 -1,
+              0:"death" ~ sex,
+              A(0):A(1) ~ -age + x2,
+              N(0):N(1,2) + N(1):N(2) ~ x3/ init(2),
+              A0N0: c('A0N1', "A1N0") ~ x4)
+test1 <- parsecovar1(tform[-1])
+test2 <- parsecovar2(test1, statedata, dform, terms(newform), qmat,
+                     Xname, Xassign)
+all(rownames(test2$cmap) == c("(Intercept)", "age", "sex", "x1B", "x1C", "x1D",
+                              "x2", "x3", "x4", "icvol"))
+# x1 has been coded as an intercept + 3 contrasts, the same as if -1 were not
+#  there
