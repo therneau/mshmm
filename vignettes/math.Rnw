@@ -27,9 +27,9 @@ knitr::opts_chunk$set(comment=NA, tidy=FALSE, highlight=FALSE, echo=FALSE,
 
 \section{Introduction}
 This report describes the underlying mathematics behind interval censored
-multistate hazard models, and their extension to model with latent states,
-which are a variant of hidden Markov models.
-The second of these can in particular be complex, and took me some time
+multistate hazard models, and their extension to models with latent states,
+which are a themselves a variant of hidden Markov models.
+The second of these in particular can be complex, and took me some time
 to assimilate.
 The report is at least in part documentation for a future me who has 
 forgotten those details.
@@ -47,7 +47,7 @@ The \code{survfit} routine produces both the KM and AJ estimates, and the
 MSH model fits.
 
 \begin{figure}
-<<nafld1, echo=FALSE>>=
+<<nafld, echo=FALSE>>=
 states <- c("0MC", "1MC", "2MC", "3MC", "death")
 smat <- matrix(0, 5,5, dimnames=list(states, states))
 smat[1,2] <- smat[2,3] <- smat[3,4] <- 1
@@ -69,15 +69,15 @@ At any given visit, subjects will have accumulated
 diabetes, hypertension, and hyperlipidemia.
 If measured continuously, subjects will progress via the solid arrows from 0 
 to 1 to 2 to 3 comorbidities.
-We assume, biologically,  that no one progresses on two of the markers at the 
-\emph{exact} same instant.
+(We assume, biologically,  that no one progresses on two of the markers at the 
+\emph{exact} same instant.)
 In the observed data, however, there will be subjects who are in the 0MC
 state at one visit, and in the 2MC state at their next visit; as that following
 visit might be several years later.  Such visit pairs lead to the dashed
-line transtions in Figure \ref{nafld1}.
-(Since comorbidities in the study were defined as ``history of diabetes'', 
+line transtions in Figure \ref{fig:nafld}.
+Since comorbidities in the study were defined as ``history of diabetes'', 
 ``history of dyslipidemia'', and ``history of hypertension''
-no one can go backwards.)
+no arrows go backwards.
 
 The primary underlying difference between the two approaches is
 that the semiparametric MSH model fit by coxph is a model for
@@ -86,19 +86,20 @@ is a model for observed \emph{states}.
 Say that subject X was seen at age 55, 58.2 and 61.4 with their first
 MC of diabetes at the second visit.
 The coxph fit assumes that a 0MC:1MC transition has occured at exactly age
-58.2, while the IC model assumes that there was a transtion at some 
+58.2, while the IC model assumes that there was a 0MC:1MC transtion at some 
 unknown time betwee 55 and 58.2.
 Interval censored data is also known as panel data, from studies where
 the particpants come back at a regular interal and each visit involves
-a panel of tests. The state at each visit is known, but not when between
+a panel of tests. The state at each visit is known, but not when any between
 state transitions had occured.
 
-The perceptive user will have noticed that a call to ismh looks remarkably
+The perceptive user will have noticed that a call to icsmh looks remarkably
 like a call to coxph.  This is on purpose, but there are some important
 differences between the calls.
 The first is that imsh requires
-a matrix of valid transions $Q$.  For the above data this is shown below,
-and corresponds to the solid arrows in figure \ref{nafld}.
+a matrix of valid transions $Q$.  For $Q$ matrix for the above data this 
+is shown below,
+and corresponds to the solid arrows in figure \ref{fig:nafld}.
 (The computer won't know that a direct 0MC to 2MC transition is impossible
 without being told.)
 <<qmatrix>>=
@@ -112,8 +113,6 @@ qmat
 A second difference is that the icmsh routine uses a parametric baseline
 hazard for each state to state transition, most often a spline function
 of age or time.  As a consequence the rates include an intercept term.
-Last, some states will not be interval censored, e.g., death; the likelihood
-term at a death time is somewhat different.
 
 It turns out that there is a close connection between the simple interval
 censored multi-state models discussed so far, and multi-state hidden
@@ -121,7 +120,7 @@ Markov models (msHMM), i.e., one can fit them both using the same underlying
 function.
 HMM models as applied to clinical studies were actually the motivation for 
 this package.
- For multistate hidden Markov model the assumption is that the internal
+ For a multistate hidden Markov model the assumption is that the internal
 states (other than death) are not observed directly. Instead we observe
 one or more imperfect biomarkers of each state. Badly damaged lungs (true state)
 might reveal themselves via a low forced expiratory volume (FEV) test, for
@@ -180,6 +179,7 @@ but not much else.)
 
 
 \section{Interval censored data}
+\subsection{Observed states}
 Start with the simpler case of interval censored or panel data.
 The second label comes from studies where a subject returns on a fixed
 schedule and a set or panel of measurements is obtained at each visit.
@@ -187,6 +187,13 @@ If a given subject were found to be in state $s_1$ at the 1 year visit
 and state $s_3$ at the year 2 visit, say,
 we do not know  when during that year they transitioned from 1 to 3, 
 or whether other states were visited in the interim.
+We only know the state at each visit.
+
+The likelihood
+
+
+
+
 
 Let $S$ be the set of $m$ states, $p(0)$ the distribution of states at time
 0, often $(1, 0, \ldots)$, $P(s,t; \theta)$ the $m$ by $m$ transition
@@ -267,6 +274,8 @@ par(opar)
     functions for two hypothetical subjects with visits at ages
     (61, 62.1, 63.1, 63.9, 64, 65) and (60.4, 62.7, 64.9), respectively.
     Right panel: Augmented data with subject age updated at each birthday.}
+ \label{fig:stepfun}
+\end{figure}
     
 The baseline hazard is modeled as a parametric function of time, but the
 actual likelihood treats this as peicewise constant over the set of time
@@ -277,7 +286,7 @@ is constant from $s$ to $t$.
 If the baseline were increasing, for instance, we might worry about a bias
 from different length intervals; if Smith and Jones had the same covariates,
 but Smith was observed at ages 61, 62.1, 63.1, 63.9, 64 and 65, and Jones
-at ages 60.4, 62.7 and 64.90, then Jones' computation effectively have a 
+at ages 60.4, 62.7 and 64.90, then Jones' computation effectively has a 
 lower average rate due to less frequent observation. 
 This is shown in the left panel of Figure \ref{fig:simple}, the red line
 is lower on average.
@@ -285,7 +294,7 @@ A standard response is to add extra censored cutpoints
 at 1 year age intervals in order to force an update of $t$, as shown
 in the right panel. 
 A more rigorous approach will add all observed time points to every subject,
-but this is overkill (IHMHO).
+but this is overkill (IMHO).
 
 Adding dummy observations for each subject so that all share these yearly
 cutpoints is a nuisance, but the R tools are effective.
@@ -302,6 +311,7 @@ Assume subject $i$ is seen at times $t_{j}$, $j=0, \ldots, n_i$, with observed
 states $s_{j}$, where $t_{0}=0$ is the starting time.
 The likelihood computation for interval censored models can be thought of 
 in three parts, for each subject $i$
+\begin{itemize}
  \item The initial probability in state vector $p(t_0)$.
  \item The transtion matrix from $t_{m-1} to t_{m}$ for $m>0$
  \item Restrictions on the current state at each observed observation time
@@ -642,8 +652,8 @@ Two other rare but possible cases are
 
 When there is a single categorical marker, as in the table above, one temptation
 is to include death as one of the categorical states. This is done in the msm
-manual for instance. Table \ref{missclass2} would have another column ``death''
-with values of 0,0,0,1.
+manual for instance. Table \ref{tab:missclass2} would have another 
+column ``death'' with values of 0,0,0,1.
 In our code and in the explanation here we have been careful not to do this:
 death (and any other known state) are in the Surv() object, only hidden states
 are reported out by markers.
@@ -773,8 +783,9 @@ sdata <- data.frame(state= c(t(outer(A,CeV, paste0))),
 sdata 
 @ 
 
-One can then use \code{A0:A1 ~ x1} in the formula as an alias for all 9 matching
-row pairs of statedata, only 3 of which are actual transitions.
+One can then use \code{A0:A1 \textasciitilde x1} in the formula as an alias 
+for all 9 matching row pairs of statedata, 
+only 3 of which are actual transitions.
 (The underlying code takes care of that part).
 
 \section{Matrix exponential}
@@ -783,21 +794,24 @@ function is defined using an approximation.  One idea is that
 \begin{align*}
   \exp(x) & = \left(e^{x/2}\right)^2 \\
           &=  \left(\left(e^{x/4}\right)^2\right)^2 \\
-          &=  \left(\left(\left(e^{x/8}\right)^2\right)^2\right)^2) \\
-          &= \vdots
+          &=  \left(\left(\left(e^{x/8}\right)^2\right)^2\right)^2 \\
+          &\vdots
 \end{align*}
 along with the fact that for a limited range $a < x < b$, $\exp(x)$ is well
-appoximated by a simple polynomial or ratio of polynomials. 
-Compute $\exp(x/2^k)$ for an approriate $k$, then repeatedly square the result. 
-The actual code is more sophisticated but this is the basic.
+appoximated by a simple polynomial or ratio of polynomials (Pade method). 
+As an accurate approximation to $\exp(x)$
+compute the Pade aproximation of $\exp(x/2^k)$ for an approriate $k$, 
+then repeatedly square the result. 
+The actual code is more sophisticated but this is the basic structure.
 
 The exponetial of a matrix $A$ is defined similarly to the standard exponential
-\begin{align*}
-  exp(x) &= 1+ x + x^2/2 + x^3/3! + x^4/4! + \ldots \\
-         &= lim_{n \rightarrow \infty} \left( 1+ 1/n\right)^n \\
-  exp(A) &= I + A + A^2/2 + A^3/3! + A^4/4! + \ldots \\
-         &= lim_{n \rightarrow \infty} \left( I+ A/n\right)^n
-\end{align*}
+and has the same limit property
+\begin{align}
+  \exp(x) &= 1+ x + x^2/2 + x^3/3! + x^4/4! + \ldots \nonumber \\
+         &= \lim_{n \rightarrow \infty} \left( 1+ 1/n\right)^n \nonumber \\
+  \exp(A) &= I + A + A^2/2 + A^3/3! + A^4/4! + \ldots \label{expTaylor}\\
+         &= \lim_{n \rightarrow \infty} \left( I+ A/n\right)^n \nonumber
+\end{align}
 Moler and van Loan's famous 1978 paper ``Nineteen dubious ways to compute the 
 exponential of a matrix'' and its 2003 update \cite{Moler78, Moler03}
 showed that the compuation can be difficult and inspired much work on the topic.
@@ -812,7 +826,7 @@ contains the transition rate from state $j$ to state $k$
   \item $A_{jk} =0$ if and only if the transtion cannot occur
   \item The transition probability matrix $P= \exp(A)$ satisfies
     \begin{itemize}
-      \item $sum_k P_{jk} =1$, all rows sum to 1
+      \item $\sum_k P_{jk} =1$, all rows sum to 1
       \item $0 \le P_{jk} \le 1$
     \end{itemize}
 \end{itemize}
@@ -820,14 +834,14 @@ This means that the matrices are better behaved than the general case.
 There are three different approaches that will be of interest to us.
 
 \subsection{Closed form solutions}
-Case 1: If all of the positive elements of $A$ lie in a single row or a single
+If all of the positive elements of $A$ lie in a single row or a single
 column, then there are simple closed form formulas. This occurs quite often
 in the survival package, e.g., for any time point at which only a single
 of transition occurs, but rarely if at all in this package.
 
-Case 2: There is a small set of designs for which the closed form formulas 
-exists, though they are more complicated. The msm package pursued this 
-approach, we have not.
+Beyond this, there is a small set of designs for which the closed form formulas 
+can be derived, though the formulas quickly become more complex.
+ The msm package has pursued this approach, we have not.
 
 \subsection{Matrix decomposition}
 If the eigenvectors of $A$ are linearly independent, then 
@@ -835,22 +849,28 @@ If the eigenvectors of $A$ are linearly independent, then
   e^A = U{\rm diag}(e^\lambda)U^{-1}
 \end{equation*}
 where $U$ is the matrix of right eigenvectors and $\lambda$ the eigenvalues.
-A (right) eigenvector $u$ satisfies $Au= \lambda u$.
-If the matrix of eigenvectors $U$ is non-singular, and with 
-$\Lambda$ the diagonal matrix of eigenvalues we have
-\begin(align*) {
-    AU &= = U\Lambda\\
+A (right) eigenvector $u$ satisfies $Au= \lambda u$, or 
+$AU = U\Lambda$ where $U$ is the matrix of eigenvectors, one per column and
+$\Lambda$ a diagonal matrix of the eigenfvalues.
+If the matrix of eigenvectors $U$ is non-singular then
+\begin{align*} 
+    AU &= U\Lambda\\
     A &= (AU)U^{-1} \\
       &= U \Lambda U^{-1} \\
-    exp(A) &= U \exp(\Lambda) U^{-1}
+    \exp(A) &= U \exp(\Lambda) U^{-1}
 \end{align*}
-The exponential of a diagonal matrix $D$ is a diagonal matrix with 
-$jj$ element $\exp(D_{jj})$; the final equation above arises directly from 
-the Taylor series for exp.
+The exponential of a diagonal matrix $\Lambda$ is a diagonal matrix with 
+$jj$ element $\exp(\Lambda_{jj})$.
+The final equation above arises directly from equation \eqref{expTaylor},
+since $A^k = U \Lambda^k U^{-1}$ (write it out).
 
 A left eigenvector matrix $V$ satisfies $VA = \Lambda V$. 
 This can also be defined as the transpose of the right eigenvectors of 
-$A$ transpose. 
+$A$ transpose, more properly the conjugate or Hermitian transpose to
+respect complex numbers
+\begin{equation*}
+A^* V^* = V^* \Lambda
+\end{equation*}
 The eigenvalues that correspond to left and right eigenvectors are identical, 
 and it turns out that $VU=I$. 
 (I found this last identity listening to a lecture, but have not found it 
@@ -858,11 +878,9 @@ mentioned in any of the texts I have looked at.)
 The lapack eigen routines wil return both left and right eigenmatrices if
 requested; there is no need for our routine to compute $U$-inverse.
 
+Misc notes:
 \begin{itemize}
   \item If the eigenvalues $\lambda$ are distinct, then $U$ must be full rank.
-  \item If $A$ is upper triangular, which is true if there are no loops or
-    returns in the state space (a feature of many of our models),
-    then there is a fast algorithm to calculate $U$, $\lambda$, and $U^{-1}$.
   \item If there are tied eigenvalues, $U$ will still often be full rank,
     and if it is not the Jordan canonical form applies.
   \item If $U$ is close to singular, then this algorithm for the matrix
@@ -880,14 +898,15 @@ requested; there is no need for our routine to compute $U$-inverse.
 
 A primary attraction of the decompostion method is that it gives an immediate
 solution for computing the derivatives of $\exp(A)$ with respect to the
-parameters and derivatives are something that we need
+parameters, and derivatives are something that we need
 for many of the solution methods. Per Kalbfleisch and Lawless 
 \cite{Kalbfleisch85}
+
 \begin{align*}
  \frac{\partial e^A}{\partial \theta} &= UVU^{-1} \\
- V_{jk} &= \left( \begin{array}{cc} G_{jk}\frac{(e^{\lambda_j} - e^{\lambda_k}}
-     \lambda_j- \lambda_k} & \lambda_j/ne \lambda_k \\
-                  G_{jj}te^{\lambda_j} & \lambda_j= \lambda_k \end{array} \\
+ V_{jk} &= \left\{ \begin{array}{cc} G_{jk}\frac{e^{\lambda_j} - e^{\lambda_k}}
+     {\lambda_j- \lambda_k} & \lambda_j \ne \lambda_k \\
+      G_{jk}e^{\lambda_j} & \lambda_j= \lambda_k \end{array} \right. \\
  G &=  U^{-1} \frac{\partial A}{\partial \theta} U
 \end{align*}
 
@@ -902,8 +921,8 @@ The individual elements of $A$ are the linear predictors $\exp(\eta)$,
 $\eta=XB$, one linear predictor for each non-zero rate in $A$. 
 Then by the chain rule
 \begin{align*}
-  \theta_m &= \exp(\eta_m) \\
-  \eta_m   &= \sum_j X_{ij}\beta_j
+  \theta &= \exp(\eta) \\
+  \eta   &= \sum_j X_{ij}\beta_j \\
   \frac{\partial f(e^\eta)}{\partial \beta_j} &= 
   \frac{\partial f(\theta)}{\partial \theta} 
   \frac{\partial \theta}{\partial\eta} \frac{\partial \eta}{\partial \beta_j}
@@ -911,24 +930,27 @@ Then by the chain rule
    &= \frac{\partial f(\theta)}{\partial \theta} e^\eta X_{ij}
 \end{align*}
 To keep the notation simple the above has focused on a single transition rate
-$k$, for a covariate/coefficient that does not participate in that transition
-treat $X$ as zero.
-The upshot is that our matrix exponential routines can return the derivatives 
-with respect to$\theta$, and the rest of the computation done by simpler R code.
+$k$ and single subject $i$ and largely suppressed the $i$ and $k$ subscripts;
+in the code the computation will occur separately for each $i$ and $k$
+(the likelihood terms for each subject are separate).
+For a covariate/coefficient that does not participate in a particular transition
+treat the corresponding $X$ as zero.
+Our matrix exponential routines can return the derivatives 
+with respect to each $\theta$, and the rest of the computation done 
+by in R code.
 
 \subsection{Pade approximation}
 The \code{Matrix} library includes an \code{expm} function and the \code{expm}
-library a more refined version, both based on more recent work by
-\cite{Higham22}.
-Both turn out to be refinements of the simple ``scale and square'' algorithm 
-mentioned above for the simple exponent.
-If the elements of $A/s$ are bounded to $\le 1$ then
+library a more refined version of \code{expm}, both based on more recent work by
+\cite{Higham08}.
+The Higham approach is a refinement of the simple ``scale and square'' 
+algorithm mentioned above for the simple exponent.
+That is, if the elements of $A/s$ are bounded below a given threshold then
 $$
   e^{A/s} \approx p(A/s)/q(A/s)
 $$
 where $p$ and $q$ are polynomials in $A/s$. The order of the polynomial is 2
 to 8, chosen dynamically based on matrix values.
-The coefficients of the polynomials are
 The scale factor $s$ is chosen as the power of 2 the properly bounds the 
 elements, and at the end the result $\exp(A/s)$ is repeatedly squared to
 create $\exp(A)$. 
@@ -939,7 +961,7 @@ We have created a clone of one of the simpler methods (Wards method) from
 the expm library --- it skips the more sophisticated preconditioning steps ---
 and then compute the derivative by brute force. 
 This is based on the unproven assertion that transition matrices are ``nice''
-and we can skip these preconditioning steps, and working out the impact 
+and we can skip these preconditioning steps, as working out the impact 
 of these steps on the derivative is well beyond my skill set.
 
 \begin{itemize}
@@ -949,7 +971,7 @@ of these steps on the derivative is well beyond my skill set.
   \item $dA^3/\theta_k = A^2(dA/\theta_k) + (dA^2/\theta_k) A$
   \item etc
 \end{itemize}
-The allows accumulation of the derivatives of $p(A)$ (one per element, each
+This allows accumulation of the derivatives of $p(A)$ (one per element, each
 a matrix), and similarly for $q(A)$.
 Then use the identity that
 $$
@@ -958,6 +980,10 @@ $$
 $$
 And finally, update the derivatives yet again throughout the squaring steps.
 
+We should mention that the \code{expm} function implements multiple algorithms,
+including the eigenvalue approach, which can be selected via its 
+\code{method} argument.
+
 \subsection{Using BLAS}
 One last important point with respect to speed is visible by looking at the
 code for expm.c in the expm library: all matrix operations are performed
@@ -965,25 +991,28 @@ by calls to LAPACK routines, which in turn are based on BLAS.
 The BLAS (basic linear algebra subprograms) are carfully tuned to each
 particular computer achitecture and hardware. Using them can result
 in surprising speedups: 50 to 100 fold for larger matrices, though we
-anticipate less for our smaller problems.
+anticipate less for our smaller problems.  
 
 There are multiple routines for eigenvalues in LAPACK, the R eigen routine
-uses dgeev (function La\_rs, src/modules/lapack/Lapack.c).
+uses dgeev (function La\_rs in src/modules/lapack/Lapack.c).
 They make a first call to determine the optimal size of a work array, 
 allocate the array, then call the routine. 
-The expm-eigen code in the expm package also uses dgeev in the same way.
+The expm-eigen code in the expm package uses dgeev in the same way.
 
 An alternate route is to use dgees, which utilizes a Schur decomposition.
-This satisfies $A= QSQ'$ where $Q$ is orthagonal and Schur matrix $S$ is 
+This satisfies $A= QSQ'$ where $Q$ is orthagonal and the Schur matrix $S$ is 
 quasi-triangular. That is, the block diagonal of $S$ is made up of 1x1 elements
 containing the real eigenvalues, and 2x2 elements for each complex pair of
 eigenvalues $a \pm \sqrt{bc}$
 $$
-\left( \begin{array} cc a& b\\ c&d \end{array} \right)
+\left( \begin{array}{cc} a& b\\ c&d \end{array} \right)
 $$
 The eigenvalues of an upper triangular matrix are real and on the diagonal.
 When we have an upper triangular matrix, we can use the dtrevc routine directly,
-which expects a Schur factor. 
+which expects a Schur matrix as input.
+Many of our multistate problems have involved irreverible processes,
+in which case the transition matrix can be arranged so as to be upper
+triangular.
 Note that since the row sums of a transition matrix are 0, the final row of
 an upper triangular transition matrix is 0 (the death state, which absorbs from
 all others.) 
@@ -999,21 +1028,21 @@ At the solution $\hat\beta$ we have
   E(U) &= 0 \\
   E(U'U) &= {\rm var}{\hat\theta} \\
          &= E(H^{-1}) \\
-  H_{jk} &= \frac{\partial \log(f)}{\theta_j \theta_k}
+  H_{jk} &= \frac{\partial^2 \log(f)}{\theta_j \theta_k}
 \end{align*}
 $H$ is the second derivative matrix or Hessian. 
 
 The first idea in the code is to use the empirical value $U'U/n$ as a 
 replacement for $H$ in the Newton-Raphson algorithm.
 The first derivatives of all log-likelihood components are available
-analytically, including the matrix exponential, so are fairly economical to
+analytically, including the matrix exponential, so are economical to
 compute.  For modest problems ($< 50$ parameters) we have found the compute
-time to increase by 2-3 fold when computing the derivative as well as the
-loglik for a given set of coefficients.
+time to increase by 2-3 fold for computing the derivative and log-likelihood
+vs. the loglik alone, for a given set of coefficients.
  The Hessian matrix, on the other hand, needs to
 be computed analytically and so is much more expensive.  Update algorithms
-like BFGS reduce this considerably of course, but we have found each iteration
-of optim to be much slower than the above.
+like BFGS can reduce this considerably of course, but we have found each 
+iteration of optim to be much slower than the above.
 
 When we are far from the true maximum this approximation might not be accurate,
 of course, so the code adds an additional amount to the diagonal, resulting in
@@ -1032,10 +1061,10 @@ quadratic, it extrapolates from the current position to the next estimate
 based on that assumption.  
 The trust region addition compares the realized value of the
 loglik, at proposed new estimates, to what the predicted value of
-the function would be at that point if the quadratic were perfect.
+the function would be at that point if the quadratic had been perfect.
 If these two values are far apart this is evidence that the Taylor series has
 reached too far, i.e., beyond the region where the series is accurate.
-The strategy is to then take a smaller step, that is, stay within the span
+The strategy is to then take a smaller step and stay within the span
 for which the Taylor series prediction is sufficiently good, where it can
 be ``trusted''.
 
