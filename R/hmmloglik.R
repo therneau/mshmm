@@ -318,8 +318,10 @@ hmm2 <- function(who,  B) {
             if (control$debug > 2) cat("B: j=", j, "alpha=", alpha, "\n")
         } 
         else {  # censored
-            if (length(exactabsorb)) alpha[exactabsorb] <- 0
-            stop("need to fix derivatives")
+            if (length(exactabsorb)) {
+                alpha[exactabsorb] <- 0
+                P.d[,,exactabsorb] <- 0
+            }
         }
 
         if (jj < r2) { # not the last row

@@ -179,7 +179,7 @@ but not much else.)
 
 
 \section{Interval censored data}
-\subsection{Observed states}
+\subsection{Fully observed states}
 Start with the simpler case of interval censored or panel data.
 The second label comes from studies where a subject returns on a fixed
 schedule and a set or panel of measurements is obtained at each visit.
@@ -189,11 +189,67 @@ we do not know  when during that year they transitioned from 1 to 3,
 or whether other states were visited in the interim.
 We only know the state at each visit.
 
-The likelihood
+For simplicity assume no time dependent covariates.  We can think of the
+likelihood construction in three steps.
+The first is that due to the parametric baseline baseline hazard, the
+contribution for each subject can be addressed separately; consider
+subject $i$.
+The second is the straightforward multistate survival curve for subject
+$i$, given their starting state, represented as a 
+row vector $p(0)$ which contains a single 1 at their starting state 
+and remainger zeros. 
+Each element $k$ of the nstate by nstate transition matrix, for this subject,
+is a single linear predictor $\exp(X_i B_{.k})$, 
+where $B$ the matrix of coefficients, one column per transition.
+Let $H_i$ be the resulting normed transition matrix for subject $i$, w
+ith off diagonal elements containing the rates and diagonal element 
+set such that row sums are 0.
+The predicted survival curve at times $t_{1}, t_{2}, \ldots$ for the subject
+will be
+\begin{align}
+  p(t_1) &= p(0)  \label{sp1}\\
+  p(t_2) &= p(0)e^{(t_2 - t_1)H_i} \label{sp2} \\
+  p(t_3) &= p(0)e^{(t_2 - t_1)H_i}e^{(t_3 - t_2)H_i} \label {sp3} \\
+  p(t_4) &= p(0)e^{(t_2 - t_1)H_i}e^{(t_3 - t_2)H_i}e^{(t_4 - t_3)H_i} \label{sp4} \\
+  &\vdots
+\end{align}
+This is the predicted multistate survival for subject $i$, if there
+were no further measurements of their state after enrollment.
 
+The third step is to apply a correction to this sequence each time the subject 
+\emph{is} observed.  Say that at time $t_2$ the subject was observed to be
+state 2, then modify $p(t_2)$ to reflect reality, just after the last term
+in equation \eqref{sp2}, by setting all elements but the second to zero.
+Now assume that time $t_3$ they were also in state 2, then do this again
+at the end of equation \eqref{sp3}.
+Last, assume they were censored at $t_4$, then set $p_{death}(t_4)$ to zero;
+we know they are not dead but not which other state they might be in at
+that point.
+Mathematically, we can notate this by appending a 0/1 diagonal matrix $D(t_1)$,
+$D(t_2)$, \ldots to each line of the derivation above.
+($D(t_1)$ is redundant for this case.)
+The final probability (likekihood) for the combination of the given
+transition probabilities + the given observations, for this subject subject 
+at their final observation,
+$t_m$ say, is $\sum_k p_k(t_m)$; log-likekihood of $\log\sum_k p_k(t_m)$.
 
+At each step we apply the transition probability matrix and then ``winnow
+away'' probability contributions observed not have occured. 
+The approach easily accomodates a partially observed visit, e.g., if
+at time 2 they were known to be in state 1 or 2 but not which, the
+entries in $p(t_2)$ for all other states than 1 or 2 are zeroed. 
+The final loglik is a sum over subjects.
 
+This likelihod is quite different in flavor from the MSH model of the
+survival package and coxph.
 
+\subsection{More general case}
+To understand the more general case and to further justify the somewhat
+casual derivation above, we need to be more complete and careful in 
+our notation. 
+Nevetheless, the final formula will be much the same, with the same
+transition matrices, but more complexity for the $D(t)$ matrices and the
+starting state.
 
 Let $S$ be the set of $m$ states, $p(0)$ the distribution of states at time
 0, often $(1, 0, \ldots)$, $P(s,t; \theta)$ the $m$ by $m$ transition
