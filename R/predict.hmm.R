@@ -68,7 +68,7 @@ predict.hmm <- function(object, newdata, type=c("link", "rate", "pstate"),
         # The initial p(t) is assumed to hold at the smallest Y time
         nstate <- object$nstate
         pstate <- matrix(0., nrow= ntime, ncol= nstate)
-        temp <- cumsum(object$bcount)
+        temp <- cumsum(object$nlp)
         p.param <- (temp[2]:temp[3])[-1]  # which eta columns for initial p?
         if (length(p.param ==0)) pstate[1,] <- object$pfun(nstate)
         else pstate[1,] <- object$pfun(nstate, eta[,p.param])

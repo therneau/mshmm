@@ -30,8 +30,9 @@ object.
     iteration will have one evaluation per subject.}
   \item{time}{the amount of compute time used by various parts of the
     code}
-  \item{bcount}{the number of estimated parameters for rates (q),
-    response functions (m) and initial state (p)}.
+  \item{nlp}{the number of linear predictor columns for the rates matrix (q),
+    response functions (m) and initial state (p). This is also marks
+    which columns of \code{cmap} correspond to each portion.
   \item{na.action}{the na.action attribute, if any, that was returned by
     the \code{\link{model.frame}} routine, containing information on
     any deleted observations.}

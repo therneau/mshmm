@@ -191,7 +191,6 @@ temp3 <- merge(baseline, temp1, all=TRUE)
 cdata <- merge(temp3, temp2, all=TRUE)
 cdata$status <- factor(cdata$status, c(2,0,1,3), 
                        c("censor", "entry", "progression", "death"))
-
 subset(cdata, id<4)
 @
 
@@ -224,8 +223,11 @@ ctrans <- matrix(c(0,0,0,1,0,0,1,1,0), nrow=3,
                  dimnames= list(from= cstate, to= cstate))
 statefig(1:2, ctrans)  # visual check that it is correct
 
+cfit0 <- hmm(Surv(time, status) ~ 1, id=id, 
+             qmatrix= ctrans, exact="death", data= cdata, mc.cores=1)
 cfit1 <- hmm(Surv(time, status) ~ rx + node4 + extent, id=id,
-             qmatrix= ctrans, exact="death", data= cdata, mc.cores=1, iter=0)
+             qmatrix= ctrans, exact="death", data= cdata, mc.cores=1, 
+             init= cfit1)
 @ 
 
 

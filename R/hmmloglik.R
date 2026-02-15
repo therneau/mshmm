@@ -196,7 +196,7 @@ psetup <- function(rmat, rindex, nstate) {
 }
 
 Rtrans <- vector("list", nmarker)  #one element per response function
-if (bcount[2]) { #if there are response parameters
+if (nlp[2]) { #if there are response parameters
     tfun <- function(dmat, x, map) {
         tmat <- matrix(0., map$dim[1], map$dim[2])
         tmat[map$tindex] <- x[map$xindex]
@@ -210,7 +210,7 @@ if (bcount[2]) { #if there are response parameters
         }
     }
 }
-if (bcount[3]) { #if there are initial probability  parameters
+if (nlp[3]) { #if there are initial probability  parameters
     pitrans <- function(dmat, x, map) {
         tmat <- matrix(0., map$dim[1], map$dim[2])
         tmat[map$tindex] <- x[map$xindex]
@@ -231,7 +231,7 @@ hmm2 <- function(who,  B) {
     if (!is.null(iprob)) alpha <- iprob[who,]
     else if (is.null(p0fixed)) alpha <- pfun(nstate, eta[1,b3], gradient=TRUE)
     else alpha <- p0fixed
-    if (bcount[3]) {
+    if (nlp[3]) {
         pi.d <- pitrans(attr(alpha, 'gradient'), X[rows[1],])
         attr(alpha, 'gradient') <- NULL  # no longer needed
     }
@@ -254,7 +254,7 @@ hmm2 <- function(who,  B) {
     }
 
     # Walk through the observations one by one
-    P.d  <- matrix(0., pcount[1], nstate)
+    P.d  <- matrix(0., nlp[1], nstate)
     offset <- 0  # watch out for underflow
     ecount <- c(length(rows), 0)
     nc <- integer(nmarker)    #number otype==3, so far, per marker
@@ -266,25 +266,25 @@ hmm2 <- function(who,  B) {
         if (otype[j] ==1) { # interval censored
             k <- ystate[j]
             alpha[-k] <- 0
-            P.d[,, -k] <- 0
+            P.d[, -k] <- 0
         }
         else if (otype[j] == 2 & jj> 1) {
             # exact event time (death)
             k <- pstate[j]
             dtemp <- rmat[,k]  #rate at this point
             dtemp[k] <- 0      # this line should be redundant
-            if (pcount[3]) pi.d <- pi.d * rep(dtemp, pcount[3])
-            if (pcount[2]) R.d  <- R.d  * rep(dtemp, pcount[2])
+            if (nlp[3]) pi.d <- pi.d * rep(dtemp, nlp[3])
+            if (nlp[2]) R.d  <- R.d  * rep(dtemp, nlp[2])
             # Why the j-1 below?  A death density will depend on covariates
             #  measured prior to the death, not measured at the death
             # dtemp above already has this lag, since rmat is from prior iter
-            if (pcount[1]) P.d  <- P.d *  rep(dtemp, each=pcount[1]) +
+            if (nlp[1]) P.d  <- P.d *  rep(dtemp, each=nlp[1]) +
                                t(alpha * deathtrans(rmat, X[j-1,]))
             alpha <- alpha * dtemp
             if (control$debug > 2) {
                 cat("\n death: alpha=", format(alpha), "\n")
-                # if (pcount[3]) print(pi.d)
-                # if (pcount[2]) print(R.d)
+                # if (nlp[3]) print(pi.d)
+                # if (nlp[2]) print(R.d)
                 # print(P.d)
             }
             if (control$debug > 2) cat("A2: j=", j, "alpha=", alpha, "\n")
@@ -294,9 +294,9 @@ hmm2 <- function(who,  B) {
                 if (!is.na(yobs[j,k])) {
                     nc[k] <- nc[k] +1
                     temp <- rlist[[k]][,nc[k]]
-                    if (pcount[3]) pi.d <- pi.d * temp 
-                    if (pcount[1]) P.d  <- P.d * rep(temp, each=pcount[1])
-                    if (pcount[2]) R.d  <- R.d * temp
+                    if (nlp[3]) pi.d <- pi.d * temp 
+                    if (nlp[1]) P.d  <- P.d * rep(temp, each=nlp[1])
+                    if (nlp[2]) R.d  <- R.d * temp
                     if (!is.null(Rtrans[[k]])) { #if there are derivatives
                         dtemp <- Rtrans[[k]](rgrad[[k]][,nc[k],], X[j,])
                         R.d  <- R.d + alpha * dtemp
@@ -305,8 +305,8 @@ hmm2 <- function(who,  B) {
                     alpha <- alpha * temp
                     if (control$debug > 4) {
                         cat("\n response: alpha=", format(alpha), "\n")
-                        #if (pcount[3]) print(pi.d)
-                        #if (pcount[2]) print(R.d)
+                        #if (nlp[3]) print(pi.d)
+                        #if (nlp[2]) print(R.d)
                         # print(P.d)
                     }
                 }
@@ -320,7 +320,7 @@ hmm2 <- function(who,  B) {
         else {  # censored
             if (length(exactabsorb)) {
                 alpha[exactabsorb] <- 0
-                P.d[,,exactabsorb] <- 0
+                P.d[,exactabsorb] <- 0
             }
         }
 
@@ -346,15 +346,15 @@ hmm2 <- function(who,  B) {
                     save(ptemp, beta, file=paste0("pfail", who, ".rda"))
                 return("underflow")
             }
-            if (pcount[3]) pi.d <- t(ptemp$P) %*% pi.d 
-            if (pcount[2]) R.d <-  t(ptemp$P) %*% R.d 
-            if (pcount[1]) 
+            if (nlp[3]) pi.d <- t(ptemp$P) %*% pi.d 
+            if (nlp[2]) R.d <-  t(ptemp$P) %*% R.d 
+            if (nlp[1]) 
                 P.d <-  P.d %*% ptemp$P + Ptrans(alpha, ptemp$dmat, X[j,])
             alpha <- drop(alpha %*% ptemp$P)   # ditch the dimensions
             if (control$debug > 4) {
                 cat("\n j=", j, "jj=", jj, "alpha=", format(alpha), "\n")
-                if (pcount[3]) print(pi.d)
-                if (pcount[2]) print(R.d)
+                if (nlp[3]) print(pi.d)
+                if (nlp[2]) print(R.d)
             }
             if (control$debug > 2) cat("C: j=", j, "alpha=", alpha, "\n")
 

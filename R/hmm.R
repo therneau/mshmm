@@ -3,7 +3,7 @@ hmm <- function(formula, data, subset, weights, na.action,
                 id, qmatrix, markers, iprob,
                 mfun= hmmscore, mpar= list(), mgrad, iter=20,
                 mc.cores= getOption("mc.cores", 2L),
-                icoef, intercept, scale=TRUE, penalty, constraint,
+                init, fixed, scale=TRUE, penalty, constraint,
                 statedata, exact ="death",
                 control= icmsh.control(), ...) {
     Call <- match.call()
@@ -183,21 +183,22 @@ hmm <- function(formula, data, subset, weights, na.action,
     cmap <- parse2$cmap # coefficients for the transitions
     tmap <- parse2$tmap # terms for the transitions
 
-    # for categorical markers we will want to know the number of categories
+    # nlp[3] = number of linear predictors (cols of cmap) that are
+    #  devoted to rates, markers, and intial state.  The last is filled
+    #  in further below in the initial state section.
+    # For categorical markers we will also want to know the number of 
+    #   categories (used to set up response functions)
     if (nmarker >0) {
         markerlevels <- sapply(marker1$marker, function(x) 
             length(levels(mf[[x]])))
         marker2 <- parsemarker2(marker1, stateddata, Terms, colnames(X), 
                                 xassign, markerlevels)
-        bcount <- c(ncol(cmap), ncol(marker2$cmap), 0)
+        nlp <- c(ncol(cmap), ncol(marker2$cmap), 0)
         cmap <- cbind(cmap,
                       ifelse(marker2$cmap==0, 0, marker2$cmap +max(cmap))) 
-    } else bcount <- c(ncol(cmap), 0, 0)
+    } else nlp <- c(ncol(cmap), 0, 0)
 
     nparam <- max(cmap) # total estimated parameters
-    # For transitions we will want only the first bcount[1] columns of cmap,
-    #  sometimes the marker columns or initial state cols, other times 
-    #  we will want them all. Hence bcount.
                            
     # mark out the exact states as an integer, used in the fitting portion
     if (length(exact)==0) iexact <- NULL
@@ -284,38 +285,70 @@ hmm <- function(formula, data, subset, weights, na.action,
 
     # Initialize the coefficients.  We do this before scaling X, since the
     #  user's view of coefficients is always on the original scale.
-    # First icoef, then any overrides from options
-    #  We allow initial values from a prior model that has fewer terms
+    # First init, then any overrides from options
+    #  We allow initial values from a prior model which might have fewer terms
     # 
     B <- 0*cmap
-    indx <- match(1:nparam, cmap)
+    indx <- match(1:nparam, cmap)  # nparam = number of unique coefs
     beta.names <- paste(rownames(cmap)[indx], colnames(cmap)[indx], sep='.')
     param <- rep(0, nparam)
-    if (!missing(icoef)) {
-        if (!missing(intercept)) stop("only one of intercept or icoef allowed")
-        if (is.matrix(icoef)) {
+    if (!missing(init)) {
+        if (inherits(init, "hmm")) { # a prior hmm model
+            priormod <- init
+            init <- coef.to.B(priormod$coefficients, priormod$cmap, fixed=TRUE)
+        }
+        if (is.matrix(init)) {
             # allow for partial matching, so that a smaller model can feed a 
             #  larger
-            rmatch <- match(row.names(icoef), row.names(imat))
-            cmatch <- match(col.names(icoef), col.names(imat))
+            rmatch <- match(row.names(init), row.names(cmap))
+            cmatch <- match(col.names(init), col.names(cmap))
             if (any(is.na(rmatch))) 
-                stop("icoef has covarates not in the model")
+                stop("init has covariates not in the current model")
             if (any(is.na(cmatch)))
-                stop("icoef has linear predictors not in the model")
-            B[rmatch, cmatch] <- icoef
-        } else if (is.numeric(icoef)) {
-            if (!is.null(names(icoef))) {
-                index <- match(names(icoef), param.names)
+                stop("init has linear predictors not in the current model")
+            B[rmatch, cmatch] <- init
+        } else if (is.numeric(init)) {
+            if (!is.null(names(init))) {
+                index <- match(names(init), param.names)
                 if (any(is.na(index)))
-                    stop("icoef has an coefficient not found in the model: ",
-                         (names(icoef)[is.na(index)])[1])
-                else param[index] <- icoef
+                    stop("init has an coefficient not found in the model: ",
+                         (names(init)[is.na(index)])[1])
+                else param[index] <- init
             } else {
-                if (length(icoef) != nparam) stop("wrong length for icoef")
-                else param <- icoef
+                if (length(init) != nparam) stop("wrong length for init")
+                else param <- init
             }
             B <- coef.to.B(param, cmap, B)
-        } else stop("icoef must be a numeric vector or matrix")
+        } else stop("init must be a numeric vector, matrix, or prior fit")
+    }
+
+    if (!missing(fixed)) {
+        if (is.matrix(fixed)) {
+            rmatch <- match(row.names(fixed), row.names(cmap))
+            cmatch <- match(col.names(fixed), col.names(cmap))
+            if (any(is.na(rmatch))) 
+                stop("fixed has covariates not in the current model")
+            if (any(is.na(cmatch)))
+                stop("fixed has linear predictors not in the current model")
+            if (is.logical(test)) cmap[test] <- -cmap(test)
+            else if (is.numeric(test)) cmap[test>0] <- - cmap[test>0]
+            else stop("fixed argument must be logical or numeric")
+        } else { # it should be a vector
+            fixed <- asLogical(fixed)  # change numeric to T/F
+            if (!is.null(names(fixed))) {
+                index <- match(names(fixed), param.names)
+                if (any(is.na(index)))
+                    stop("fixed has an coefficient not found in the model: ",
+                         (names(fixed)[is.na(index)])[1])
+                i2 <- which(cmap %in% index[fixed])
+                cmap[i2] <- -cmap[i2]  # a negative index marks it
+            }
+            else if (length(fixed) != nparam) stop("wrong length for fixed")
+            else {                
+                i2 <- (which(cmap>0))[fixed]
+                cmap[i2] <- -cmap[i2]
+            }
+        } 
     }
 
     # Import any init() or fixed() from the options
@@ -347,31 +380,6 @@ hmm <- function(formula, data, subset, weights, na.action,
         B <- btrans %*% B  # the coefs were in terms of unscaled X
     }
 
-    if (!missing(intercept)) {
-        if (!scale) stop("intercept initialization requires scale=TRUE")
-        # I expect this to be a common option for a new fit
-        #  If intercepts start at a sensible value, the iteration usually
-        # succeeds.
-        if (!is.null(names(intercept))) {
-            # match by name
-            indx <- match(names(intercept), colnames(cmap), nomatch=0)
-            if (any(indx==0)) 
-                stop("intercept name not found: ",
-                     paste(names(intercept)[indx==0], collapse=' '))
-            B[1, indx] <- intercept
-        } else {
-            # either the rates, or all, is allowed
-            if (length(intercept) == bcount[1]) 
-                B[1, 1:bcount[1]] <- intercept
-            else if (length(intercept= ncol(cmap)))
-                B[1,] <- intercept
-            else stop("wrong length for intercept")
-        }
-    }
-
-    b1 <- 1:bcount[1]
-    b2 <- seq(bcount[1]+1, length=bcount[2])  
-    b3 <- seq(bcount[1] + bcount[2] +1, length=bcount[3]) #might be none
     param <- B.to.coef(B, cmap)  # don't use "coef" as variable name
 
     # preprocess constraint and penalty
@@ -385,9 +393,6 @@ hmm <- function(formula, data, subset, weights, na.action,
         penmat <- crossprod(penalty)
     } else penmat <- NULL
     
-    tempfun <- function(x) length(unique(x[x>0]))
-    parmcount <- c(tempfun(cmap[,b1]), tempfun(cmap[,b2]), tempfun(cmap[,b3]))
-
     # initial probabilities for each subject
     # Anyone who has a non-censored first obs is assumed to start in
     #  that state
@@ -401,7 +406,7 @@ hmm <- function(formula, data, subset, weights, na.action,
     else if (missing(iprob))
         stop("initial probability not available for all subjects")
     else if (is.formula(iprob))  
-        stop("iprob = formula, code yet completed")
+        stop("iprob = formula, code not yet completed")
     else if (!is.numeric(iprob))
         stop("iprob must be numeric or a formula")
     else {
@@ -482,14 +487,27 @@ hmm <- function(formula, data, subset, weights, na.action,
     otype <- ifelse(temp1, 2L,
                     ifelse(ystate>0, 1L, 3L*temp3))
     
+    # nlp has the number of colums of cmap for the rates, markers, and initial
+    #  values. Now make two helpers
+    # b1/b2/b3 are vectors containing the column number of cmap for each of
+    #  the three, parmcount is the number of coefficients associated with 
+    #  each
+    temp <- rep(1:3, nlp)
+    b1 <- which(temp==1)
+    b2 <- which(temp==2)
+    b3 <- which(temp==3)
+    parmcount <- c(length(unique(c(0L, cmap[,b1]))) -1L,
+                   length(unique(c(0L, cmap[,b2]))) -1L,
+                   length(unique(c(0L, cmap[,b3]))) -1L)
+
     
     # Set up copies of the hmm1 and hmm2 functions to have the scope
     #  of this function. See "scope" in the code vignette for details.
     # I pass them down the calling chain as "logfun" as a way (I hope)
     #  to make it a little clearer in following routines that they are copies
-    hmm1 <- hmm1; hmm2 <- hmm2
-    environment(hmm1) <- environment()
-    environment(hmm2) <- environment()
+    hmm1x <- hmm1; hmm2x <- hmm2
+    environment(hmm1x) <- environment()
+    environment(hmm2x) <- environment()
 
     # Set up parallel, Windows can't fork, others can
     if (mc.cores >1 && control$makecluster) {
@@ -503,7 +521,7 @@ hmm <- function(formula, data, subset, weights, na.action,
     rindex <- which(qmatrix >0)
     param <- B.to.coef(B, cmap)
     initial.loglik <- hmmloglik(param, B, cmap, id, mc.cores, fork, 
-                                logfun= hmm1)
+                                logfun= hmm1x)
     if (length(initial.loglik) ==0) 
         stop("unable to evaluate at the intial parameters")
 
@@ -533,7 +551,7 @@ hmm <- function(formula, data, subset, weights, na.action,
             mpar$par <- param
             mpar$fn <- hmmboth
             mpar <- c(mpar, list(B=B, cmap=cmap, id=id, 
-                                 mc.cores= mc.cores, fork= fork, logfun= hmm2))
+                                 mc.cores= mc.cores, fork= fork, logfun= hmm2x))
             if (!missing(iter)) mpar$iter <- iter
             if (length(constraint)) mpar$constraint <- constraint
             mpar$debug <- control$debug
@@ -546,8 +564,8 @@ hmm <- function(formula, data, subset, weights, na.action,
             mpar$gr <- hmmgrad
             mpar <- c(mpar, list(B=B, cmap= cmap, id=id, 
                                  mc.cores= mc.cores, fork= fork))
-            mpar$logfun <- hmm1
-            mpar$grfun  <- hmm2
+            mpar$logfun <- hmm1x
+            mpar$grfun  <- hmm2x
             if (is.null(control$iter)) control$maxit <- iter
             if (is.null(control$fnscale)) control$fnscale <- -1
             fit <- do.call(optim, mpar)
@@ -555,7 +573,7 @@ hmm <- function(formula, data, subset, weights, na.action,
             mpar$par <- param
             mpar$logfun = "hmmloglik"  # no derivatives needed
             mpar <- c(mpar, list(B=B, cmap= cmap, id=id, 
-                                 mc.cores= mc.cores, fork= fork))
+                                 mc.cores= mc.cores, fork= fork, logfun=hmm1x))
             if (length(constraint)) mpar$constraint <- constraint
             fit <- do.call(mfunname, mpar)
         } else {
@@ -572,11 +590,17 @@ hmm <- function(formula, data, subset, weights, na.action,
                 stop("valid mgrad arguments are 0-2")
             mfunarg <- formalArgs(mfun)  # the names of their args
             mpar[[mfunarg[1]]] <- param
-            if (mgrad == 1) mpar[[mfunarg[2]]] <- hmmboth
-            else mpar[[mfunarg[2]]]  <- hmmloglik
+            if (mgrad == 1) {
+                mpar[[mfunarg[2]]] <- hmmboth
+                mpar$logfun= hmm2x
+            }
+            else {
+                mpar[[mfunarg[2]]]  <- hmmloglik
+                mpar$logfun= hmm1x
+            }
             if (mgrad==2) {
                 mpar[[mfunarg[3]]] <- hmmgrad
-                mpar$grfun <- hmm2
+                mpar$grfun <- hmm2x
             } 
             mpar <- c(mpar, list(B=B, cmap= cmap, id=id, 
                                  mc.cores= mc.cores, fork= fork))
@@ -621,12 +645,12 @@ hmm <- function(formula, data, subset, weights, na.action,
     # Add nice dimnames
     bcol <- paste0(row(qmatrix)[qmatrix!=0], ":",
                    col(qmatrix)[qmatrix!=0])
-    if (bcount[2]>0) {
+    if (nlp[2]>0) {
         temp <- unique(rcoef[, c("marker", "lp")])
         lp <- temp$lp + 1 - temp$lp[match(temp$response, temp$response)]
         bcol <- c(bcol, paste0("M", paste(temp$response, lp, sep='.')))
     }
-    if (bcount[3]>0) bcol <- c(bcol, paste0("p", 1:bcount[3]))
+    if (nlp[3]>0) bcol <- c(bcol, paste0("p", 1:nlp[3]))
     dimnames(B) <- list(dimnames(X)[[2]], bcol)
     dimnames(cmap) <- dimnames(beta)
 
@@ -642,7 +666,7 @@ hmm <- function(formula, data, subset, weights, na.action,
                   beta=beta,
                   time = compute.time,
                   scale =  scale,
-                  bcount = bcount,
+                  nlp = nlp,
                   cmap=cmap, rmap=rindex,
                   qmatrix = qmatrix,   # the structure and state names
                   nstate = nstate,

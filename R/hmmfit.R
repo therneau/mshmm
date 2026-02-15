@@ -105,7 +105,7 @@ hmmdb <- function(param, B, cmap, id, mc.cores, fork, logfun) {
 }
 
 # This function is used by the score based iteration
-hmmboth <- function(param, x, ytime, ystate, id, rindex, B, cmap, logfun) {
+hmmboth <- function(param, B, cmap, id, mc.cores, fork, logfun){
     B[cmap>0] <- param[c(cmap)]
     if (mc.cores > 1) {
         if (!fork)
@@ -113,7 +113,7 @@ hmmboth <- function(param, x, ytime, ystate, id, rindex, B, cmap, logfun) {
         else mcfit <- mclapply(unique(id), logfun, B=B,
                                mc.set.seed=FALSE, mc.cores=mc.cores)
     }
-    else mcfit <- lapply(unique(id), hmm2, B=B)
+    else mcfit <- lapply(unique(id), logfun, B=B)
 
     alpha <- sapply(mcfit, function(x) sum(grab(x, "alpha")))
     offset <- sapply(mcfit, function(x) grab(x, "offset"))
@@ -167,8 +167,7 @@ hmmboth <- function(param, x, ytime, ystate, id, rindex, B, cmap, logfun) {
 }
 
 # This is used by optim
-hmmgrad <- function(param, x, ytime, ystate, id, rindex, B, cmap, 
-                    grfun) {
+hmmgrad <- function(param, x, B, cmap, mc.cores, fork, grfun) {
     B[cmap>0] <- param[c(cmap)]
     if (mc.cores > 1) {
         if (!fork)
