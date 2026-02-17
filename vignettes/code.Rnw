@@ -15,7 +15,7 @@
 
 <<setup, echo=FALSE>>=
 library(survival)
-library(hmm)
+library(mshmm)
 
 library(knitr)
 opts_chunk$set(tidy=FALSE, fig.keep='none',
@@ -56,8 +56,8 @@ in general has been nearly nil.
 It is increasingly clear that no future maintainer will continue the 
 work, e.g.,
 on the survival github page I have yet to recieve a suggested update that
-actually
-fixed the .Rnw source file instead of the .R file derived from it.  This means
+actually fixed the .Rnw source file instead of the .R file derived from it.
+This means
 that I can't merge a suggested change automatically, but have to replicate it
 myself.
 
@@ -104,7 +104,7 @@ The 13 separate transitions (arrows) may each have different predictors.
 The first element of the list is the default formula, later elements
 augment this for specified transitons.
 The marker argument is also a list that maps each marker to the state(s)
-for which it is a read-out.
+for which it provides a read-out.
 
 The first goal in parsing this is to create an overall master formula:
 Surv(time, death) ~ male + iage + apoe + ns(iage,4) + cmc + dx + memory + 
@@ -113,8 +113,7 @@ an argument to the model.frame() call use to create the analysis data set.
 This master formula isn't used again.
 
 After dealing with missing values, the code will
-use model.reponse() to obtain y, pull the 3 marker variables into a
-\code{ymarker} matrix of responses, and create a second master formula,
+use model.reponse() to obtain y and create a second master formula,
 without the markers, as the argument to model.matrix.
 
 Given the X matrix and it terms and assign attributes, we can the tackle the
@@ -401,12 +400,12 @@ To understand the role of markers, first write out the likelihood.
 Assume there were three markers a, b, c, then the likelihood 
 for any given subject can be written as
 $$
-\pi_0 \left[D_a(y_{1a}, t_1)D_b(y_{1b}t_1) D_c(y_{1c}, t_1)\right] P(t_1,t_2) 
+\pi \left[D_a(y_{1a}, t_1)D_b(y_{1b}t_1) D_c(y_{1c}, t_1)\right] P(t_1,t_2) 
 \left[D_a(y_{2a},t_2) D_b(y_{2b},t_2) D_c(y_{2c},t_2)) \right] P(t_2,t_3)  \ldots, 
 \left[D_a(y_{na},t_n) D_b(y_{nb},t_n) D_c(y_{nc}, t_n) \right]
 $$
 with $pi$ the initial distribution over states,
-$P$ an nstate by nstate transition matrix, and $D$ a diagnoal response matrix
+$P$ an nstate by nstate transition matrix, and $D$ a diagonal response matrix
 for each marker.
 Each row of $XB$ for a subject generates a transition matrix $P$ except the
 last, and row of data with markers generates a set of $D$ matrices, 
@@ -740,80 +739,190 @@ If B is the matrix of coefficients, $XB = (XT)(T^$
 \section{Likelihood}
 \index{likelihood!simple}
 The likelihood for a subject has 3 parts: initial value, transition
-matrices, and observation matrices, with I will call $p(0)$, $P(s,t)$
+matrices, and observation matrices, which I will call $p(t_1)$, $P(s,t)$
 and $D(t)$.
 Let $t_{i1}, t_{i2}, ...$ be the time points for subject $i$,
 $y(t_{i1}, y(t_{i2}), ...$ the observed state, 0 for censored, and $Q$ the 0/1
 matrix of valid transitions. 
 
 \subsection{Simple interval censored}
-For the formulas below we will suppress the $i$ subscript, as the likelihood
-can be computed separately for each subject. 
-The pair $(t_m, t_{m+1})$ is an arbitrary interval for a subject.
-$B$ is a matrix of coefficients, one column per transition probability,
+\begin{figure}
+<<nafld, echo=FALSE>>=
+states <- c("0MC", "1MC", "2MC", "3MC", "death")
+smat <- matrix(0, 5,5, dimnames=list(states, states))
+smat[1,2] <- smat[2,3] <- smat[3,4] <- 1
+smat[1:4,5] <- 1
+smat[1,3] <- smat[2,4] <- smat[1,4] <- .7
+statefig(rbind(4,1), smat, alty= c(1,2,1,2,2,1,1,1,1,1))
+@ 
+ \caption{Transitions for the NAFLD data, 0--3 = number of the defined
+metabolid comorbidites.}
+ \label{fig:nafld}
+\end{figure}
+
+We will use the NAFLD model shown in figure \ref{fig:nafld} as our example
+of simple interval censored data.  Living patients progress 0--3 of the
+defined metabolic comorbidities of diabetes, hypertension and hyperlipidemia.
+Assume that the states are ordered as OMC, 1MC, 2MC, 3MC, death, i.e., this 
+is the order of the rows/columns of $Q$.
+Let $B$ be the matrix of coefficients, one column per transition probability,
 which is one per non-zero element of $Q$, the \code{qmatrix} argument.
 The \code{cmap} matrix maps elements of $B$ to the parameters to be
-maximized.
+maximized, if \code{cmap[j,k]} is 0 then $B_{jk}=0$.
 
-\begin{align}
-  p_j(t_{1}) &= I{y(t_1) = j} \nolabel \\
+The likelihood can be computed separately for each subject $i$; for
+simplicity we will (mostly) suppress the $i$ subscript below.
+The overall probability vector for the subject is
+\begin{align*}
+  \alpha(t_1) &= p(t_1) \\
+  \alpha(t_2) &= \alpha(t_1)  P(t_1, t_2) D(t_2) \\
+  \alpha(t_3) &= \alpha(t_2)  P(t_2, t_3) D(t_3) \\
+   &\vdots
+  \alpha(t_m) &= \alpha(t_{m-1})  P(t_{m-1}, t_m) D(t_m) \\
+\end{align*}
+where $m$ is the number of intervals for the subject,
+and
+\begin{align*}
+  p_j(t_1) &= I{y_i(t_1) = j} \nolabel \\
+  P(s,t)  &=  e^{(t-s)R(s)} \\
   R_{jk}(t) &= \left\{ \begin{array}{cc}
     -\sum_{k \ne j} -R_{jk}  & j=k \label{rmat1} \\
     e^{\eta_{jk}(t)}       &  j \ne k, Q_{jk}>0  \label{rmat2}\\
     0                &  j \ne k, Q_{jk} =0 \nolabel \end{array} \right. \\
   \eta &= XB  \nolabel \\
-  P(t_m, t_{m+1}) &= e^{[t_{m+1} - t_m]R(t_m)}  \label{pmat1} \\
-  D_{jk}(t_m)= \left\{ \begin{array}{cc}
-    1 & y(t_m) =j, j \ne \mbox{exact}   \label{dmat1a} \\
-    1 & y(t_m)= 0, j \ne \mbox{death}   \label{dmat1b} \\
-    R_{jk}(t_{m-1}) &  y(t_m)= k, k = \mbox{exact}  \label{dmat2} \\
-    0 & \rm{otherwise} \nolabel \end{array} \right.
-\end{align}
+\end{align*}
 
-The overall probability vector for the subject is
-\begin{equation*}
-  p = p(t_1) P(t_1, t_2) D(t_2) P(t_2, t_3) D(t_3) \ldots 
-\end{equation*}
-The starting vector matches the first observation, it is an error for the
-first obs to be censored.
-The $R$ matrix depends on the matrix of linear predictors, $\beta$ will have
-one column for each non-zero element of $Q$.
-In the code we use alpha rather than p, an artifact of the notation used
-in the msm package.
+The starting vector matches the first observation, 
+zeros with a single 1; it is an error for the first obs to be censored.
+The vector $\alpha(t)$ is the `modified' probability in state at time $t$.
+When predicting the future curves for a subject with a given
+starting point, i.e., in the \code{predict} function, there are no $D$
+matrices and this is exactly the probability in state $p(t)$ vector, a notation
+shared with the survival package. 
 
-An exact state is one whose entry time is observed exactly, the 
-\code{exact} option in the code, the most common case is death.
-For a observed state that is not exact, $D$ is a diagonal matrix with 
-a single 1 on the diagonal corresponding to the observed state.
-For an exactly observed state, we multiply by the transition rates just 
-before the event occurred, hence the $m-1$.  The covariates just before
-the event, which are what we want, will equal the most recent prior
-measurment.
-For a censored obs, the subject is known tobe in any state *except* death
-at that time, where for this rule ``death''
-is any exactly observed absorbing state, which is almost always death.
+The $D(t)$ matrices act to constrain $p(t)$ so as to match our observations.
+There are three cases
+\begin{enumerate}
+  \item The observed state $s$ is one of the censored states 0MC- 3MC.
+    All elements of $\alpha$ except element $s$ will be set to zero (we know
+    they aren't there).  The $D$ matrix will be diagonal with 1 for element
+    $s$ and 0 for the others.
+  \item Death is observed.  Death is an exact state, i.e., we know not just 
+    that the subject we \emph{in} the death state at time $t_m$, but that this
+    is when they entered that state.  
+    The $D$ matrix is column 5 of $R(t_{m-1})$, the most recent copy of $R$.
+    (To obey martingale theory, transitions have to depend on covariates known
+    prior to the event.)
+  \item This is a censored observation.  We know the subject is alive, so
+    set $\alpha_4 =0$.  $D$ will be diagonal with 5,5 element 0 and remaining
+    diagonal elements of 1.
+\end{enumerate}
+
+An exact state is one whose entry time is observed exactly, captured by the
+\code{exact} option in the code; the most common case is death.
+For a censored obs, the subject is known to be in any state *except* death
+at that time. 
+More formally, they are not in any exactly observed absorbing state,
+absorbtion is inferred by the code from the $Q$ matrix.
 One can have an exact state that is not absorbing, an example is surgical
 resection of a section of inflamed bowel in Crohn's disease.
-The msm package also allows for a state with known exit time, but I have not
-yet found a need for this.
+We know the exact time of resection, but not the duration of the resultant
+``surgical remission'' stage, a period of quiescence that normally follows
+this intervention.
 
-For a non-zero element of $q_{jk}$ of $Q$, the derivative of $R_{jk}$ with
-respect to $\eta_{jk}$ is $R_{jk}$, and 0 for all other elements of $R$.%
-\index{probability in state matrix!derivative}
-The derivative of $P$ with respect to $\eta_{jk}$ is more complex, since each
-element of $P$ depends on all the elements of $R$.
-This is returned by the pade routine as a matrix of dimension 
-(nstate, nstate, q) where $q$ is the number of non-zero elements of $Q$.
-This is \code{ptemp\$dmat} in the hmm2 routine. 
-From the product rule
-\begin{equation}
-  \frac{\partial p(t)P(t,s)}{\partial \eta_q} &= 
-  \frac{\partial p(t)}{\partial \eta_q} P(t,s) + 
-  p(t)\frac{\partial P(t,s)}{\partial \eta_q} \label{productderiv}
+\subsubsection*{Derivative}
+\index{derivative!transition matrix}
+The derivative of $\alpha$ is kept as a matrix, with one column for each
+state and one row for each parameter, i.e., for each postive element of
+\code{cmap}.
+The linear predictors for the transition matrix, the initial probability, and
+marker functions are not allowed to share any parameters.
+As a convenience, the code keeps the derivatives of $\alpha$ as three
+separate matrices: P.d has the rows corresponding to transition matrix 
+parameters, pi.d the rows (if any) for initial state parameters, and mark.d
+the rows (if any) for marker parameters. The last two apply for HMM models,
+not for the case at hand.
+These three are pasted back together (rbind) to return a single matrix
+to the maximization routine which called hmm2 function.
+
+Consider the product
+\begin{align}
+  \alpha^*(t) &= \alpha(s) P(s,t) \\
+ \frac{\partial \alpha^*(t)}{\partial \beta_j} &=
+     \frac{\partial \alpha(s)}{\partial \beta_j}P(s,t) +
+     \alpha(s) \frac{\partial P(s,t)}{\partial \beta_j} \nonumber \\
+     &= \frac{\partial \alpha(s)}{\partial \beta_j}P(s,t) +
+     \alpha(s) \sum_k \frac{\partial P(s,t)}{\partial \theta_k}
+        \frac{\partial \theta_k}{\partal \beta_k} \label{pderiv1}\\
+     
+\end{align*}
+The first equation is the standard formula for the derivative of a matrix
+product.  (Write out the the matrix product as a sum of terms, apply the product
+rule for derivatives to each term, and reassemble the result.)
+In the math vignette we lay out the formula for the derivative of the
+matrix exponential $\exp(R)$ with respect to each of its non-zero off diagonal
+elements denoted there are $\theta)k$.
+Each of those derivatives is a nstate by nstate matrix, as changing one element
+of $R$ may change all the elements of $\exp(R)$.
+Our matrix exponential routines return $\exp(R)$ and optionally an array
+containing this set of derivative matrices.
+
+The next step is to replace the partial of $\theta$ in equation \eqref{pderiv1}.
+\begin{align}
+  \theta_k &= \exp(X B_{.k}) \nonumber \\
+          &=  \exp(\eta_k) \nonumber \\
+  \frac{\partial \theta_k}{\partial \beta_j} &=  
+     \exp(\eta_k) X_{ij} I(C_{jk}>0) \label{deta}
 \end{equation}
-To prove this simply write out the matrix product as a sum of terms, apply
-the product rule for derivatives to each term, and reassemble the result.
+where $B_{.k}$ is the column of $B$ associated with this element of the $Q$
+matrix, and $C$ the element of the \code{cmat} matrix that identifies whether
+this particular $\beta_j$ is a part of that linear predictor.
+If there are no time dependent covariates for a subject, then all rows of
+$\eta$ for a given subject are identical, and we could transform to derivatives
+wrt $\beta$ at the end of processing this subject.  But most data sets will
+have TD covariates, i.e., rows of $X$ for a subject will vary over time,
+in particular age or time in study effects.
 
+Create the transformation matrix $Z$ with
+\begin{equation*}
+ Z_{mk} &\equiv \left\{ \begin{array}{cc}
+   X_{ij} & C_{jm} = k\\
+   0       & otherwise \end{array} \right.
+\end{equation*}
+The \code{cmap} array value of $k$ in the $jm$ position means that 
+$X_j\beta_k$ is a part of linear predictor $m$.
+The $Z$ matrix will convert a vector of derivatives with respect to 
+$\theta$ into a vector with respect to $\beta$.
+If we 
+
+and for a moment consider the [,1,] slice.
+Each of the partial derivatives with respect to $\theta$ is an nstate
+by nstate matrix. 
+Create the transformation matrix $Z$ with
+\begin{equation*}
+ Z_{mk} &\equiv \left\{ \begin{array}{cc}
+   X_{ij} & C_{jm}=k\\
+   0       & otherwise \end{array} \right.
+\end{equation*}
+
+
+
+
+
+
+Now continue and add $D$
+\begin{align*} 
+  \alpha(t) &= \alpha(s) P(s,t) D(t) \\
+            &=  \alpha^*(s)  D(t) \\
+  \frac{\partial \alpha(t)}{\partial \beta_j} &=
+        \frac{\partial \alpha^*(t)}{\partial \beta_j}D(t) +
+         \alpha*(t)\frac{\partial D(t)}{\partial \beta_j}
+\end{align*}
+For the $D$ matrices, the derivatives with respect to case 1 and 3 above
+are zero.
+For case 2, a death, $D$ is column 5 of $R$ and the derivative is
+the column of $d\eta$ values for the death transition of equation 
+\eqref{deta}
 The the partial of $p(t)$ kept as a matrix \code{P.d} which has a column for 
 each state and a row for each linear predictor, 
 row $q$ of this matrix is the $dp/d \eta$ 
@@ -831,10 +940,6 @@ interation updates a single row of \code{P.d}.
 So far so good, but the above is not quite what we need. The maximizer wants
 to have the derivative with respect to $\beta$, not $\eta = XB$.%
 \index{derivative!$\eta$ to $\beta$}
-If there are no time dependent covariates for a subject, then all rows of
-$\eta$ for a given subject are identical, and we could transform to derivatives
-wrt $\beta$ at the end of processing this subject.  But many data sets will
-have TD covariates, i.e., rows of $X$ for a subject will vary over time.
 
 The transformation of derivatives from $\eta$ to $\beta$ is however simple.
 Apply the chain rule
