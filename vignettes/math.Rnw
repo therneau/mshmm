@@ -896,25 +896,18 @@ in the survival package, e.g., for any time point at which only a single
 of transition occurs, but rarely if at all in this package.
 
 Beyond this, there is a small set of designs for which the closed form formulas 
-can be derived, though the formulas quickly become more complex.
- The msm package has pursued this approach, we have not.
+can be derived, though these formulas quickly become more complex.
+The msm package has pursued this approach, we have not.
 
 \subsection{Matrix decomposition}
 If the eigenvectors of $A$ are linearly independent, then 
-\begin{equation*}
+\begin{align*} 
+   A   &= U \Lambda U^{-1} \\
   e^A = U{\rm diag}(e^\lambda)U^{-1}
-\end{equation*}
-where $U$ is the matrix of right eigenvectors and $\lambda$ the eigenvalues.
+\end{align*}
 A (right) eigenvector $u$ satisfies $Au= \lambda u$, or 
 $AU = U\Lambda$ where $U$ is the matrix of eigenvectors, one per column and
 $\Lambda$ a diagonal matrix of the eigenfvalues.
-If the matrix of eigenvectors $U$ is non-singular then
-\begin{align*} 
-    AU &= U\Lambda\\
-    A &= (AU)U^{-1} \\
-      &= U \Lambda U^{-1} \\
-    \exp(A) &= U \exp(\Lambda) U^{-1}
-\end{align*}
 The exponential of a diagonal matrix $\Lambda$ is a diagonal matrix with 
 $jj$ element $\exp(\Lambda_{jj})$.
 The final equation above arises directly from equation \eqref{expTaylor},
@@ -937,9 +930,9 @@ requested; there is no need for our routine to compute $U$-inverse.
 Misc notes:
 \begin{itemize}
   \item If the eigenvalues $\lambda$ are distinct, then $U$ must be full rank.
-  \item If there are tied eigenvalues, $U$ will still often be full rank,
+  \item If there are tied eigenvalues, $U$ may still be full rank (it often is)
     and if it is not the Jordan canonical form applies.
-  \item If $U$ is close to singular, then this algorithm for the matrix
+  \item If $U$ is close to singular, then the eigen algorithm for the matrix
     exponential can be imprecise,
     with error proportional to the condition number of $U$ times the underlying
     machine precision. When $U$ is exactly singular, computation of the
@@ -973,27 +966,24 @@ diagonal and -1 on the diagonal.
 If $A$ contains $m$ non-zero transition rates this leads to $m$ derivative
 matrices for $\exp(A)$. 
 
+The likelihood for a subject involves a series of vector-matrix products
+$$
+ p(t_{i+1}) = \left[p(t_i) e^{(t_{i+1}-t_i)A(t_i)}\right] D(t_i)
+$$
+Ignore $D$ for the moment.  
 The individual elements of $A$ are the linear predictors $\exp(\eta)$,
 $\eta=XB$, one linear predictor for each non-zero rate in $A$. 
-Then by the chain rule
+For a coefficient $\beta_j$ for which the deriviative is not zero (the
+element of cmap is $>0$), for the compuation of subject $i$ we have
 \begin{align*}
-  \theta &= \exp(\eta) \\
-  \eta   &= \sum_j X_{ij}\beta_j \\
-  \frac{\partial f(e^\eta)}{\partial \beta_j} &= 
-  \frac{\partial f(\theta)}{\partial \theta} 
-  \frac{\partial \theta}{\partial\eta} \frac{\partial \eta}{\partial \beta_j}
-    \\
-   &= \frac{\partial f(\theta)}{\partial \theta} e^\eta X_{ij}
+  \frac{\partial p(t)}{\partial \beta_j} &= 
+      \frac{\partial p(t-)}{\partial \beta_j}e^{(t_{i+1}-t_i)A(t_i)} + 
+      \sum_k p(t)\left[((t_{i+1}-t_i)\frac{\partial e^{A(t_i)}}{\partial \theta_k} 
+        e^{\theta_k}X_{ik} \right]
 \end{align*}
-To keep the notation simple the above has focused on a single transition rate
-$k$ and single subject $i$ and largely suppressed the $i$ and $k$ subscripts;
-in the code the computation will occur separately for each $i$ and $k$
-(the likelihood terms for each subject are separate).
-For a covariate/coefficient that does not participate in a particular transition
-treat the corresponding $X$ as zero.
-Our matrix exponential routines can return the derivatives 
-with respect to each $\theta$, and the rest of the computation done 
-by in R code.
+where the sum is over the $m$ non-zero elements of $A$.
+The rightmost term is a weighted sum of the matrices returned by the
+matrix exponential routine.
 
 \subsection{Pade approximation}
 The \code{Matrix} library includes an \code{expm} function and the \code{expm}
@@ -1046,8 +1036,7 @@ code for expm.c in the expm library: all matrix operations are performed
 by calls to LAPACK routines, which in turn are based on BLAS.
 The BLAS (basic linear algebra subprograms) are carfully tuned to each
 particular computer achitecture and hardware. Using them can result
-in surprising speedups: 50 to 100 fold for larger matrices, though we
-anticipate less for our smaller problems.  
+in surprising speedups: 50 to 100 fold for larger matrices. 
 
 There are multiple routines for eigenvalues in LAPACK, the R eigen routine
 uses dgeev (function La\_rs in src/modules/lapack/Lapack.c).
@@ -1072,6 +1061,11 @@ triangular.
 Note that since the row sums of a transition matrix are 0, the final row of
 an upper triangular transition matrix is 0 (the death state, which absorbs from
 all others.) 
+
+When we do a matrix mulitplication in R, this also uses the BLAS code behind
+the scenes.  This leads to the at first counter-intuitive result that moving
+a computation from R into ``more efficient'' C code will result in slower
+execution.  
 
 \section{Fisher scoring}
 The hmm function allows ``Fisher scoring'' as a choice of algorithm for finding
