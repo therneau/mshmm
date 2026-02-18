@@ -15,6 +15,7 @@
 #  'beta' used a lot in the comments and description.
 #
 hmm1 <- function(who, B) {
+    if (control$debug >0) cat("in hmm1\n")
     rows <- which(id == who)  # the subjects of interest
     eta <- X[rows,] %*% B
     # starting probability
@@ -27,7 +28,6 @@ hmm1 <- function(who, B) {
     rneed <- (otype[rows]==3)
     if (any(rneed)) {
         rlist <- vector("list", nmarker)
-        #    cat("in hmm1\n"); browser()
         for (k in 1:nmarker) {
             j <- b2map[[k]]  #columns of B for this response
             indx <- rneed & !is.na(yobs[rows, k])
@@ -83,7 +83,6 @@ hmm1 <- function(who, B) {
             k <- ystate[j]  # the exact state just entered
             alpha[k] <- sum(alpha*rmat[,k])
             alpha[-k] <- 0  # known to not be in another state
-            alpha <- alpha * dtemp
             if (control$debug > 2) cat("A2: j=", j, "alpha=", alpha, "\n")
         }
         else if (otype[j]==3) {  # one or more markers observed
@@ -194,32 +193,9 @@ psetup <- function(rmat, rindex, nstate) {
     out
 }
 
-Rtrans <- vector("list", nmarker)  #one element per response function
-if (nlp[2]) { #if there are response parameters
-    tfun <- function(dmat, x, map) {
-        tmat <- matrix(0., map$dim[1], map$dim[2])
-        tmat[map$tindex] <- x[map$xindex]
-        dmat %*% tmat
-    }
-    for (i in 1:nmarker) {
-        if (length(b2map[[i]]) >0 && any(cmap[, b2map[[i]]] > 0)) {
-            formals(tfun)[[3]] <- makeindex(cmap[,b2map[[i]], drop=FALSE],
-                                            cmap[,b2])
-            Rtrans[[i]] <- tfun
-        }
-    }
-}
-if (nlp[3]) { #if there are initial probability  parameters
-    pitrans <- function(dmat, x, map) {
-        tmat <- matrix(0., map$dim[1], map$dim[2])
-        tmat[map$tindex] <- x[map$xindex]
-        dmat %*% tmat
-    }
-    formals(pitrans)[[3]] <- makeindex(cmap[,b3, drop=FALSE])
-}
-cmap.b1 <- makeindex(cmap[,b1, drop=FALSE])
 
 hmm2 <- function(who,  B) {
+    if (control$debug >1) cat("in hmm2\n")
     rows <- which(id == who)  # the subjects of interest
     eta <- X[rows,] %*% B
     P.d  <- matrix(0., parmcount[1], nstate)
@@ -263,23 +239,33 @@ hmm2 <- function(who,  B) {
     for (jj in seq_along(rows)) {
         j <- rows[jj]
         if (otype[j] ==1) { # interval censored
+            if (control$debug >2) cat("otype1 "); browser()
             k <- ystate[j]
             alpha[-k] <- 0
             P.d[, -k] <- 0
         }
         else if (otype[j] == 2 & jj> 1) {
             # exact event time (death)
-            k <- pstate[j]
+            k <- ystate[j]
             dtemp <- rmat[,k]  #rate at this point
-            dtemp[k] <- 0      # this line should be redundant
+            dtemp[k] <- 0      # we don't want -1*rowsum here
             if (nlp[3]) pi.d <- pi.d * rep(dtemp, nlp[3])
             if (nlp[2]) R.d  <- R.d  * rep(dtemp, nlp[2])
+            browser()
             # Why the j-1 below?  A death density will depend on covariates
             #  measured prior to the death, not measured at the death
             # dtemp above already has this lag, since rmat is from prior iter
-            if (nlp[1]) P.d  <- P.d *  rep(dtemp, each=nlp[1]) +
-                               t(alpha * deathtrans(rmat, X[j-1,]))
-            alpha <- alpha * dtemp
+            # The D matrix is zeros except for the death column,
+            #  for derivatives see the discussion in the code vignette
+            # 
+            if (nlp[1]) {
+                part1 <- P.d %*% dtemp # multiply each row times D
+ 
+                P.d  <- P.d + t(alpha * deathtrans(rmat, X[j-1,])) #part 2
+            }
+            alpha[k] <- alpha * dtemp
+            alpha[-k] <- 0
+
             if (control$debug > 2) {
                 cat("\n death: alpha=", format(alpha), "\n")
                 # if (nlp[3]) print(pi.d)
@@ -340,7 +326,7 @@ hmm2 <- function(who,  B) {
                 ecount[2] <- ecount[2] +1
             }
             else ptemp <- derivative(rmat, ytime[j], tder)
-            if (any(ptemp$P < -eps | ptemp$P >1)) {
+            if (any(ptemp$P < -control$smallpos | ptemp$P >1)) {
                 if (control$debug>1) 
                     save(ptemp, beta, file=paste0("pfail", who, ".rda"))
                 return("underflow")
@@ -348,7 +334,7 @@ hmm2 <- function(who,  B) {
             if (nlp[3]) pi.d <- t(ptemp$P) %*% pi.d 
             if (nlp[2]) R.d <-  t(ptemp$P) %*% R.d 
             if (nlp[1]) 
-                P.d <-  P.d %*% ptemp$P + Ptrans(alpha, ptemp$dmat, X[j,])
+                P.d <-  P.d %*% ptemp$P + Ptrans(alpha, ptemp$dmat, cmap, X[j,])
             alpha <- drop(alpha %*% ptemp$P)   # ditch the dimensions
             if (control$debug > 4) {
                 cat("\n j=", j, "jj=", jj, "alpha=", format(alpha), "\n")
@@ -374,4 +360,15 @@ hmm2 <- function(who,  B) {
     if (control$debug >3) browser()
     list(alpha=alpha, deriv= rbind(P.d, t(R.d), t(pi.d)), ecount=ecount,
          offset = offset)
+
+# A function to compute alpha * derivative of D, when D is a
+deathtrans <- function(R, x, map=cmap.b1) {
+    rows <- which(qmatrix[,death] > 0)  #non-zero elements of column d
+    dmat <- matrix(0, nstate, map$dim[1])
+    for (i in 1:length(rows)) 
+        dmat[rows[i], deathcol[i]] <- R[rows[i], death]
+
+    tmat <- matrix(0., map$dim[1], map$dim[2])
+    tmat[map$tindex] <- x[map$xindex]
+    dmat %*% tmat
 }

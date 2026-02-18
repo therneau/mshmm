@@ -59,8 +59,8 @@ hmm <- function(formula, data, subset, weights, na.action,
     #  treat the default as NULL
     if (missing(exact) || length(exact) ==0) exact <- NULL
     else {
-        exact <- match(exact, statenames)
-        if (any(is.na(exact)))
+        temp <- match(exact, statenames)
+        if (any(is.na(temp)))
             stop("exact argument contains a state not in qmatrix")
     } 
 
@@ -228,13 +228,13 @@ hmm <- function(formula, data, subset, weights, na.action,
     } else {
         # "time" will be the response, all states are latent
         # if the user didn't specify an exact argument, ignore our default
-        if (!missing(exact)) # user specified one
+        if (!is.null(exact)) # user specified one
             stop("the response must be a Surv object if there are exact states")
-        exact <- NULL
         if (!is.numeric(Y)) stop("response must be numeric or Surv")
         ytime <- Y
         ystate <- rep(0L, nrow(mf))
     }   
+    ytime <- c(diff(ytime), 0)  # the time interval for each observation
 
     weights <- model.weights(mf)
     if (length(weights) >0) warning("weights are not yet supported")
@@ -509,7 +509,33 @@ hmm <- function(formula, data, subset, weights, na.action,
     temp <- match(cmap, unique(cmap[cmap>0]), nomatch=0)
     ebindex1 <- (col(cmap)[temp>0] -1L)*sum(parmcount) + temp[temp>0]
     ebindex2 <- row(cmap)[temp>0]
-    
+   
+    # Set up helper for markers
+    Rtrans <- vector("list", nmarker)  #one element per response function
+    if (nlp[2]) { #if there are response parameters
+        tfun <- function(dmat, x, map) {
+            tmat <- matrix(0., map$dim[1], map$dim[2])
+            tmat[map$tindex] <- x[map$xindex]
+            dmat %*% tmat
+        }
+        for (i in 1:nmarker) {
+            if (length(b2map[[i]]) >0 && any(cmap[, b2map[[i]]] > 0)) {
+                formals(tfun)[[3]] <- makeindex(cmap[,b2map[[i]], drop=FALSE],
+                                                cmap[,b2])
+                Rtrans[[i]] <- tfun
+            }
+        }
+    }
+    if (nlp[3]) { #if there are initial probability  parameters
+        pitrans <- function(dmat, x, map) {
+            tmat <- matrix(0., map$dim[1], map$dim[2])
+            tmat[map$tindex] <- x[map$xindex]
+            dmat %*% tmat
+        }
+        formals(pitrans)[[3]] <- makeindex(cmap[,b3, drop=FALSE])
+    }
+    cmap.b1 <- makeindex(cmap[,b1, drop=FALSE])
+
     # Set up copies of the hmm1 and hmm2 functions to have the scope
     #  of this function. See "scope" in the code vignette for details.
     # I pass them down the calling chain as "logfun" as a way (I hope)
@@ -530,7 +556,7 @@ hmm <- function(formula, data, subset, weights, na.action,
     rindex <- which(qmatrix >0)
     param <- B.to.coef(B, cmap)
     initial.loglik <- hmmloglik(param, B, cmap, id, mc.cores, fork, 
-                                logfun= hmm1x)
+                                logfun= hmm1x, penmat=penmat)
     if (length(initial.loglik) ==0) 
         stop("unable to evaluate at the intial parameters")
 
@@ -560,7 +586,8 @@ hmm <- function(formula, data, subset, weights, na.action,
             mpar$par <- param
             mpar$fn <- hmmboth
             mpar <- c(mpar, list(B=B, cmap=cmap, id=id, 
-                                 mc.cores= mc.cores, fork= fork, logfun= hmm2x))
+                                 mc.cores= mc.cores, fork= fork, 
+                                 logfun= hmm2x, penmat=penmat))
             if (!missing(iter)) mpar$iter <- iter
             if (length(constraint)) mpar$constraint <- constraint
             mpar$debug <- control$debug
@@ -572,7 +599,7 @@ hmm <- function(formula, data, subset, weights, na.action,
             mpar$fn <- hmmloglik
             mpar$gr <- hmmgrad
             mpar <- c(mpar, list(B=B, cmap= cmap, id=id, 
-                                 mc.cores= mc.cores, fork= fork))
+                                 mc.cores= mc.cores, fork= fork, penmat=penmat))
             mpar$logfun <- hmm1x
             mpar$grfun  <- hmm2x
             if (is.null(control$iter)) control$maxit <- iter
@@ -582,7 +609,8 @@ hmm <- function(formula, data, subset, weights, na.action,
             mpar$par <- param
             mpar$logfun = "hmmloglik"  # no derivatives needed
             mpar <- c(mpar, list(B=B, cmap= cmap, id=id, 
-                                 mc.cores= mc.cores, fork= fork, logfun=hmm1x))
+                                 mc.cores= mc.cores, fork= fork, logfun=hmm1x,
+                                 penmat= penmat))
             if (length(constraint)) mpar$constraint <- constraint
             fit <- do.call(mfunname, mpar)
         } else {
@@ -612,7 +640,8 @@ hmm <- function(formula, data, subset, weights, na.action,
                 mpar$grfun <- hmm2x
             } 
             mpar <- c(mpar, list(B=B, cmap= cmap, id=id, 
-                                 mc.cores= mc.cores, fork= fork))
+                                 mc.cores= mc.cores, fork= fork,
+                                 penmat=penmat))
             if (mgrad==2) mpar$gr <- hmmgrad
             ff <- names(formals(mfun))
             if (any(ff== "iter") && is.null(mpar$iter)) mpar$iter <- iter

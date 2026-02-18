@@ -22,8 +22,10 @@
 #  "param" is the label used by the maximizer, for the vector of parameters
 #  "coefficients" is what it is labeled in the result, to match lm, glm, etc.
 #  \beta is what we call the vector of parameters within the math documentation
+grab <- function(x, what) 
+    if (what %in% names(x)) x[[what]] else NULL
 
-hmmloglik <- function(param, B, cmap, id, mc.cores, fork, logfun) {
+hmmloglik <- function(param, B, cmap, id, mc.cores, fork, logfun, penmat) {
     B[cmap>0] <- param[c(cmap)]   #"param[cmap]" fails if cmap has 2 columns
     if (mc.cores > 1) {
         if (!fork)
@@ -60,7 +62,7 @@ hmmloglik <- function(param, B, cmap, id, mc.cores, fork, logfun) {
 # hand back everything (debug).
 # Called as the zero iteration rather than hmmloglik during the debugging phase
 #  it returns a list with one element per id.
-hmmdb <- function(param, B, cmap, id, mc.cores, fork, logfun) {
+hmmdb <- function(param, B, cmap, id, mc.cores, fork, logfun, penmat) {
     B[cmap>0] <- param[c(cmap)]
     if (mc.cores > 1) {
         if (!fork)
@@ -105,7 +107,7 @@ hmmdb <- function(param, B, cmap, id, mc.cores, fork, logfun) {
 }
 
 # This function is used by the score based iteration
-hmmboth <- function(param, B, cmap, id, mc.cores, fork, logfun){
+hmmboth <- function(param, B, cmap, id, mc.cores, fork, logfun, penmat){
     B[cmap>0] <- param[c(cmap)]
     if (mc.cores > 1) {
         if (!fork)
@@ -167,7 +169,7 @@ hmmboth <- function(param, B, cmap, id, mc.cores, fork, logfun){
 }
 
 # This is used by optim
-hmmgrad <- function(param, x, B, cmap, mc.cores, fork, grfun) {
+hmmgrad <- function(param, x, B, cmap, mc.cores, fork, grfun, penmat) {
     B[cmap>0] <- param[c(cmap)]
     if (mc.cores > 1) {
         if (!fork)
