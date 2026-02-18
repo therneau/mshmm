@@ -168,7 +168,6 @@ Ptrans <- function(alpha, dP, cmap, x) {
     matrix(temp, ncol=dd[1], byrow=TRUE)
 }
 
-if (FALSE) {
 makeindex <- function(cmap, all=cmap) {
     nonzero <- (cmap > 0)
     parms <- sort(unique(all[all>0]))  # the parameter numbers for this group
@@ -219,7 +218,7 @@ if (nlp[3]) { #if there are initial probability  parameters
     formals(pitrans)[[3]] <- makeindex(cmap[,b3, drop=FALSE])
 }
 cmap.b1 <- makeindex(cmap[,b1, drop=FALSE])
-}
+
 hmm2 <- function(who,  B) {
     rows <- which(id == who)  # the subjects of interest
     eta <- X[rows,] %*% B

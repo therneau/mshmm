@@ -731,11 +731,6 @@ Then
 \end{align*}
 
 
-
-   
-If B is the matrix of coefficients, $XB = (XT)(T^$
-
-
 \section{Likelihood}
 \index{likelihood!simple}
 The likelihood for a subject has 3 parts: initial value, transition
@@ -797,16 +792,16 @@ zeros with a single 1; it is an error for the first obs to be censored.
 The vector $\alpha(t)$ is the `modified' probability in state at time $t$.
 When predicting the future curves for a subject with a given
 starting point, i.e., in the \code{predict} function, there are no $D$
-matrices and this is exactly the probability in state $p(t)$ vector, a notation
+matrices and this be exactly the probability in state $p(t)$ vector, a notation
 shared with the survival package. 
 
 The $D(t)$ matrices act to constrain $p(t)$ so as to match our observations.
 There are three cases
 \begin{enumerate}
-  \item The observed state $s$ is one of the censored states 0MC- 3MC.
+  \item The observed state $s$ is one of the interval censored states 0MC- 3MC.
     All elements of $\alpha$ except element $s$ will be set to zero (we know
-    they aren't there).  The $D$ matrix will be diagonal with 1 for element
-    $s$ and 0 for the others.
+    that the subject is not in that state).  
+    The $D$ matrix will be diagonal with 1 for element $s$ and 0 for the others.
   \item Death is observed.  Death is an exact state, i.e., we know not just 
     that the subject we \emph{in} the death state at time $t_m$, but that this
     is when they entered that state.  
@@ -824,11 +819,20 @@ For a censored obs, the subject is known to be in any state *except* death
 at that time. 
 More formally, they are not in any exactly observed absorbing state,
 absorbtion is inferred by the code from the $Q$ matrix.
+The \code{exactabsorb} vector of states can have more than one state, one
+could have separated death with or without recurrence into two separate
+states for instance. For a model that does not include death, the
+\code{exactabsorb} list could be empty.
 One can have an exact state that is not absorbing, an example is surgical
 resection of a section of inflamed bowel in Crohn's disease.
 We know the exact time of resection, but not the duration of the resultant
 ``surgical remission'' stage, a period of quiescence that normally follows
 this intervention.
+
+The probability is the sum of elements in the final $\alpha$ vector for a
+subject, and the loglik the log of this sum.
+This is what will be returned to the maximaztion function which called 
+hmm1 or hmm2.
 
 \subsubsection*{Derivative}
 \index{derivative!transition matrix}
@@ -842,8 +846,7 @@ separate matrices: P.d has the rows corresponding to transition matrix
 parameters, pi.d the rows (if any) for initial state parameters, and mark.d
 the rows (if any) for marker parameters. The last two apply for HMM models,
 not for the case at hand.
-These three are pasted back together (rbind) to return a single matrix
-to the maximization routine which called hmm2 function.
+
 
 Consider the product
 \begin{align}
@@ -951,17 +954,46 @@ Apply the chain rule
 
 The cmap matrix provides map between covariates, coefficients
 and $\eta$.
-If cmap[j,k] >0, then X[i,j]* beta[cmap[j,k]] is part of linear predictor $j$.
+If cmap[j,m] =k, then X[i,j]* beta[k] is part of linear predictor $j$.
 So a ncol(cmap) by length(beta) transformation matrix $Z$ will have 
 \begin{equation*}
  Z_{mk} &\equiv \left\{ \begin{array}{cc}
    X_{ij} & C_{jm}=k\\
    0       & otherwise \end{array} \right.
 \end{equation*}
-The 3 lines of code that create \code{Z} from \code{cmap} in the \code{Ptrans}
-routine capture the above equation, and will be completely opaque for anyone
+This matrix is different for every row of $X$, i.e., for every transition row
+of a subject.
+But in an effort to do as much compuation as possible outside of the lowest
+loop, we can create set of variables at top level:
+eta.beta a matrix of zeros, ebindex1 and ebindex2 vectors such that
+\code{eta.beta[ebindex1] <- X[i, ebindex2]} will create the $Z$ matrix
+above (and with a more memorable name). 
+The same elements of eta.to.beta are replaced each time, so we don't need to
+reset the zeros. 
+This also deals with the bookkeeping problem of a parameter that
+is fixed for a particular run, say that the sex coefficient for the 1:3
+transition, which appears as element 8 in the overall coefficient vector of 
+length 15, has been fixed at a value.  
+Then the \code{cmap} matrix will have a value of -8 in that position instead
+of 8, the coefficients reported in the output remain in the same order
+(very useful from the user's point of view), 
+but there are now 14 total parameters from the maximizer's
+point of view. The eta.beta matrix should have 14 columns, not 15, and
+a \code{cmap} element of 10, say, be mapped to the 9th of these by
+the indices.  Not hard, though opaque, if you only have to do it once.
+
+Now think of the $(s, s, k)$ array \code{dmat}returned by our expm routine,
+ where $s$ is the number of states and $k$ the number of $\theta$ values.
+The product \code{dmat[,1,] \%*\% eta.to.beta} will be the $s$ by number
+of parameters matrix of derivatives for column 1 of the $P$ matrix and
+\code{alpha\%*\% dmat[,1,] \%*\% eta.to.beta} the
+\ldots. 
+
+This change is in progress.  In the current code the
+lines that create \code{Z} from \code{cmap} in the \code{Ptrans}
+routine capture the above equation, but will be completely opaque for anyone
 reading them without this documentation.
-Per the quote at the top of this document this is unwise, but it is run
+Per the quote at the top of this document such opacity is unwise, but it is run
 $O(nk)$ times where $n$ is the number of rows in the $X$ matrix and $k$ the
 number of iterations.
 
@@ -1001,6 +1033,14 @@ the maximizer, which calls hmm1 or hmm2 to compute the likelihood, which
 in turn uses \code{coef.to.B} to insert the maximizer's trial paramters and
 compute $\eta= X\beta$.
 
+Again, the maximization routine wants the derivatives of the 
+overall loglikelihood, which is a log of the sum of $\alpha$ over the states. 
+$$ 
+\frac{\partial \log(\sum_m \alpha_m)}{\partial \beta_k} =
+  \left(\frac{\sum_m \partial \alpha_m)}{\partial \beta_k}\right)/
+   (\sum_m \alpha_m) 
+$$
+The derivative is the row sums of the $P.d$, divided by the overall probability.
 
 \section{Lexical scoping}
 \index{lexical scoping}

@@ -490,16 +490,25 @@ hmm <- function(formula, data, subset, weights, na.action,
     # nlp has the number of colums of cmap for the rates, markers, and initial
     #  values. Now make two helpers
     # b1/b2/b3 are vectors containing the column number of cmap for each of
-    #  the three, parmcount is the number of coefficients associated with 
-    #  each
+    #  the three, parmcount is the number of estimated coefficients 
+    #  associated with each
     temp <- rep(1:3, nlp)
     b1 <- which(temp==1)
     b2 <- which(temp==2)
     b3 <- which(temp==3)
-    parmcount <- c(length(unique(c(0L, cmap[,b1]))) -1L,
-                   length(unique(c(0L, cmap[,b2]))) -1L,
-                   length(unique(c(0L, cmap[,b3]))) -1L)
+    utemp <- function(zed) 
+        if (length(zed)>0) length(unique(zed[zed>0])) else 0L
+    parmcount <- c(utemp(cmap[,b1]), utemp(cmap[,b2]), utemp(cmap[,b3]))
 
+    # Creat the mapping matrix from linear predictors eta to the estimated
+    #  portion of the coefficients vector (ignore fixed coefs), which is the
+    #  part that the maximization function will "see".
+    # See "derivatives, eta to beta" in the code vignette for details, along
+    #  with a couple of open questions.
+    eta.to.beta <- matrix(0, ncol(cmap), sum(parmcount))
+    temp <- match(cmap, unique(cmap[cmap>0]), nomatch=0)
+    ebindex1 <- (col(cmap)[temp>0] -1L)*sum(parmcount) + temp[temp>0]
+    ebindex2 <- row(cmap)[temp>0]
     
     # Set up copies of the hmm1 and hmm2 functions to have the scope
     #  of this function. See "scope" in the code vignette for details.
