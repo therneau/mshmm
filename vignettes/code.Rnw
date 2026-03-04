@@ -8,6 +8,7 @@
 \addtolength{\oddsidemargin}{-.5in}
 \setlength{\evensidemargin}{\oddsidemargin}
 \newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\phat}{\hat p}
 
 %\VignetteIndexEntry{Code detail}
 %\VignetteEngine{knitr::knitr}
@@ -15,11 +16,14 @@
 
 <<setup, echo=FALSE>>=
 library(survival)
-library(mshmm)
+library(hmm)
+#library(mshmm)
 
 library(knitr)
-opts_chunk$set(tidy=FALSE, fig.keep='none',
-               fig.path='compete',fig.width=6,fig.height=4)
+opts_chunk$set(tidy=FALSE, fig.keep='none', highlight=FALSE
+               fig.width=7, fig.height=5.5, fig.path="figures/",
+               out.width="\\textwidth", out.height="!", 
+               background="#FFFFFF", warning=FALSE)
 options(continue="  ", width=60)
 pdf.options(pointsize=10) #text in graph about the same as regular text
 @ 
@@ -27,7 +31,7 @@ pdf.options(pointsize=10) #text in graph about the same as regular text
 \begin{document}
 \maketitle
 
-\chapter{Introduction}
+\section{Introduction}
 \begin{quote}
 Kernighan's Law:  ``Everyone knows that debugging is twice as
 hard as writing a program in the first place. So if you're as clever as 
@@ -86,14 +90,14 @@ statefig(cbind(2,2,2,1), qmat, alty=rep(1:2, c(7,8)))
 @ 
 
 And here is an example call using this data.
-<<echo=TRUE, eval=FALSE>>=
+<<mfit, echo=TRUE, eval=FALSE>>=
 mfit <- hmm(list(Surv(time, death) ~ male,
-                 0:death ~ iage
+                 0:death ~ iage,
                  A(0):A(1) ~ apoe + ns(iage,4)/ common,
                  N(0):N1(1) + N(1):N(2) ~ iage + cmc),
             marker = list(dx ~ N/ multinomial(pattern= pmat),
                            memory~ N + practice/ gaussian,
-                           centiloid + sqrt(p.tau181) ~ A(1:2) /gaussian)
+                           centiloid + sqrt(p.tau181) ~ A(1:2) /gaussian),
             data= dementia, id=ptnum, qmatrix = qmat, 
             statedata = statedata)
 @ 
@@ -162,7 +166,7 @@ A formula is a 3 element list of ``~'', leftside, rightside, or 2 elements if
 it has only a right hand side.  Legal ones for hmm have both left and right.
 
 \begin{figure}
-<<R, echo=FALSE>>= 
+<<echo=FALSE>>= 
 opar <- par(mar=c(1,1,1,1))
 ptplot(entry:death + dementia:death~ sex + ns(iage, df=4) / common)
 par(opar)
@@ -173,7 +177,7 @@ par(opar)
   \label{figparse}
 \end{figure}
 
-<<R, ptree>>=
+<<ptree>>=
 test <- cu:death + dem:death ~ x1 + x2
 length(test)
 test[[1]]
@@ -194,7 +198,7 @@ pluck off the leftmost object in the right hand side of a formula, and
 return a list containing that object as the first item, and the updated formula
 without that item as the second.  
 Here is a listing of the function, along with a test formula.
-<<r, >>=
+<<>>=
 grableft <- function(x) {
     if (is.call(x) && x[[1]]== as.name('+')) {
         if (is.name(x[[2]])) list(x[[2]], x[[3]])
@@ -215,11 +219,11 @@ grableft, executed statements listed seqentially within the indent.
 \begin{itemize}
   \item grableft(N + practice + sex)
     \begin{itemize}
-      \item temp <- grableft(N + practice)  (+ N practice)
+      \item temp $<$- grableft(N + practice)  (+ N practice)
         \begin{itemize}
           \item list(N, practice)
         \end{itemize}
-      \item x[[2]] <- temp[[2]] (x = + practice sex)
+      \item x[[2]] $<$- temp[[2]] (x = + practice sex)
       \item list(N, practice + sex)
     \end{itemize}
 \end{itemize}
@@ -318,7 +322,7 @@ transition.
 Given \code{cmap}, there is a simple transformation from
 the total coefficent vector \code{coef} to a matrix form B
 with one column per transition, see the coef.to.B function. 
-B will have 0 wherever cmap is zero, and \verbzX%*% Bz gives the
+B will have 0 wherever cmap is zero, and \verb:X%*% B: gives the
 matrix of linear predictors; one row per observation, one column per transition.
 Each row is used to fill in elements of $H$, which is used to create transtion
 probability matrices $P_i(t) = exp(H)$.
@@ -399,12 +403,14 @@ them.
 To understand the role of markers, first write out the likelihood.
 Assume there were three markers a, b, c, then the likelihood 
 for any given subject can be written as
-$$
-\pi \left[D_a(y_{1a}, t_1)D_b(y_{1b}t_1) D_c(y_{1c}, t_1)\right] P(t_1,t_2) 
-\left[D_a(y_{2a},t_2) D_b(y_{2b},t_2) D_c(y_{2c},t_2)) \right] P(t_2,t_3)  \ldots, 
+\begin{align*}
+\pi \left[D_a(y_{1a}, t_1)D_b(y_{1b}t_1) D_c(y_{1c}, t_1)\right] \\
+ \quad P(t_1,t_2) 
+\left[D_a(y_{2a},t_2) D_b(y_{2b},t_2) D_c(y_{2c},t_2)) \right] \\
+\quad P(t_2,t_3)  \ldots, 
 \left[D_a(y_{na},t_n) D_b(y_{nb},t_n) D_c(y_{nc}, t_n) \right]
-$$
-with $pi$ the initial distribution over states,
+\end{align*}
+with $\pi$ the initial distribution over states,
 $P$ an nstate by nstate transition matrix, and $D$ a diagonal response matrix
 for each marker.
 Each row of $XB$ for a subject generates a transition matrix $P$ except the
@@ -564,6 +570,7 @@ for (i in 1:nform) {
     # k is the set of columns of cmap, to which this formula applies
     dtemp <- dmap[,k]
     if (hascommon(parse1$options[[i]])) dtemp <- dtemp[,1]
+}
 @ 
 
 Use our earlier example
@@ -593,14 +600,14 @@ For a normal
 \begin{align*}
   f(x) &= \frac{1}{\sqrt{2\pi} \sigma} e^{-.5\left((x-\mu)/\sigma\right)^2} \\
   \log(f) &= -.5\log(2\pi) - \log(\sigma) - .5\left((x-\mu)/\sigma\right)^2 \\
-  \frac{\partial log(f)}{\partial \eta_1} &= 
+  \frac{\partial \log(f)}{\partial \eta_1} &= 
        \frac{\partial log(f)}{\partial\mu}\frac{\partial \mu}{\partial \eta_1}\\
       &(x-\mu)/\sigma^2 1 \\
-  \frac{\partial log(f)}{\partial \eta_2} &= 
-       \frac{\partial log(f)}{\partial\sigma} 
+  \frac{\partial \log(f)}{\partial \eta_2} &= 
+       \frac{\partial \log(f)}{\partial\sigma} 
        \frac{\partial \sigma}{\partial \eta_2}\\
      & = \left(-1/\sigma + \frac{(x-\mu)^2}{\sigma^3} \right) \sigma \\
-     & = -1 + \left(\frac(x-\mu)}{sigma}\right)^2
+     & = -1 + \left(\frac{(x-\mu)}{\sigma}\right)^2
 \end{align*}\
 
 Since $\sigma = \exp(\eta_2)$ the derivative wrt $\eta_2$ is $\sigma$ times the
@@ -619,22 +626,22 @@ the derivative for subject $i$ using the chain rule
 
 \index{response function: logistic}
 The logistic distribtion is parameterized by mean and scale $(/mu, s)$ where
-the $s= \sigma \sqrt(3)/pi$, or conversely $\sigma^2= s^2\pi^2/3$. 
+the $s= \sigma \sqrt(3)\pi$, or conversely $\sigma^2= s^2\pi^2/3$. 
 We parameterize by mean and std for the user.
 \begin{align*}
-  \log(f) = -log(s) +(y-\mu)/s - log(1+ e^{(y-\mu)/s}) \\
-  \frac{\partial log(f)}{\partial \mu} &= -\frac{\mu}{s} \left[
+  \log(f) &= -\log(s) +(y-\mu)/s - \log(1+ e^{(y-\mu)/s}) \\
+  \frac{\partial \log(f)}{\partial \mu} &= -\frac{\mu}{s} \left[
     1+ \frac{ e^{(y-\mu)/s}}{1+  e^{(y-\mu)/s}} \right] \\
-  \frac{\partial log(f)}{\partial s} &= -1/s -(y-\mu)/s^2\left[ 
+  \frac{\partial \log(f)}{\partial s} &= -1/s -(y-\mu)/s^2\left[ 
     1+ \frac{ e^{(y-\mu)/s}}{1+  e^{(y-\mu)/s}} \right] \\
-   \frac{\partial log(f)}{\partial \eta} &= \frac{\partial log(f)}{\partial s}
+   \frac{\partial \log(f)}{\partial \eta} &= \frac{\partial \log(f)}{\partial s}
                     \frac{\partial{s}}{\partial \eta} \\
-        &= \frac{\partial log(f)}{\partial s} s             
+        &= \frac{\partial \log(f)}{\partial s} s             
 \end{align*}
 
 \index{response function: beta}
 The beta distribution is paramerized by shapes $a=\exp(eta_1)$ and 
-$b= exp(\eta_2)$, and $0\le y \le 1$ must be between 0 and 1.
+$b= \exp(\eta_2)$, and $0\le y \le 1$ must be between 0 and 1.
 The mean is $\mu= a/(a+b)$ and the variance is $\sigma^2= ab/[(a+b)^2(a+b+1)]$,
 so though it might be nice to think in terms of mean and variance for the
 user, doing so directly is impractical.
@@ -646,21 +653,21 @@ the identity $dg/da = g d(log(g))/da$ along with the product rule.
 
 \begin{align*}
   f(y) &= \frac{\Gamma(a+b)}{\Gamma(a)\Gamma(b)} y^{a-1}(1-y)^{b-1} \\
-  \frac{\partial g(y,a,b)}{\partial a} h(y,a,b) &=  f(y,a,b))
-                   \left[\psi(a+b)- \psi(a)] \\
-   \frac{\partial g(y,a,b)}{\partial b} h(y,a,b) &=  f(y,a,b))
-                   \left[\psi(a+b)- \psi(b)] \\
-   g(y,a,b) \frac{partial h(y,a,b)}{\partial a) = g(y,a,b)
-     \left[(a-1)y^{a-2} (1-y)^{b-1} \right]
-   g(y,a,b) \frac{partial h(y,a,b)}{\partial b) = -g(y,a,b)
-     \left[y^{a-1} (b-1)(1-y)^{b-2} \right]
+  \frac{\partial g(y,a,b)}{\partial a} h(y,a,b) &=  f(y,a,b)
+                   \left[\psi(a+b)- \psi(a) \right] \\
+   \frac{\partial g(y,a,b)}{\partial b} h(y,a,b) &=  f(y,a,b)  
+                 \left[\psi(a+b)- \psi(b) \right] \\
+   g(y,a,b) \frac{partial h(y,a,b)}{\partial a} &= g(y,a,b)
+     \left[(a-1)y^{a-2} (1-y)^{b-1} \right] \\
+   g(y,a,b) \frac{partial h(y,a,b)}{\partial b} &= -g(y,a,b)
+     \left[y^{a-1} (b-1)(1-y)^{b-2} \right] \\
   \frac{\partial f}{\partial \eta_1} &= a \left[
      \frac{\partial g(y,a,b)}{\partial a} h(y,a,b) + 
-      g(y,a,b) \frac{partial h(y,a,b)}{\partial a) \right]
+      g(y,a,b) \frac{partial h(y,a,b)}{\partial a} \right]
      \frac{\partial f}{\partial a} \\
   \frac{\partial f}{\partial \eta_2} &= b   \left[
      \frac{\partial g(y,a,b)}{\partial b} h(y,a,b) + 
-      g(y,a,b) \frac{partial h(y,a,b)}{\partial b) \right]
+      g(y,a,b) \frac{partial h(y,a,b)}{\partial b} \right]
 \end{align*}
 
 \index{response function: multinomial}
@@ -719,15 +726,15 @@ $m_j$ be the mean and $s_j$ the scale for column $j$, with $m_1=0$ and
 $s_1$= 1
 Then 
 \begin{align*}
- Z_{ij}  &= \left(X_{ij}- m_i)/s_i \\
+ Z_{ij}  &= (X_{ij}- m_i)/s_i \\
  Z &= XT \\
  T_{ij}&= \left\{ \begin{array}{cc}
        1 & j=1 \\
        -m_j/s_j & i=1, j>1 \\
-       1/s_j    & i=j, j>1  \end{array} \\
+       1/s_j    & i=j, j>1  \end{array} \right.\\
  T^{-1}_{ij} &=  \left\{ \begin{array}{cc}
             s_j & i=j \\
-            m_j & i=1, j>1 \end{array}
+            m_j & i=1, j>1 \end{array} \right.
 \end{align*}
 
 
@@ -788,21 +795,21 @@ The overall probability vector for the subject is
   \alpha(t_3) &= \alpha(t_2)  P(t_2, t_3) D(t_3) \label{alpha3}\\
    &\vdots \nonumber
   \alpha(t_m) &= \alpha(t_{m-1})  P(t_{m-1}, t_m) D(t_m) \nonumber\\
-\end{align*}
+\end{align}
 where $m$ is the number of observations for the subject;
 $p$ is the initial state probability vector, $P(s,t)$ the state
 transition matrix, and $D(t)$ an evaluation step.
 
 For the model of figure \ref{fig:nafld} we have
-\begin{align*}
-  p_j(t_1) &= I{y_i(t_1) = j} \nolabel \\
+\begin{align}
+  p_j(t_1) &= I{y_i(t_1) = j} \nonumber \\
   P(s,t)  &=  e^{(t-s)R(s)} \\
   R_{jk}(t) &= \left\{ \begin{array}{cc}
-    -\sum_{k \ne j} -R_{jk}  & j=k \label{rmat1} \\
-    e^{\eta_{jk}(t)}       &  j \ne k, Q_{jk}>0  \label{rmat2}\\
-    0                &  j \ne k, Q_{jk} =0 \nolabel \end{array} \right. \\
-  \eta &= XB  \nolabel \\
-\end{align*}
+    -\sum_{k \ne j} -R_{jk}  & j=k \\ %\label{rmat1} \\
+    e^{\eta_{jk}(t)}       &  j \ne k, Q_{jk}>0  \\ %\label{rmat2}\\
+    0                &  j \ne k, Q_{jk} =0 \end{array} \right. \\
+  \eta &= XB  \nonumber \\
+\end{align}
 
 The starting vector matches the first observation, 
 zeros with a single 1; it is an error for the first obs to be censored.
@@ -864,24 +871,25 @@ $$ \frac{\partial f}{\partial \beta_j} =
     \sum_k \frac{\partial f}{\partial \eta_k}
        \frac{\partial \eta_k}{\partial \beta_j}
 $$
-where the sum is over the relevant linear predictors for the 'f' of interest.
+where the sum is over the relevant linear predictors for the 
+function $f$ of interest.
 
 Since this is a final step for every derivative it behooves us to try and
 make it efficient. 
 The a key ingredient is the cmap matrix, represented by $C$ below.
 \begin{align}
-  eta_{ik} &= \exp(X_{i.} B_{.k}) \nonumber \\
-  \frac{\partial \eta_{ik}{\partial \beta_m} &=  
+  \eta_{ik} &= \exp(X_{i.} B_{.k}) \nonumber \\
+  \frac{\partial \eta_{ik}}{\partial \beta_m} &=  
      X_{ij} I(C_{jk} =m) \label{deta}
-\end{equation}
-where $X_{i.}$ is shorthand for the $i$th row of $X$, and similar for the
-$k$th column of $B$.
+\end{align}
+where $X_{i.}$ is shorthand for the $i$th row of $X$, 
+and similarly $B_{.k}$ for the $k$th column of $B$.
 The ideal would be to create a single matrix $Z$ with one row 
 per linear predictor and one column per coefficient such that a single
 matrix multiplication would convert the vector of derivatives with respect
 to $\eta$ into a longer one with respect to $\beta$.
 But, this matrix has elements of $X$ that are unique to each observation.
-There will be a $Z$ matrix for each step of the algorithm of equations
+Thus there will be a $Z$ matrix for each step of the algorithm of equations
 \eqref{alpha1}, \eqref{alpha2}, etc.
 
 For each new it is the same elements of $Z$ which are replaced, which allows
@@ -933,8 +941,8 @@ Consider the product
      \alpha(s) \frac{\partial P(s,t)}{\partial \beta_j} \nonumber \\
      &= \frac{\partial \alpha(s)}{\partial \beta_j}P(s,t) +
      \alpha(s) \sum_k \frac{\partial P(s,t)}{\partial \theta_k}
-        \frac{\partial \theta_k}{\partal \beta_k} \label{pderiv1}\\
-\end{align*}
+        \frac{\partial \theta_k}{\partial \beta_k} \label{pderiv1}\\
+\end{align}
 The first equation is the standard formula for the derivative of a matrix
 product.  (Write out the the matrix product as a sum of terms, apply the product
 rule for derivatives to each term, and reassemble the result.)
@@ -945,9 +953,13 @@ Each of those derivatives is a nstate by nstate matrix, as changing one element
 of $R$ can change all the elements of $\exp(R)$.
 Our matrix exponential routines return $\exp(R)$ and an array
 containing this set of derivative matrices.
-The final sum in equation \eqref{pderiv} is exactly matrix multiplication
+The final sum in equation \eqref{pderiv1} is exactly matrix multiplication
 of the vector of derivatives wrt $\theta$ times the transformation matrix
 of the prior section. 
+In the very rare case of a transition probability with only fixed coefficients,
+the matrix exponential will still return a matrix for that particular
+transition, but that column of the $Z$ matrix will be zero, giving the proper
+increment of 0 to the derivative.
 A small slight of hand is to change the dimension of the deriv array from
 $(s,s, k)$, $s$= number of states and $k$ the number of linear predictors, to
 $(s^2,k)$; then a single matrix multiplication generates the transformation
@@ -956,38 +968,38 @@ of all $s^2$ elements.
 For derivatives with respect to the $D$ matrices 
 \index{derivative, simple D} first recall
 \begin{align}
-\alpha(t) &= \alpha(s) P(s,t) D(t)  \nonumber\\
-          &\equiv $\alpha*(t)D(t)$ \nonumber\\
-\frac{\partial \alpha^*(t)}{\partial \beta_j} &=
+\alpha(t) &= \alpha(s) P(s,t) D(t)  \nonumber \\
+          &\equiv \alpha*(t)D(t) \nonumber\\
+\frac{\partial \alpha(t)}{\partial \beta_j} &=
     \frac{\partial \alpha^*(t)}{\partial \beta_j}D(t) + 
            \alpha^*(t)  \frac{\partial D(t)}{\partial \beta_j} \label{dderiv1}
-\end{align*}
+\end{align}
 The $D$ matrices for case 1 and 3 above are 0/1 diagonal matrices so have
 derivative 0, which means that the second term of equation \eqref{dderiv1}
-is 0.  The first term sets appropriate columns of P.d to zero.
+is 0, while the first term sets appropriate columns of P.d to zero.
 For case 2, an outcome at a known time (normally death), $D$ is a zero matrix
 except for the outcome state, say it is column $d$, which will have elements
 of $\exp(\eta_?)$ for each non-zero transition, the appropriate eta for each
 non-zero element of $Q$ in that column.
 The partial of $D$ with respect to $\eta$ is a zero matrix for all linear
 predictors $\eta$ that do not appear in this column, and a matrix with a
-single nonzero element exp(eta) for each that does appear.
-Since $AC + BC = (A+B)C$ for matrices derivative wrt $\beta$ turns out to
+single nonzero element $\exp(\eta)$ for each that does appear.
+Since $AC + BC = (A+B)C$ for matrices, the derivative wrt $\beta$ turns out to
 be $DZ$.
 
 
 The second complexity in the routine is multiplication. 
-Formula \ref{productderiv} applies separately to \emph{each} element $P_{jk}$
+Formula \ref{pderiv1} applies separately to \emph{each} element $P_{jk}$
 of the transition matrix.
 Let \code{P.d} be the derivative matrix, one row for each parameter $\beta$
 and one column per state.  The first term in the equation is easy,
 \code{P.d \%*\% P} updates all of the rows of P.d at once.  For the
 second term, we first have to transform the matrix of derivatives
-\code{temp$dmat} from dimension (nstate, nstate, ncol(cmap)) to 
+\code{temp\$dmat} from dimension (nstate, nstate, ncol(cmap)) to 
 (nstate, nstate, nrow(cmap)), transforming from derivatives wrt $\eta$ to
 those wrt $\beta$.  The straightforward way to do this is a pair of
 1:nstate nested loops, followed by creation of each row of the second term
-of formula \ref{productderiv}
+of formula \ref{pderiv1}
 <<echo=TRUE, eval=FALSE>>=
 for (j in 1:nstate) {
     for (k in 1:nstate) 
@@ -1004,22 +1016,24 @@ Aside:The \code{cmap} matrix tracks the mapping between the matrix form of the
 parameters $B$ and the vector form $\beta$;
 the matrix form is what we want for $XB$ and the vector form is what the
 maximization functions want.
-The $B$ matrix will normally have many zeros, if some covariates apply to
+The $B$ matrix will normally have many zeros, e.g., if some covariates apply to
 only a single transition.
 It may also contain fixed coefficients that are not subject to optimization.
 Thus there is a back and forth: \code{B.to.coef} to create the parameters for
 the maximizer, which calls hmm1 or hmm2 to compute the likelihood, which
-in turn uses \code{coef.to.B} to insert the maximizer's trial paramters and
-compute $\eta= X\beta$.
+in turn uses \code{coef.to.B} to insert the maximizer's trial parameters
+into $B$ and compute $\eta= XB$. If there are fixed parameters they appear
+as a negative index in \code{cmap}, and the initial value in $B$ is not
+modified by the the \code{coef.to.B} routine.
 
-Again, the maximization routine wants the derivatives of the 
+The maximization routine wants the derivatives of the 
 overall loglikelihood, which is a log of the sum of $\alpha$ over the states. 
 $$ 
 \frac{\partial \log(\sum_m \alpha_m)}{\partial \beta_k} =
   \left(\frac{\sum_m \partial \alpha_m)}{\partial \beta_k}\right)/
    (\sum_m \alpha_m) 
 $$
-The derivative is the row sums of the $P.d$, divided by the overall probability.
+The derivative is the row sums of \code{P.d}, divided by the overall probability.
 
 \section{Lexical scoping}
 \index{lexical scoping}
@@ -1108,3 +1122,4 @@ Duncan Murdoch suggested this, and also a second hybrid approach that makes use
 of the force() function. It was a bit more complex, but it causes only select
 variables in hmm() to be exposed and so is a perhaps a bit safer.
 
+\end{document}

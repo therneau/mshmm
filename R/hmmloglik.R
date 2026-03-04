@@ -142,6 +142,7 @@ Ptrans <- function(alpha, dP, cmap, x) {
     #  it contains the deriviative wrt each eta, for each element of P
     # cmap has a row for each variable, column for each eta
     # Z transforms from d/deta to d/dbeta (derivatives), the R code is arcane
+    # see the discussion in the code document.
     nbeta <- max(cmap)
     Z <- matrix(0,dd[3], nbeta)
     cz <- which(cmap>0)
@@ -251,17 +252,17 @@ hmm2 <- function(who,  B) {
             dtemp[k] <- 0      # we don't want -1*rowsum here
             if (nlp[3]) pi.d <- pi.d * rep(dtemp, nlp[3])
             if (nlp[2]) R.d  <- R.d  * rep(dtemp, nlp[2])
-            browser()
+            cat("death "); browser()
             # Why the j-1 below?  A death density will depend on covariates
             #  measured prior to the death, not measured at the death
             # dtemp above already has this lag, since rmat is from prior iter
             # The D matrix is zeros except for the death column,
             #  for derivatives see the discussion in the code vignette
             # 
-            if (nlp[1]) {
+            if (nlp[1] >0 ) {
                 part1 <- P.d %*% dtemp # multiply each row times D
- 
-                P.d  <- P.d + t(alpha * deathtrans(rmat, X[j-1,])) #part 2
+                P.d[k,] <- xxx
+                P.d  <- P.d + t(alpha * deathtrans(rmat, X[j-1,], cmap.b1)) #part 2
             }
             alpha[k] <- alpha * dtemp
             alpha[-k] <- 0
@@ -363,13 +364,13 @@ hmm2 <- function(who,  B) {
 }
 
 # A function to compute alpha * derivative of D, when D is a
-deathtrans <- function(R, x, map=cmap.b1) {
-    rows <- which(qmatrix[,death] > 0)  #non-zero elements of column d
+deathtrans <- function(R, x, map, death) {
+    rows <- which(R[,death] > 0)  #non-zero elements of column d
     dmat <- matrix(0, nstate, map$dim[1])
     for (i in 1:length(rows)) 
         dmat[rows[i], deathcol[i]] <- R[rows[i], death]
 
-    tmat <- matrix(0., map$dim[1], map$dim[2])
+    tmat <- 0*map
     tmat[map$tindex] <- x[map$xindex]
     dmat %*% tmat
 }

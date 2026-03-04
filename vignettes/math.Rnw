@@ -69,7 +69,7 @@ At any given visit, subjects will have accumulated
 diabetes, hypertension, and hyperlipidemia.
 If measured continuously, subjects will progress via the solid arrows from 0 
 to 1 to 2 to 3 comorbidities.
-(We assume, biologically,  that no one progresses on two of the markers at the 
+(We assume that no one progresses on two of the markers at the 
 \emph{exact} same instant.)
 In the observed data, however, there will be subjects who are in the 0MC
 state at one visit, and in the 2MC state at their next visit; as that following
@@ -96,12 +96,12 @@ state transitions had occured.
 The perceptive user will have noticed that a call to icsmh looks remarkably
 like a call to coxph.  This is on purpose, but there are some important
 differences between the calls.
-The first is that imsh requires
+The first is that icmsh requires
 a matrix of valid transions $Q$.  For $Q$ matrix for the above data this 
 is shown below,
 and corresponds to the solid arrows in figure \ref{fig:nafld}.
-(The computer won't know that a direct 0MC to 2MC transition is impossible
-without being told.)
+The computer can't know that a direct 0MC to 2MC transition is impossible
+without being told.
 <<qmatrix>>=
 states <- c("0MC", "1MC", "2MC", "3MC", "death")
 qmat <- matrix(0, 5,5, dimnames=list(from=states, to=states))
@@ -198,11 +198,11 @@ The second is the straightforward multistate survival curve for subject
 $i$, given their starting state, represented as a 
 row vector $p(0)$ which contains a single 1 at their starting state 
 and remainger zeros. 
-Each element $k$ of the nstate by nstate transition matrix, for this subject,
-is a single linear predictor $\exp(X_i B_{.k})$, 
+Each element $k$ of the nstate by nstate transition matrix $P$ will be
+a single (per subject) linear predictor $\exp(X_i B_{.k})$, 
 where $B$ the matrix of coefficients, one column per transition.
-Let $H_i$ be the resulting normed transition matrix for subject $i$, w
-ith off diagonal elements containing the rates and diagonal element 
+Let $H_i$ be the resulting normed transition matrix for subject $i$, 
+with off diagonal elements containing the rates and diagonal element 
 set such that row sums are 0.
 The predicted survival curve at times $t_{1}, t_{2}, \ldots$ for the subject
 will be
@@ -217,10 +217,10 @@ This is the predicted multistate survival for subject $i$, if there
 were no further measurements of their state after enrollment.
 
 The third step is to apply a correction to this sequence each time the subject 
-\emph{is} observed.  Say that at time $t_2$ the subject was observed to be
-state 2, then modify $p(t_2)$ to reflect reality, just after the last term
-in equation \eqref{sp2}, by setting all elements but the second to zero.
-Now assume that time $t_3$ they were also in state 2, then do this again
+\emph{is} observed.  If at time $t_2$ the subject was observed to be
+state 3, then modify $p(t_2)$ to reflect reality: just after the last term
+in equation \eqref{sp2}  sett all elements of $p$ but the third to zero.
+If at time $t_3$ they were also in state 3, then do this again
 at the end of equation \eqref{sp3}.
 Last, assume they were censored at $t_4$, then set $p_{death}(t_4)$ to zero;
 we know they are not dead but not which other state they might be in at
@@ -228,17 +228,24 @@ that point.
 Mathematically, we can notate this by appending a 0/1 diagonal matrix $D(t_1)$,
 $D(t_2)$, \ldots to each line of the derivation above.
 ($D(t_1)$ is redundant for this case.)
-The final probability (likekihood) for the combination of the given
-transition probabilities + the given observations, for this subject subject 
-at their final observation,
-$t_m$ say, is $\sum_k p_k(t_m)$; log-likekihood of $\log\sum_k p_k(t_m)$.
+The final probability (likekihood) capture the combination of the given
+transition probabilities + the given observations.  For a subject 
+at their final observation 
+$t_m$ say, it is $\sum_k p_k(t_m)$; log-likekihood of $\log\sum_k p_k(t_m)$.
 
-At each step we apply the transition probability matrix and then ``winnow
-away'' probability contributions observed not have occured. 
+In summary, at each step we first apply the transition probability matrix 
+and to create a distribution for $p$, then ``winnow away'' probability 
+contributions for ``states where they ain't''.
 The approach easily accomodates a partially observed visit, e.g., if
 at time 2 they were known to be in state 1 or 2 but not which, the
 entries in $p(t_2)$ for all other states than 1 or 2 are zeroed. 
-The final loglik is a sum over subjects.
+A hidden Markov model carries this one step further, at a particular time
+point we may not observe the actual state, but rather an imperfect marker 
+$x_i(t)$ of the state.
+The matrix $D$ now has elements $P(x_i(t)= x| s=k)$ on the diagonal, the
+probability that the observed marker value \emph{would have been observed}
+if the true state were $k$.  This is the same winnowing process, but now
+a probablalistic one.
 
 This likelihod is quite different in flavor from the MSH model of the
 survival package and coxph.
@@ -255,8 +262,8 @@ Let $S$ be the set of $m$ states, $p(0)$ the distribution of states at time
 0, often $(1, 0, \ldots)$, $P(s,t; \theta)$ the $m$ by $m$ transition
  probability matrix from time $s$ to time $t$, depending on a parameter
 vector $\theta$.
-Then $p(t,\theta)= p(0) P(0,t)$ will be the probability in state
-vector at time $t$.
+Then $p(t,\theta)= p(0) P(0,t; \theta)$ will be the predicted 
+probability in state vector at time $t$.
 
 Let $R$ be an $m$ by $m$ rate matrix, the $jk$ element is the rate of transition
 from state $j$ to state $k$; rates are assumed to be constant over a
@@ -272,7 +279,7 @@ age/sex/calendar year strata is the basis for national death rate tables, with
 two centuries experience that this quite adequate for adult ages.
 
 Assume that $t_0, t_1, t_2, \ldots$ are the
-time points that partition the line, with often $t_0=0$.  
+time points that partition the line, often with $t_0=0$.  
 Then
 \begin{equation*}
   p(t_{i+1}) = p(t_i) e^{(t_{i+1}-t_i)R_i}
@@ -294,13 +301,14 @@ statefig(rbind(3,1), smat)
 Because we do not observe the transitions, the user needs to specify which
 elements of $R$ are non-zero.  
 So for instance in the NAFLD model of Figure \ref{fig:nafld} we would allow
-only the solid lines; in a simple cognitive model of
-\ref{fig:simple}
+only the solid lines.
+In the simple model of cognitive decline of Figure \ref{fig:simple}
 we might assume that subjects can only go forward from CU to MCI to Dementia.
 However, if the data contains any who were observed to be CU after an MCI
 visit, the likelhood of the data, under this model, is 0; which is an issue
 we will address using the hidden Markov model (HMM).
-In the MSH models of coxph function, we need to add arrows for every observed
+In the MSH models of coxph function there is an underlying assumption that all
+transitions are observed exactly, thus we need to add arrows for every observed
 transition.
 
 \begin{figure}
@@ -338,9 +346,9 @@ actual likelihood treats this as peicewise constant over the set of time
 points $t$ used in the data.
 This is because the probability transformation matrix 
 $P(s,t) =\exp(A[t-s])$ has a simple form when the matrix of hazards $A$
-is constant from $s$ to $t$.
-If the baseline were increasing, for instance, we might worry about a bias
-from different length intervals; if Smith and Jones had the same covariates,
+is constant from $s$ to $t$.  However, 
+if the baseline were increasing, for instance, we might worry about a bias
+from different length intervals; assume Smith and Jones had the same covariates,
 but Smith was observed at ages 61, 62.1, 63.1, 63.9, 64 and 65, and Jones
 at ages 60.4, 62.7 and 64.90, then Jones' computation effectively has a 
 lower average rate due to less frequent observation. 
@@ -355,13 +363,14 @@ but this is overkill (IMHO).
 Adding dummy observations for each subject so that all share these yearly
 cutpoints is a nuisance, but the R tools are effective.
 As a contrast, in the \code{icmstate} package the baseline is treated as
-non-parametric.  The cutpoints will be the set of observed event times,
-and if time is measured in days it is likely that there is only one observed 
+non-parametric and this need not be done.  
+The cutpoints will be the set of observed event times, automatically.
+If time is measured in days it is likely that there is only one observed 
 event at any given event time, leading to a sparse $R$ matrix and faster
 computation.
 (Computing a lot of matrix exponentials is a major part of the compute time.)
 A disadvantage is that an EM algorithm is needed at each time point to
-estimate the baseline rate.
+estimate the baseline rate, so we have not persued this.
 
 Assume subject $i$ is seen at times $t_{j}$, $j=0, \ldots, n_i$, with observed
 states $s_{j}$, where $t_{0}=0$ is the starting time.
@@ -369,7 +378,7 @@ The likelihood computation for interval censored models can be thought of
 in three parts, for each subject $i$
 \begin{itemize}
  \item The initial probability in state vector $p(t_0)$.
- \item The transtion matrix from $t_{m-1} to t_{m}$ for $m>0$
+ \item The transtion matrix from $t_{m-1} to t_{m}$ 
  \item Restrictions on the current state at each observed observation time
    $t_{m}$
 \end{itemize}
@@ -436,13 +445,15 @@ temp2 <- P2[1,2]
 round(c(temp2, sum(temp1)), 4) # probability some time during the year
 @ 
 
-The rates in the hazard matrix $R$ will normally be functions of $X\beta$
-where $X$ is a matrix of per-subject covariates and $\beta$ is a matrix
-with one column for each possible transtion; again similar to coxph.
-Because the baseline is parametric $\beta$ will also include an intercept
-term, and often a spline for age.
+Each of the rates in the hazard matrix $R$ will be either 0 (for transitions
+that cannot occor) or an element of $\exp(XB)$
+where $X$ is a matrix of per-subject covariates and $B$ is a matrix
+with one column for each possible transtion. 
+The use of exp guarantees a non-negative rate, similar to coxph.
+Because the baseline is parametric $B$ will include an intercept
+term, and often as part of a spline for age.
 
-If we assume a Markov assumtion, then $P(s,t) = P(s,u)P(u,t)$ for any time
+Under a Markov assumtion, then $P(s,t) = P(s,u)P(u,t)$ for any time
 point $u$ between $s$ and $t$. 
 (I had to write this out as a long sum in order to prove it to myself:
 the fact that matrix multiplication
@@ -558,86 +569,59 @@ are available in the sampling frame, which of those
 fullfill the eligiblity criterion of the study, and which were chosen?  
 There are four approaches available.
 
-The first is to use a single vector $p(0)= \pi$ for all subjects.
+The simplest is to assume that the initial state of each subject is known
+exactly; the same as a simple interval censored model. 
+In a clinical trial, for instance, the initial visit might include a more
+thorough evaluation of a patient's status.
+The \code{cav} data set of the msm manual is analysed in this way.
+
+
+The second is to use a single vector $p(0)= \pi$ for all subjects.
 This is the initialize step in Shokhirev for instance.
 Each subject is assumed to be randomly chosen from an underlying population with
 probability vector $\pi$.
-The parameter estimate $\pi$ may be fixed or estimated, and may involve 
-per-subject covariates.  We might have run an external regression to assign
-probabilities to each state, for instance.
-In some cases the estimated result will be of interest in
+The parameter estimate $\pi$ may be fixed or estimated.
+A variation of this is to allow per subject covariates as part of the estimate,
+each subject will now have a unique starting distribution.  In this case only
+the first visit for each subject will be used.
+In some cases this initial estimate will be of interest in
 itself, in others we might regard it as a nuisance parameter.
 
-In approach 2 every subject has a different entry probability.
-The simplest variant of this is if we assume the initial state is known
-for each subject, call this 2a.  
-For instance, the initial enrollment visit might involve a more complete
-evaluation, such that the underlying state is certain; each subject's
-initial $\pi$ will then have a single 1 and remaining elements of 0.
-The \code{cav} dat set of the msm manual is analysed in this way.
-One important consequence of this view is the error matrix for the first
-visit. Consider the cardiac allograph vasculopathy (CAV) data set in the msm
-package, with observed states of none/mild/severe/death and true states of 
-C1/C2/C3/death; for the visit at time 0 $D$ should be the identity, not an
-estimated missclassification matrix.  One way for the user to enforce this
-is to code the time 0 value of the measured response as NA.
-
-A second variant 2b is to estimate the per-subject $\pi$, external to
+A variant 2b is to estimate the per-subject $\pi$, external to
 the HMM fit.
 In the dementia example we might assume that Pr(CU/MCI/dementia) at enrollment
 is a function of age, and employ a simple multinomial model to estimate it, 
-using the initial visits as the data.
-The age specific predicted values from this fit will then be used as $\pi_i$
-for subject $i$.
-(No one enrolls in the death state, of course).
-We expect that method 1 will be more efficient since it uses all the information
-within the HMM fit.
+using the initial visits as the data.  Since we are treating initial state
+and progression as disjoint processes, this should have the same statistical
+properties.
 
-The third approach uses updated prevalence and is appropriate to the MCSA, 
-a study 
-in which the subjects are an age and sex stratified population sample. 
+One question concerns biomarker values measured at time 0.  For case 1 we 
+would normally not consider these to be useful: we know the state with
+certainty.  For case 2 we might treat these as informative.  The user
+controls this by setting such markers to missing if they should not be used.
+
+A hybrid approach is used in the MCSA, which recruited an age and sex stratified
+sample from the population at large. 
 In this special case the the distribution of enrollment states at each age is
 itself informative of the progression process. 
 Mechanically, it was done in the following way, using all subjects aged 50 or
 over
 \begin{itemize}
-  \item Assume a known, common distribution at age 50.
-  \item For someone who enters at age 82, say, use the current model estimates
-    to compute the prevalence of states in the population, at age 82, for
-    someone with the same covariates as the subject of interest.
-  \item Rescale that prevelence by an estimate of enrollment probability for
-    each state.
+  \item Assume a known, common distribution at age 50, e.g., all CU.
+  \item For someone who enters at age 82.2, say, they are started in the 
+    analysis data at age 50, with censored data rows inserted up to age 82
+  \item Treat 'enrollment' as a biomarker, with P(enroll=1| state) as the
+    emission distribution.  We might for instance find that those currently
+    with MCI are only .8 as likely to enroll as a cognitively unimpaired (CU)
+    subject.
+  \item Wlog set the value for one of the states to 1 and that for death to 0.
 \end{itemize}
-
-This creates an age specific $\pi$ vector for each subject.
-For the dementia example above we might assume that at age 50 all subjects 
-in the underlying population are cognitively unimpaired.
-If someone were recruited at age 82.2, the overall population prevalence
-at that age is $p(82.2)= \pi(50) P_i(50, 82.2 ;X_i,\beta)$, $P_i$ being the 
-transition matrix appropriate for the covariates $X_i$ of this subject.
-Pragmatically, this is obtained by adding dummy rows for the subject
-at age 50, 51, \ldots, 82, all censored, and adding an indicator variable that
-marks the onset of the ``real'' observations. The working vector $p(82)$ is then
-created automatically by the standard computations.
-However, the study did not randomly select subjects from the distribution
-just computed --- that would have meant enrolling a lot of dead people. 
-A non-renormalized value would discourage high death rates; the likelihood
-will see it as an
-unlikey event to have enrolled several living 82 year olds but no dead ones 
-if Pr(death) by age 82 is 50\%.
-We use a renormalized value for state $s$ of
-$$\pi_s(82.2) = p_s(82.2 | X_i) P(\mbox{enroll} | s) / \sum_s \pi_s(82.2) $$
-At present the conditional probability vector is set by the user, often to
-(1, 1, \ldots, 1, 0), i.e., success for any state but death. 
-
 
 One shortcoming of the above is that it cannot be implemented if the hazard
 includes time-dependent covariates; as the necessary $X_i$ values prior to 
 age 82 are not known to us.  If there are no TD covariates and recruitment
 is a true random sample from the population, however, this approach can lead
 to a substantial gain in information.
-The pattern of enrollment diagnoses, by age, is in this particular case  
-informative with respect to the underlying population progression.
 
 A last approach, not inplemented, is discussed in Satten and Longini.
 Use
@@ -650,7 +634,8 @@ The distribution is allowed to depend on parameters of the misclassification
 process ($\gamma$) and on initial state, but not on the paramters of
 the transition probabilities $\beta$.
 They then choose a suitable prior for $\pi$ and integrate it out.
-I am not clear on whether this improves estimates or not.
+I am not clear on whether the description above is completely correct.
+
 
 \section{Censoring and Death}
 Censoring in the hmm package is viewed somewhat differently than in the
