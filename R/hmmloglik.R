@@ -360,6 +360,7 @@ hmm2 <- function(who,  B) {
     if (control$debug >3) browser()
     list(alpha=alpha, deriv= rbind(P.d, t(R.d), t(pi.d)), ecount=ecount,
          offset = offset)
+}
 
 # A function to compute alpha * derivative of D, when D is a
 deathtrans <- function(R, x, map=cmap.b1) {

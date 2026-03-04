@@ -747,8 +747,8 @@ states <- c("0MC", "1MC", "2MC", "3MC", "death")
 smat <- matrix(0, 5,5, dimnames=list(states, states))
 smat[1,2] <- smat[2,3] <- smat[3,4] <- 1
 smat[1:4,5] <- 1
-smat[1,3] <- smat[2,4] <- smat[1,4] <- .7
-statefig(rbind(4,1), smat, alty= c(1,2,1,2,2,1,1,1,1,1))
+#smat[1,3] <- smat[2,4] <- smat[1,4] <- .7
+statefig(rbind(4,1), smat)
 @ 
  \caption{Transitions for the NAFLD data, 0--3 = number of the defined
 metabolid comorbidites.}
@@ -756,27 +756,44 @@ metabolid comorbidites.}
 \end{figure}
 
 We will use the NAFLD model shown in figure \ref{fig:nafld} as our example
-of simple interval censored data.  Living patients progress 0--3 of the
-defined metabolic comorbidities of diabetes, hypertension and hyperlipidemia.
+of simple interval censored data.  Living patients accumulate 1--3 of the
+defined metabolic comorbidities of diabetes, hypertension and hyperlipidemia
+over time.
 Assume that the states are ordered as OMC, 1MC, 2MC, 3MC, death, i.e., this 
-is the order of the rows/columns of $Q$.
+is the order of the rows and columns of $Q$.
+There are seven transitions in figure \ref{fig:nafld}, with seven
+corresponding non-zero elements in the transition matrix.
+For each transition there is a linear predictor $\eta= X\beta$, as in a
+Cox model we model the rates as $\exp(X\beta)$ to guarantee positivity.
+(We do not allow negative rates, e.g. the dead coming back to life. 
+In a model where both A:B and B:A transitions are possible there will be
+two separate positive rates for $A \rightarrow B$ and $B \rightarrow A$.)
 Let $B$ be the matrix of coefficients, one column per transition probability,
-which is one per non-zero element of $Q$, the \code{qmatrix} argument.
+so that $XB$ gives all 7 linear predictors, each of length $n$= number of
+rows in the data.
+
 The \code{cmap} matrix maps elements of $B$ to the parameters to be
-maximized, if \code{cmap[j,k]} is 0 then $B_{jk}=0$.
+maximized, if \code{cmap[j,k] =m} is 0 then $X_{ij}B_{mk}=0$ is component of
+linear predictor $k$. 
+Linear predictors play a central role in hmm, for more complex models there
+may also be linear predictors (columns of \code{cmap}) associated with
+the initial probability in state or with each of multiple marker variables.
 
 The likelihood can be computed separately for each subject $i$; for
 simplicity we will (mostly) suppress the $i$ subscript below.
 The overall probability vector for the subject is
-\begin{align*}
-  \alpha(t_1) &= p(t_1) \\
-  \alpha(t_2) &= \alpha(t_1)  P(t_1, t_2) D(t_2) \\
-  \alpha(t_3) &= \alpha(t_2)  P(t_2, t_3) D(t_3) \\
-   &\vdots
-  \alpha(t_m) &= \alpha(t_{m-1})  P(t_{m-1}, t_m) D(t_m) \\
+\begin{align}
+  \alpha(t_1) &= p(t_1) \label{alpha1}\\
+  \alpha(t_2) &= \alpha(t_1)  P(t_1, t_2) D(t_2) \label{alpha2}\\
+  \alpha(t_3) &= \alpha(t_2)  P(t_2, t_3) D(t_3) \label{alpha3}\\
+   &\vdots \nonumber
+  \alpha(t_m) &= \alpha(t_{m-1})  P(t_{m-1}, t_m) D(t_m) \nonumber\\
 \end{align*}
-where $m$ is the number of intervals for the subject,
-and
+where $m$ is the number of observations for the subject;
+$p$ is the initial state probability vector, $P(s,t)$ the state
+transition matrix, and $D(t)$ an evaluation step.
+
+For the model of figure \ref{fig:nafld} we have
 \begin{align*}
   p_j(t_1) &= I{y_i(t_1) = j} \nolabel \\
   P(s,t)  &=  e^{(t-s)R(s)} \\
@@ -792,15 +809,15 @@ zeros with a single 1; it is an error for the first obs to be censored.
 The vector $\alpha(t)$ is the `modified' probability in state at time $t$.
 When predicting the future curves for a subject with a given
 starting point, i.e., in the \code{predict} function, there are no $D$
-matrices and this be exactly the probability in state $p(t)$ vector, a notation
-shared with the survival package. 
+matrices and the result will be exactly the probability in state 
+$p(t)$ vector, a notation shared with the survival package. 
 
 The $D(t)$ matrices act to constrain $p(t)$ so as to match our observations.
-There are three cases
+For simple interval censored there are three cases
 \begin{enumerate}
   \item The observed state $s$ is one of the interval censored states 0MC- 3MC.
     All elements of $\alpha$ except element $s$ will be set to zero (we know
-    that the subject is not in that state).  
+    that the subject is not in those other states).  
     The $D$ matrix will be diagonal with 1 for element $s$ and 0 for the others.
   \item Death is observed.  Death is an exact state, i.e., we know not just 
     that the subject we \emph{in} the death state at time $t_m$, but that this
@@ -809,7 +826,7 @@ There are three cases
     (To obey martingale theory, transitions have to depend on covariates known
     prior to the event.)
   \item This is a censored observation.  We know the subject is alive, so
-    set $\alpha_4 =0$.  $D$ will be diagonal with 5,5 element 0 and remaining
+    set $\alpha_5 =0$.  $D$ will be diagonal with 5,5 element 0 and remaining
     diagonal elements of 1.
 \end{enumerate}
 
@@ -817,11 +834,13 @@ An exact state is one whose entry time is observed exactly, captured by the
 \code{exact} option in the code; the most common case is death.
 For a censored obs, the subject is known to be in any state *except* death
 at that time. 
-More formally, they are not in any exactly observed absorbing state,
-absorbtion is inferred by the code from the $Q$ matrix.
+More formally, if there are any states that are exact \emph{and} absorbing,
+a censored observation cannot in any of those at the censoring time.
+Absorbtion is inferred by the from the $Q$ matrix, i.e., a 0 row.
 The \code{exactabsorb} vector of states can have more than one state, one
-could have separated death with or without recurrence into two separate
-states for instance. For a model that does not include death, the
+could for instance have chosen to separate death after recurrence and death 
+without recurrence into two separate states.
+For a model that does not include death, the 
 \code{exactabsorb} list could be empty.
 One can have an exact state that is not absorbing, an example is surgical
 resection of a section of inflamed bowel in Crohn's disease.
@@ -835,167 +854,127 @@ This is what will be returned to the maximaztion function which called
 hmm1 or hmm2.
 
 \subsubsection*{Derivative}
+\index{derivative!linear predictor}
+The code is structured so that underlying functions such as the transition
+probability matrix $P(s,t)$ and evaluation functions $D$ are parameterized
+in terms of their linear predictors.
+The functions don't ``know'' about the $X$ matrix or coefficients.
+Thus all derivatives make use of the chain rule:
+$$ \frac{\partial f}{\partial \beta_j} = 
+    \sum_k \frac{\partial f}{\partial \eta_k}
+       \frac{\partial \eta_k}{\partial \beta_j}
+$$
+where the sum is over the relevant linear predictors for the 'f' of interest.
+
+Since this is a final step for every derivative it behooves us to try and
+make it efficient. 
+The a key ingredient is the cmap matrix, represented by $C$ below.
+\begin{align}
+  eta_{ik} &= \exp(X_{i.} B_{.k}) \nonumber \\
+  \frac{\partial \eta_{ik}{\partial \beta_m} &=  
+     X_{ij} I(C_{jk} =m) \label{deta}
+\end{equation}
+where $X_{i.}$ is shorthand for the $i$th row of $X$, and similar for the
+$k$th column of $B$.
+The ideal would be to create a single matrix $Z$ with one row 
+per linear predictor and one column per coefficient such that a single
+matrix multiplication would convert the vector of derivatives with respect
+to $\eta$ into a longer one with respect to $\beta$.
+But, this matrix has elements of $X$ that are unique to each observation.
+There will be a $Z$ matrix for each step of the algorithm of equations
+\eqref{alpha1}, \eqref{alpha2}, etc.
+
+For each new it is the same elements of $Z$ which are replaced, which allows
+for the following fragment of code.
+<<eta.beta, eval=FALSE, echo=TRUE>>=
+deta.dbeta <- function(x, cmap) {
+    nz <- (cmap >0) # positive elements
+    index1 <- (row(cmap))[nz]
+    index2 <- (col(cmap))[nz]
+    index3 <- match(cmap[nz], unique(cmap[nz]))
+    Z <- matrix(0, nrow=nrow(cmap), ncol=max(index3))
+    Z[cbind(indx2, indx3)] = x[indx1]
+    Z
+}
+@ 
+This function is opaque even to its author, but testing shows that the 
+elements of the resulting matrix satisfy equation \eqref{deta}.
+Because coefficients associated with the transition matrix, markers, and
+initial probability are disjoint, we will often call the above with only the
+relevant columns of cmap.
+
+One subtle aspect of the above is the use of unique.
+\index{coefficients!fixed}
+If there are any fixed coefficients in the model, as specified by a
+\code{fixed} argument to hmm, they will appear in \code{cmap} as a negative
+index, e.g., if coefficient 4 were fixed then cmap will contain a -4.
+That $X\beta$ term is still part of relevant linear predictors and will be
+part of the \code{coefficients} vector in the fitted model, but 
+the internal param vector, which contains the parameters for optimization,
+will not include it. The deta.dbeta function above, the coef.to.B and
+B.to.coef functions have to worry about this, but most of the code is focused
+on the linear predictors and is unaffected.
+
 \index{derivative!transition matrix}
-The derivative of $\alpha$ is kept as a matrix, with one column for each
-state and one row for each parameter, i.e., for each postive element of
-\code{cmap}.
 The linear predictors for the transition matrix, the initial probability, and
 marker functions are not allowed to share any parameters.
 As a convenience, the code keeps the derivatives of $\alpha$ as three
 separate matrices: P.d has the rows corresponding to transition matrix 
-parameters, pi.d the rows (if any) for initial state parameters, and mark.d
+parameters (one col per state), pi.d the rows (if any) 
+for initial state parameters, and mark.d
 the rows (if any) for marker parameters. The last two apply for HMM models,
 not for the case at hand.
 
-
 Consider the product
 \begin{align}
-  \alpha^*(t) &= \alpha(s) P(s,t) \\
+  \alpha^*(t) &= \alpha(s) P(s,t) \label{pderiv0}\\
  \frac{\partial \alpha^*(t)}{\partial \beta_j} &=
      \frac{\partial \alpha(s)}{\partial \beta_j}P(s,t) +
      \alpha(s) \frac{\partial P(s,t)}{\partial \beta_j} \nonumber \\
      &= \frac{\partial \alpha(s)}{\partial \beta_j}P(s,t) +
      \alpha(s) \sum_k \frac{\partial P(s,t)}{\partial \theta_k}
         \frac{\partial \theta_k}{\partal \beta_k} \label{pderiv1}\\
-     
 \end{align*}
 The first equation is the standard formula for the derivative of a matrix
 product.  (Write out the the matrix product as a sum of terms, apply the product
 rule for derivatives to each term, and reassemble the result.)
 In the math vignette we lay out the formula for the derivative of the
 matrix exponential $\exp(R)$ with respect to each of its non-zero off diagonal
-elements denoted there are $\theta)k$.
+elements, denoted there by $\theta_k = \exp(\eta_k)$.
 Each of those derivatives is a nstate by nstate matrix, as changing one element
-of $R$ may change all the elements of $\exp(R)$.
-Our matrix exponential routines return $\exp(R)$ and optionally an array
+of $R$ can change all the elements of $\exp(R)$.
+Our matrix exponential routines return $\exp(R)$ and an array
 containing this set of derivative matrices.
+The final sum in equation \eqref{pderiv} is exactly matrix multiplication
+of the vector of derivatives wrt $\theta$ times the transformation matrix
+of the prior section. 
+A small slight of hand is to change the dimension of the deriv array from
+$(s,s, k)$, $s$= number of states and $k$ the number of linear predictors, to
+$(s^2,k)$; then a single matrix multiplication generates the transformation
+of all $s^2$ elements.
 
-The next step is to replace the partial of $\theta$ in equation \eqref{pderiv1}.
+For derivatives with respect to the $D$ matrices 
+\index{derivative, simple D} first recall
 \begin{align}
-  \theta_k &= \exp(X B_{.k}) \nonumber \\
-          &=  \exp(\eta_k) \nonumber \\
-  \frac{\partial \theta_k}{\partial \beta_j} &=  
-     \exp(\eta_k) X_{ij} I(C_{jk}>0) \label{deta}
-\end{equation}
-where $B_{.k}$ is the column of $B$ associated with this element of the $Q$
-matrix, and $C$ the element of the \code{cmat} matrix that identifies whether
-this particular $\beta_j$ is a part of that linear predictor.
-If there are no time dependent covariates for a subject, then all rows of
-$\eta$ for a given subject are identical, and we could transform to derivatives
-wrt $\beta$ at the end of processing this subject.  But most data sets will
-have TD covariates, i.e., rows of $X$ for a subject will vary over time,
-in particular age or time in study effects.
-
-Create the transformation matrix $Z$ with
-\begin{equation*}
- Z_{mk} &\equiv \left\{ \begin{array}{cc}
-   X_{ij} & C_{jm} = k\\
-   0       & otherwise \end{array} \right.
-\end{equation*}
-The \code{cmap} array value of $k$ in the $jm$ position means that 
-$X_j\beta_k$ is a part of linear predictor $m$.
-The $Z$ matrix will convert a vector of derivatives with respect to 
-$\theta$ into a vector with respect to $\beta$.
-If we 
-
-and for a moment consider the [,1,] slice.
-Each of the partial derivatives with respect to $\theta$ is an nstate
-by nstate matrix. 
-Create the transformation matrix $Z$ with
-\begin{equation*}
- Z_{mk} &\equiv \left\{ \begin{array}{cc}
-   X_{ij} & C_{jm}=k\\
-   0       & otherwise \end{array} \right.
-\end{equation*}
-
-
-
-
-
-
-Now continue and add $D$
-\begin{align*} 
-  \alpha(t) &= \alpha(s) P(s,t) D(t) \\
-            &=  \alpha^*(s)  D(t) \\
-  \frac{\partial \alpha(t)}{\partial \beta_j} &=
-        \frac{\partial \alpha^*(t)}{\partial \beta_j}D(t) +
-         \alpha*(t)\frac{\partial D(t)}{\partial \beta_j}
+\alpha(t) &= \alpha(s) P(s,t) D(t)  \nonumber\\
+          &\equiv $\alpha*(t)D(t)$ \nonumber\\
+\frac{\partial \alpha^*(t)}{\partial \beta_j} &=
+    \frac{\partial \alpha^*(t)}{\partial \beta_j}D(t) + 
+           \alpha^*(t)  \frac{\partial D(t)}{\partial \beta_j} \label{dderiv1}
 \end{align*}
-For the $D$ matrices, the derivatives with respect to case 1 and 3 above
-are zero.
-For case 2, a death, $D$ is column 5 of $R$ and the derivative is
-the column of $d\eta$ values for the death transition of equation 
-\eqref{deta}
-The the partial of $p(t)$ kept as a matrix \code{P.d} which has a column for 
-each state and a row for each linear predictor, 
-row $q$ of this matrix is the $dp/d \eta$ 
-element of the first term in \eqref{productderiv}.
-The first term of \eqref{productderiv} is easy: \code{P.d \%*\% P} in the
-code. 
+The $D$ matrices for case 1 and 3 above are 0/1 diagonal matrices so have
+derivative 0, which means that the second term of equation \eqref{dderiv1}
+is 0.  The first term sets appropriate columns of P.d to zero.
+For case 2, an outcome at a known time (normally death), $D$ is a zero matrix
+except for the outcome state, say it is column $d$, which will have elements
+of $\exp(\eta_?)$ for each non-zero transition, the appropriate eta for each
+non-zero element of $Q$ in that column.
+The partial of $D$ with respect to $\eta$ is a zero matrix for all linear
+predictors $\eta$ that do not appear in this column, and a matrix with a
+single nonzero element exp(eta) for each that does appear.
+Since $AC + BC = (A+B)C$ for matrices derivative wrt $\beta$ turns out to
+be $DZ$.
 
-The R code for the second term is a little more subtle. Consider a single
-a single linear predictor $q$, which is a single row of \code{P.d} and the
-\code{[, , q]} margin of $\partial P$. This does not collapse into a single
-matrix multiply, we can do it as a loop over the linear predictors, each 
-interation updates a single row of \code{P.d}.
-
-\index{derivative!$\eta$ to $\beta$}
-So far so good, but the above is not quite what we need. The maximizer wants
-to have the derivative with respect to $\beta$, not $\eta = XB$.%
-\index{derivative!$\eta$ to $\beta$}
-
-The transformation of derivatives from $\eta$ to $\beta$ is however simple.
-Apply the chain rule
-\begin{equation*}
-\frac{\partial P_{jk}}{\partial beta_m} &=
-  \sum_{s=1}^q \frac{\partial P_{jk}}{\partial eta_s} 
-   frac{\partial \eta_s}{\partial \beta_m} 
-\end{equation*}
-
-The cmap matrix provides map between covariates, coefficients
-and $\eta$.
-If cmap[j,m] =k, then X[i,j]* beta[k] is part of linear predictor $j$.
-So a ncol(cmap) by length(beta) transformation matrix $Z$ will have 
-\begin{equation*}
- Z_{mk} &\equiv \left\{ \begin{array}{cc}
-   X_{ij} & C_{jm}=k\\
-   0       & otherwise \end{array} \right.
-\end{equation*}
-This matrix is different for every row of $X$, i.e., for every transition row
-of a subject.
-But in an effort to do as much compuation as possible outside of the lowest
-loop, we can create set of variables at top level:
-eta.beta a matrix of zeros, ebindex1 and ebindex2 vectors such that
-\code{eta.beta[ebindex1] <- X[i, ebindex2]} will create the $Z$ matrix
-above (and with a more memorable name). 
-The same elements of eta.to.beta are replaced each time, so we don't need to
-reset the zeros. 
-This also deals with the bookkeeping problem of a parameter that
-is fixed for a particular run, say that the sex coefficient for the 1:3
-transition, which appears as element 8 in the overall coefficient vector of 
-length 15, has been fixed at a value.  
-Then the \code{cmap} matrix will have a value of -8 in that position instead
-of 8, the coefficients reported in the output remain in the same order
-(very useful from the user's point of view), 
-but there are now 14 total parameters from the maximizer's
-point of view. The eta.beta matrix should have 14 columns, not 15, and
-a \code{cmap} element of 10, say, be mapped to the 9th of these by
-the indices.  Not hard, though opaque, if you only have to do it once.
-
-Now think of the $(s, s, k)$ array \code{dmat}returned by our expm routine,
- where $s$ is the number of states and $k$ the number of $\theta$ values.
-The product \code{dmat[,1,] \%*\% eta.to.beta} will be the $s$ by number
-of parameters matrix of derivatives for column 1 of the $P$ matrix and
-\code{alpha\%*\% dmat[,1,] \%*\% eta.to.beta} the
-\ldots. 
-
-This change is in progress.  In the current code the
-lines that create \code{Z} from \code{cmap} in the \code{Ptrans}
-routine capture the above equation, but will be completely opaque for anyone
-reading them without this documentation.
-Per the quote at the top of this document such opacity is unwise, but it is run
-$O(nk)$ times where $n$ is the number of rows in the $X$ matrix and $k$ the
-number of iterations.
 
 The second complexity in the routine is multiplication. 
 Formula \ref{productderiv} applies separately to \emph{each} element $P_{jk}$
