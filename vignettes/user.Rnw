@@ -232,7 +232,7 @@ temp2 <- with(cdata, tapply(year[i2]-year[i1], status[i1], sum))[-1]
 crude <-  (temp1/c(temp2))[ctrans>0]
 cfit0 <- hmm(Surv(year, status) ~ 1, id=id,  init=log(crude),
              qmatrix= ctrans, exact="death", data= cdata,
-             mc.cores=1, debug=3)
+             mc.cores=1, debug=3, iter=0)
 cfit1 <- hmm(Surv(time, status) ~ rx + node4 + extent, id=id,
              qmatrix= ctrans, exact="death", data= cdata, mc.cores=1, 
              init= cfit1)

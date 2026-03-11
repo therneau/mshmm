@@ -1,11 +1,11 @@
 # The main function
 hmm <- function(formula, data, subset, weights, na.action, 
                 id, qmatrix, markers, iprob,
-                mfun= hmmscore, mpar= list(), mgrad, iter=20,
+                mfun= hmmscore, mpar= list(), mfattr, iter=20,
                 mc.cores= getOption("mc.cores", 2L),
                 init, fixed, scale=TRUE, penalty, constraint,
                 statedata, exact ="death",
-                control= icmsh.control(), ...) {
+                control= hmm.control(), ...) {
     Call <- match.call()
     time0 <- proc.time()
 
@@ -14,13 +14,13 @@ hmm <- function(formula, data, subset, weights, na.action,
     ##  is simply to allow things like "eps=1e6" with easier typing
     extraArgs <- list(...)
     if (length(extraArgs) && missing(control)) {
-        controlargs <- names(formals(icmsh.control)) #legal arg names
+        controlargs <- names(formals(hmm.control)) #legal arg names
         indx <- pmatch(names(extraArgs), controlargs, nomatch=0L)
         if (any(indx==0L))
             stop(gettextf("Argument %s not matched", 
                           names(extraArgs)[indx==0L]), domain = NA)
-        control <- do.call(icmsh.control, extraArgs)
-    } else if (missing(control)) control <- icmsh.control()
+        control <- do.call(hmm.control, extraArgs)
+    } else if (missing(control)) control <- hmm.control()
 
 
     # create a call to model.frame() that contains the formula (required)
@@ -226,13 +226,16 @@ hmm <- function(formula, data, subset, weights, na.action,
          }
         ytime <- Y[,1]
     } else {
-        # "time" will be the response, all states are latent
-        # if the user didn't specify an exact argument, ignore our default
+        # "time" will be the response, all states are latent.  Unusual since
+        # death is normally one of the states, and it is not latent.
+        # If the user didn't specify an exact argument, ignore our default
+        #  of 'death', i.e.,don't give an error that there is value for the 
+        #  exact option that is not in the set of states.
         if (!is.null(exact)) # user specified one
             stop("the response must be a Surv object if there are exact states")
         if (!is.numeric(Y)) stop("response must be numeric or Surv")
         ytime <- Y
-        ystate <- rep(0L, nrow(mf))
+        ystate <- rep(0L, nrow(mf)) # all censored
     }   
     ytime <- c(diff(ytime), 0)  # the time interval for each observation
 
@@ -267,6 +270,7 @@ hmm <- function(formula, data, subset, weights, na.action,
         id   <- id[keep]
         ytime <- ytime[keep]
         ystate <- ystate[keep]
+        weights <- weights[keep]
         mf <- mf[keep,]  # the markers have not yet been pulled out
         # message for printout
         removed <- c(subjects= length(toss), y= sum(ymiss), rate=sum(xmiss),
@@ -277,12 +281,6 @@ hmm <- function(formula, data, subset, weights, na.action,
         removed <- NULL
     }
     
-    # replace missing covariates for the rates using lvcf
-    last <- !duplicated(id, fromLast=TRUE)
-    for (i in 1:ncol(X)) {
-        if (any(is.na(X[,i] & !last))) X[,i] <- lvcf(id, X[,i], ytime)
-    }
-
     # Initialize the coefficients.  We do this before scaling X, since the
     #  user's view of coefficients is always on the original scale.
     # First init, then any overrides from options
@@ -354,15 +352,12 @@ hmm <- function(formula, data, subset, weights, na.action,
     # Import any init() or fixed() from the options
     # not yet done
 
-    # Standardize the X matrix.  In the extrememly rare case that there
-    # is a linear predictor that does not involve the intercept, e.g. a user had
-    # factor(group)-1, we can't do so.
-    #  Markers are not in the X matrix, so not scaled
-    if (xassign[1]!=0 || any(cmap[1,] ==0)) {
-        if (scale)
-            warning("not possible to scale the data")
-        scale <- FALSE
-    }
+    # Standardize the X matrix.  All linear preditors must include an intercept
+    # To do otherwise, e.g., allow "~ group -1" as a formula, makes our formula
+    #   processing just too difficult
+    # Markers are not in the X matrix, so don't get scaled
+    if (xassign[1]!=0 || any(cmap[1,] ==0)) 
+        stop("-1 in formulas not allowed")
     if (scale && ncol(X) >1) {
         rvar <- 2:ncol(X) # don't scale the intercept!
         Xmean <-  rep(0, ncol(X))
@@ -404,7 +399,7 @@ hmm <- function(formula, data, subset, weights, na.action,
         iprob[cbind(1:nid), fstate] <- 1
     }
     else if (missing(iprob))
-        stop("initial probability not available for all subjects")
+        stop("iprob argument is required")
     else if (is.formula(iprob))  
         stop("iprob = formula, code not yet completed")
     else if (!is.numeric(iprob))
@@ -468,214 +463,46 @@ hmm <- function(formula, data, subset, weights, na.action,
             if (nrow(test) != nstate || ncol(test) != sum(keep)) 
                 stop("wrong result from marker function ",i)
         }
-    } else rlist <- NULL
-
-    # the otype variable: 1= interval censored = is in a known state at
-    #  this time point; 2= exact = known state and we know exactly when it
-    #  was entered (e.g. death), 3= one or more markers, 0 = none of these
-    # ymarker is a data.frame, not a matrix, hence sapply
-    # What to do with an obs where markers are measured, but the state is
-    #  known, i.e., ystate>0?  I think it is data dependent, so we warn the
-    #  user. The current hmm1/hmm2 code will ignore the markers.
-    temp1 <- ystate %in% iexact
-    temp2 <- ystate %in% exactabsorb
-    if (nmarker >0 ) {
-        temp3 <- rowSums(sapply(ymarker, is.na)) >0
-        if (any(temp3 & ystate>0))
-            warning("marker variables present for an obs with known state")
-    } else temp3 <- 0
-    otype <- ifelse(temp1, 2L,
-                    ifelse(ystate>0, 1L, 3L*temp3))
-    
-    # nlp has the number of colums of cmap for the rates, markers, and initial
-    #  values. Now make two helpers
-    # b1/b2/b3 are vectors containing the column number of cmap for each of
-    #  the three, parmcount is the number of estimated coefficients 
-    #  associated with each
-    temp <- rep(1:3, nlp)
-    b1 <- which(temp==1)
-    b2 <- which(temp==2)
-    b3 <- which(temp==3)
-    utemp <- function(zed) 
-        if (length(zed)>0) length(unique(zed[zed>0])) else 0L
-    parmcount <- c(utemp(cmap[,b1]), utemp(cmap[,b2]), utemp(cmap[,b3]))
-
-    # Creat the mapping matrix from linear predictors eta to the estimated
-    #  portion of the coefficients vector (ignore fixed coefs), which is the
-    #  part that the maximization function will "see".
-    # See "derivatives, eta to beta" in the code vignette for details, along
-    #  with a couple of open questions.
-    eta.to.beta <- matrix(0, ncol(cmap), sum(parmcount))
-    temp <- match(cmap, unique(cmap[cmap>0]), nomatch=0)
-    ebindex1 <- (col(cmap)[temp>0] -1L)*sum(parmcount) + temp[temp>0]
-    ebindex2 <- row(cmap)[temp>0]
-   
-    # Set up helper for markers
-    Rtrans <- vector("list", nmarker)  #one element per response function
-    if (nlp[2]) { #if there are response parameters
-        tfun <- function(dmat, x, map) {
-            tmat <- matrix(0., map$dim[1], map$dim[2])
-            tmat[map$tindex] <- x[map$xindex]
-            dmat %*% tmat
-        }
-        for (i in 1:nmarker) {
-            if (length(b2map[[i]]) >0 && any(cmap[, b2map[[i]]] > 0)) {
-                formals(tfun)[[3]] <- makeindex(cmap[,b2map[[i]], drop=FALSE],
-                                                cmap[,b2])
-                Rtrans[[i]] <- tfun
-            }
-        }
+    } else {
+        rlist <- NULL
+        ymarker <- NULL
     }
-    if (nlp[3]) { #if there are initial probability  parameters
-        pitrans <- function(dmat, x, map) {
-            tmat <- matrix(0., map$dim[1], map$dim[2])
-            tmat[map$tindex] <- x[map$xindex]
-            dmat %*% tmat
-        }
-        formals(pitrans)[[3]] <- makeindex(cmap[,b3, drop=FALSE])
+
+    if (missing(mfun)) mfunname <- "hmmscore"
+    else mfunname <- Call[["mfun"]]
+    # if the default for mfun is changed in the hmm call, the above needs to 
+    #  change too, since Call does not contain default arguments
+    if (mfunname== "hmmloglik") { # no iteration
+        iter <- 0
+        mfattr <- list(param="par", result=1)
     }
-    cmap.b1 <- makeindex(cmap[,b1, drop=FALSE])
+    else if (mfunname == "hmmscore") 
+        mfattr<- list(param= "par", fn="fn", deriv=TRUE, gfun=NULL, 
+                     iter= "iter", result=2)
+    else if (mfunname== "optim")
+        mfattr <- list(param="par", fn="fn", deriv= TRUE, gfun="gr", 
+                     iter= list(control="maxit"), result=3)
+    else if (mfunname== "hmm1" || mfunname== "hmm2") 
+        mfattr <- list(param="par", fun="fn", deriv=FALSE, 
+                       iter= "iter", result=4)
+    else if (!missing(mfattr)) {
+        mfname <- c("param", "fun", "deriv", "iter", "result")
+        if (any(is.na(match(mfname, names(mfattr)))))
+            stop("the mfattr argument is not complete")
+    } else stop("user supplied optimizer must include mfattr argument")
 
-    # Set up copies of the hmm1 and hmm2 functions to have the scope
-    #  of this function. See "scope" in the code vignette for details.
-    # I pass them down the calling chain as "logfun" as a way (I hope)
-    #  to make it a little clearer in following routines that they are copies
-    hmm1x <- hmm1; hmm2x <- hmm2
-    environment(hmm1x) <- environment()
-    environment(hmm2x) <- environment()
+    fit <- msh.fit(id, ytime, ystate, X, iprob, B,
+                     cmap, nlp, ymarker, rlist, qmatrix,
+                     mc.cores, control, mfun, mfattr, mpar, iter,
+                     iexact, conmat, penmat)
 
-    # Set up parallel, Windows can't fork, others can
-    if (mc.cores >1 && control$makecluster) {
-        fork <- FALSE
-        hmm_cluster <- makeCluster(mc.cores) #start up parallel
-        }
-    else fork <- TRUE
-    time1 <- proc.time()
-
-    # get the initial loglik and penalty
-    rindex <- which(qmatrix >0)
-    param <- B.to.coef(B, cmap)
-    initial.loglik <- hmmloglik(param, B, cmap, id, mc.cores, fork, 
-                                logfun= hmm1x, penmat=penmat)
-    if (length(initial.loglik) ==0) 
-        stop("unable to evaluate at the intial parameters")
-
-    if (!is.null(penmat))
-        penalty0 <- sum(param *(penmat %*% param))/2
-    else penalty0 <- 0
-
-    mfunname <- Call[["mfun"]]
-    # if the default for mfun is changed in the hmm call, this needs to 
-    #  change too, Call does not contain default arguments
-    if (is.null(mfunname)) mfunname <- "hmmscore"
-
-    # Do we need to iterate?
-    # setting mfun to hmmloglik was an older way of doing 0 iterations, if
-    #  so then we are already done via the initial loglik above
-    if (mfunname== "hmmloglik" || (!missing(iter) && iter ==0)) {
-        # no iteration
-        loglik <- NULL
-        penalty <- NULL
-        fit <- NULL
-    }
-    else { # Yes, iterate
-        if (mfunname== "hmmscore") {
-            # hmmscore is currently the default maximizer
-            # the user may have supplied an mpar arg with things specific
-            #  to hmmscore.  Add onto it the par, fn, B, etc args
-            mpar$par <- param
-            mpar$fn <- hmmboth
-            mpar <- c(mpar, list(B=B, cmap=cmap, id=id, 
-                                 mc.cores= mc.cores, fork= fork, 
-                                 logfun= hmm2x, penmat=penmat))
-            if (!missing(iter)) mpar$iter <- iter
-            if (length(constraint)) mpar$constraint <- constraint
-            mpar$debug <- control$debug
-            hmm_count_of_calls <- c(0,0)  # a debugging line, see hmm2
-            fit <- do.call(hmmscore, mpar)
-            if (control$debug >0) print(hmm_count_of_calls)
-        } else if (mfunname== "optim") {
-            mpar$par <- param
-            mpar$fn <- hmmloglik
-            mpar$gr <- hmmgrad
-            mpar <- c(mpar, list(B=B, cmap= cmap, id=id, 
-                                 mc.cores= mc.cores, fork= fork, penmat=penmat))
-            mpar$logfun <- hmm1x
-            mpar$grfun  <- hmm2x
-            if (is.null(control$iter)) control$maxit <- iter
-            if (is.null(control$fnscale)) control$fnscale <- -1
-            fit <- do.call(optim, mpar)
-        } else if (mfunname== "mcmc0" || mfunname=="mcmc1") {
-            mpar$par <- param
-            mpar$logfun = "hmmloglik"  # no derivatives needed
-            mpar <- c(mpar, list(B=B, cmap= cmap, id=id, 
-                                 mc.cores= mc.cores, fork= fork, logfun=hmm1x,
-                                 penmat= penmat))
-            if (length(constraint)) mpar$constraint <- constraint
-            fit <- do.call(mfunname, mpar)
-        } else {
-            # User supplied function.  We assume the first 3 args,
-            #  whatever their names, are the starting estimate, the
-            #  loglik function, and optionally the gradient. The
-            #  grad argument tells us which
-            # (par, fn) or (par, fn, gn)
-            if (!inherits(mfun, "function"))
-                stop("mfun argument must be a function")
-           if (missing(mgrad)) 
-                stop("mgrad is needed for a user supplied maximizer")
-            else if (!(mgrad %in% 0:2))
-                stop("valid mgrad arguments are 0-2")
-            mfunarg <- formalArgs(mfun)  # the names of their args
-            mpar[[mfunarg[1]]] <- param
-            if (mgrad == 1) {
-                mpar[[mfunarg[2]]] <- hmmboth
-                mpar$logfun= hmm2x
-            }
-            else {
-                mpar[[mfunarg[2]]]  <- hmmloglik
-                mpar$logfun= hmm1x
-            }
-            if (mgrad==2) {
-                mpar[[mfunarg[3]]] <- hmmgrad
-                mpar$grfun <- hmm2x
-            } 
-            mpar <- c(mpar, list(B=B, cmap= cmap, id=id, 
-                                 mc.cores= mc.cores, fork= fork,
-                                 penmat=penmat))
-            if (mgrad==2) mpar$gr <- hmmgrad
-            ff <- names(formals(mfun))
-            if (any(ff== "iter") && is.null(mpar$iter)) mpar$iter <- iter
-            fit <- do.call(mfun, mpar)
-        }
-        
-        # find the fitted coefs in the output, and the loglik
-        # optim uses par and value, hmmscore coef and loglik
-        nfit <- names(fit)
-        indx <- pmatch(c("coef", "par", "log", "value"), nfit, nomatch=0)
-
-        param <- if (indx[1] >0) fit[[indx[1]]] 
-                 else if (indx[2]>0) fit[[indx[2]]] 
-                 else {
-                     zz <- seq_along(nfit)[-indx]
-                     fit[[zz[1]]]
-                 }
-        loglik <-  if (indx[3] >0) fit[[indx[3]]] 
-                 else if (indx[4]>0) fit[[indx[4]]] else NULL
-
-        # Compute the penalties
-        if (!is.null(penmat)) {  #matrix ones later
-            penalty <- sum(param * (penmat %*% param))/2
-        pderiv  <-  c(param %*% penmat)
-        }
-        else penalty <- 0
-    }
 
     time2 <- proc.time()
     if (mc.cores > 1 & control$makecluster) stopCluster(hmm_cluster)
 
     # Undo any scaling and centering
     if (scale) {
-        B <- coef.to.B(param, cmap, B)
+        B <- coef.to.B(param, cmap, fit$B)
         Bscale <- xtrans %*% B
         param <- B.to.coef(Bscale, cmap)
     }
@@ -708,7 +535,7 @@ hmm <- function(formula, data, subset, weights, na.action,
                   cmap=cmap, rmap=rindex,
                   qmatrix = qmatrix,   # the structure and state names
                   nstate = nstate,
-                  n = c(rows=nrow(mf), subjects=nid),
+                  n = c(observations =nrow(mf), id =nid),
                   na.action = na.action,
                   removed = removed, 
                   call=Call,  xlevels=xlevels,

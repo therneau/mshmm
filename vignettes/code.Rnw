@@ -39,13 +39,14 @@ you can be when you write it, how will you ever debug it?''
 \end{quote}
 
 Work on my own packages has taught me the wisdom of the above. 
-Even more to relevant is ``how will you understand the code when you
-look at it a year from now''?
-Nevertheless, though I try to be simple, there are parts of the code that
+Even more relevant than debugging is whether I will understand my own code when
+I look at it a year later.
+Nevertheless, though we try to be simple, there are parts of the code that
 are complex.
 Even for the 'simpler' parts, 
-I find that any time that a new case arises, months or years later that makes me
-need to examine my code (and they always do) the end result will be
+I find that any time that a new case arises, months or years later, that 
+cause me to reexamine a part of the code (and new cases always arise),
+the end result will most often be 
 3x as many additions to the comments as to the code.
 
 This is an attempt to add more context to critical regions.  There are some 
@@ -61,15 +62,15 @@ It is increasingly clear that no future maintainer will continue the
 work, e.g.,
 on the survival github page I have yet to recieve a suggested update that
 actually fixed the .Rnw source file instead of the .R file derived from it.
-This means
-that I can't merge a suggested change automatically, but have to replicate it
-myself.
+This means that if I ever intend to have others take over maintainance I need
+to abandon that approach.
 
 This package does not use noweb.
 Instead, this latex document will contain an index, and the R
 source code has comments pointing to the index of the code vignette.
-(The R code can't refer to ``figure 3.2 in the vignette'' because figure
-numbers and labels change).
+The R source code can't refer to ``figure 3.2 in the vignette'' because figure
+numbers and labels change when a document is recompiled, but it can say 
+``see topic xyz in the index''.
 
 
 \section{Parsing the formulas}
@@ -694,11 +695,11 @@ Derivatives for any given state $s$ are (suppressing the $s$ subsript)
 \end{align*} 
 which is a standard multinomial variance matrix, one for each true state.
 The derivative wrt $\eta_1$ is 0 by definition, so column 1 of the 
-matrix will be discrared, retaining dervative wrt $\eta_2$, $\eta_3$, etc. 
+matrix will be discrarded, retaining dervative wrt $\eta_2$, $\eta_3$, etc. 
 Nevertheless the values in row 1, which make use of $p_1$, are correct.
 
 Recognize that there is no grand biologic rationale behind this transformation.
-Using $\exp(\eta)$ terms in this no more than a simple computational strategy
+Using $\exp(\eta)$ terms in but a simple computational strategy
 that yields 3 important properties: $\eta$ is unconstrained, $0 <p<1$ and
 $\sum_k p_{sk}=1$; and is one of the simpler ways to do so. 
  Do not fall into the trap of overinterpeting individual
@@ -712,7 +713,7 @@ the first derivative matrix. Don't start thinking about covariance.
 
 The multinomial routine in the code also allows for a pattern matrix, zero
 values in the matrix mark state/marker values that never occur in practice.
-This may be do to a priori knowlege, or practical experience: if this pair is
+This may be due to a priori knowlege, or practical experience: if this pair is
 never observed to happen the maximun for the $\eta$ will be $-\infty$ and there
 is not good reason to waste time and energy estimating such a parameter.
 
@@ -841,7 +842,7 @@ An exact state is one whose entry time is observed exactly, captured by the
 \code{exact} option in the code; the most common case is death.
 For a censored obs, the subject is known to be in any state *except* death
 at that time. 
-More formally, if there are any states that are exact \emph{and} absorbing,
+More formally, if there are any states that are exact and absorbing,
 a censored observation cannot in any of those at the censoring time.
 Absorbtion is inferred by the from the $Q$ matrix, i.e., a 0 row.
 The \code{exactabsorb} vector of states can have more than one state, one
@@ -882,8 +883,8 @@ The a key ingredient is the cmap matrix, represented by $C$ below.
   \frac{\partial \eta_{ik}}{\partial \beta_m} &=  
      X_{ij} I(C_{jk} =m) \label{deta}
 \end{align}
-where $X_{i.}$ is shorthand for the $i$th row of $X$, 
-and similarly $B_{.k}$ for the $k$th column of $B$.
+where $X_{i.}$ is shorthand for the $i$th row of $X$ 
+and $B_{.k}$ for the $k$th column of $B$.
 The ideal would be to create a single matrix $Z$ with one row 
 per linear predictor and one column per coefficient such that a single
 matrix multiplication would convert the vector of derivatives with respect
@@ -892,8 +893,8 @@ But, this matrix has elements of $X$ that are unique to each observation.
 Thus there will be a $Z$ matrix for each step of the algorithm of equations
 \eqref{alpha1}, \eqref{alpha2}, etc.
 
-For each new it is the same elements of $Z$ which are replaced, which allows
-for the following fragment of code.
+For each new data row we have a new $X$, but it is the same elements of 
+$Z$ which are replaced, which allows for the following fragment of code.
 <<eta.beta, eval=FALSE, echo=TRUE>>=
 deta.dbeta <- function(x, cmap) {
     nz <- (cmap >0) # positive elements
@@ -908,7 +909,7 @@ deta.dbeta <- function(x, cmap) {
 This function is opaque even to its author, but testing shows that the 
 elements of the resulting matrix satisfy equation \eqref{deta}.
 Because coefficients associated with the transition matrix, markers, and
-initial probability are disjoint, we will often call the above with only the
+initial probability are disjoint, we call the above with only the
 relevant columns of cmap.
 
 One subtle aspect of the above is the use of unique.
@@ -923,6 +924,12 @@ will not include it. The deta.dbeta function above, the coef.to.B and
 B.to.coef functions have to worry about this, but most of the code is focused
 on the linear predictors and is unaffected.
 
+For even more efficiency, the functions \code{eta.beta1}, \code{eta.beta2}
+and \code{eta.beta3} are created in the msh.fit routine, for the transition,
+marker, and initial state linear predictors, respectively. 
+Each of these functions is created by \code{derivfun}, essentially the code
+shown above, but with the indices encoded as default values for the function.
+
 \index{derivative!transition matrix}
 The linear predictors for the transition matrix, the initial probability, and
 marker functions are not allowed to share any parameters.
@@ -930,8 +937,7 @@ As a convenience, the code keeps the derivatives of $\alpha$ as three
 separate matrices: P.d has the rows corresponding to transition matrix 
 parameters (one col per state), pi.d the rows (if any) 
 for initial state parameters, and mark.d
-the rows (if any) for marker parameters. The last two apply for HMM models,
-not for the case at hand.
+the rows (if any) for marker parameters. The last two apply for HMM models.
 
 Consider the product
 \begin{align}
@@ -941,7 +947,8 @@ Consider the product
      \alpha(s) \frac{\partial P(s,t)}{\partial \beta_j} \nonumber \\
      &= \frac{\partial \alpha(s)}{\partial \beta_j}P(s,t) +
      \alpha(s) \sum_k \frac{\partial P(s,t)}{\partial \theta_k}
-        \frac{\partial \theta_k}{\partial \beta_k} \label{pderiv1}\\
+       \frac{\partial \theta_k}{\partial \eta_k}
+        \frac{\partial \eta_k}{\partial \beta_j} \label{pderiv1}\\
 \end{align}
 The first equation is the standard formula for the derivative of a matrix
 product.  (Write out the the matrix product as a sum of terms, apply the product
@@ -952,18 +959,38 @@ elements, denoted there by $\theta_k = \exp(\eta_k)$.
 Each of those derivatives is a nstate by nstate matrix, as changing one element
 of $R$ can change all the elements of $\exp(R)$.
 Our matrix exponential routines return $\exp(R)$ and an array
-containing this set of derivative matrices.
+containing this set of derivative matrices of dimension $(s,s k)$ where
+$s$= number of states and $k$ the number of linear predictors.
+In the very rare case of a transition probability with only fixed coefficients,
+the matrix exponential will still return a matrix for that particular
+transition, but that column of the $(\partial \eta)/(\partial \beta)$
+matrix will be zero, giving the proper increment of 0 to the derivative.
+
+The first term in equation \ref{pderiv1} is simple matrix multiplication:
+the derivative matrix \code{P.d} of $\alpha$ with respect to transition 
+coefficients is kept as a matrix with one row per coefficient and one column
+per state; multiply it by the $s,s$ matrix $P(s,t)$.
+
 The final sum in equation \eqref{pderiv1} is exactly matrix multiplication
 of the vector of derivatives wrt $\theta$ times the transformation matrix
 of the prior section. 
-In the very rare case of a transition probability with only fixed coefficients,
-the matrix exponential will still return a matrix for that particular
-transition, but that column of the $Z$ matrix will be zero, giving the proper
-increment of 0 to the derivative.
+This is accomplished for all elements of $P$ at once by the first line below.
+The matrix t1 will have $s^2$ rows, one per element of $P$ and one colum per
+coefficient.
+<<echo=TRUE, eval=FALSE>>=
+t1 <- matrix(deriv, ncol=k) %*% eta.beta1(X[i,])
+t2 <- tcrossprod(alpha, t1)
+
+@ 
+A single matrix multiplication
+\code{matrix(dd, ncol=k) \%*\% Z} creates a the matrix of derivatives with 
+respect to beta
 A small slight of hand is to change the dimension of the deriv array from
 $(s,s, k)$, $s$= number of states and $k$ the number of linear predictors, to
 $(s^2,k)$; then a single matrix multiplication generates the transformation
 of all $s^2$ elements.
+
+
 
 For derivatives with respect to the $D$ matrices 
 \index{derivative, simple D} first recall

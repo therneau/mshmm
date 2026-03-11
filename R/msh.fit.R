@@ -1,0 +1,197 @@
+# The icmsh function has done all of the formula and parameter parsing, and
+#  calls this function to do the work. 
+# id   : subject id of 1,1,1,.. 2,2,2 etc. Data sorted by time within subject
+# ytime: vector of times, only used to create the length of time between rows
+# ystate: integer, 0= censor, 1,2,.. match the states in qmatrix
+# X     : matrix of covariates for the linear predictors
+# iprob : initial probability for each id, matrix with one column per state
+# B      : matrix of coefficients, one column per linear predictor
+# cmap  : integer matrix that maps covariates, parameters, linear predictors
+#           one row per covariate, one column per linear predictor
+# nlp   : length 3 vector: number of linear predictors for the transitions, the
+#          markers, and the initial state.  The second and third can be 0
+# ymarker: data frame containing the marker variables
+# rlist  : the emission distributions, one per marker
+# qmatrix: nstate by nstate matrix, 0= not a valid transition, >0 = valid
+# mc.cores: number of cores for mclapply
+# control:  see icmsh.control()
+# mfun   : the function to use for maximization
+# mfattr : list describing characteristics of mfun
+# mpar   : optional list of parameters for mfun
+# iter   : maximum number of iterations
+# iexact : which states are exact, if any, i.e., the time of entry is known
+# conmat : constraint matrix (can be null)
+# penmat : penalty matrix (can be null)
+msh.fit <- function(id, ytime, ystate, X, iprob, B,
+                      cmap, nlp, ymarker, rlist, qmatrix,
+                      mc.cores, control, mfun, mfattr, mpar, iter,
+                      iexact, conmat, penmat) {
+
+    rindex <- which(qmatrix > 0) # index to the non-zero rates
+    nmarker <- length(ymarker)
+    nstate <- nrow(qmatrix)
+
+    # a 0 row in qmap = an absorbing state (you never leave)
+    absorb <- (rowSums(qmatrix>0) ==0)
+    # an exact state that is absorbing: any obs is known to not be in an
+    #  'exactabsorb' state at a censoring time (there is no way to get there)
+    exactabsorb <- iexact[absorb[iexact]]
+
+    # the otype variable: 1= interval censored = is in a known state at
+    #  this time point; 2= exact = known state and we know exactly when it
+    #  was entered (e.g. death), 3= one or more markers, 0 = none of these
+    # ymarker is a data.frame, not a matrix, hence sapply
+    # What to do with an obs where markers are measured, but the state is
+    #  known, i.e., ystate>0?  I think it is data dependent, so we warn the
+    #  user. The current hmm1/hmm2 code will ignore the markers.
+    temp1 <- ystate %in% iexact
+    temp2 <- ystate %in% exactabsorb
+    if (nmarker >0 ) {
+        temp3 <- rowSums(sapply(ymarker, is.na)) >0
+        if (any(temp3 & ystate>0))
+            warning("marker variables present for an obs with known state")
+    } else temp3 <- 0
+    otype <- ifelse(temp1, 2L,
+                    ifelse(ystate>0, 1L, 3L*temp3))
+
+    # nlp has the number of linear predictors for the rates, markers, and initial
+    #  state, each linear predictor is a column of cmap.
+    # Much of the code is built around a central idea, which is that the 
+    #  underlying computations of transition probability, markers, and intial 
+    #  state are all in terms of linear predictors, e.g., the matrix exponential
+    #  routines are called with a set of linear predictors eta, and they return 
+    #  derivatives wrt eta. 
+    # These become derivatives wrt the parmameters via matrices created by
+    #  the eta.beta1, eta.beta2 and eta.beta3 functions; for the transition 
+    #  matrix linear predictors, response function lp, and initial state lp
+    #  respectively.  (These have disjoint portions of the parameter vector).
+    # Because hmm1/hmm2 can be called lots of times (once per subject per
+    #  iteration) we set up some indices to make them faster/simpler.
+    # parmcount is the number of iterated parameters for each of the three
+    # e1, e2, e3 are the columns of eta for each
+    parmcount <- rep(0L,3)
+    if (nlp[1] > 0) { #should always be true
+        ctemp <- cmap[, 1:nlp[1], drop=FALSE]
+        eta.beta1 <- derivfun(ctemp)
+        parmcount[1] <- sum(unique(ctemp[ctemp>0]))
+        e1 <- 1:nlp[1]  # the columns of eta for transition matrix
+    }
+    if (nlp[2] >0) {
+        e2 <- nlp[1] + 1:nlp[2] # cols for the
+        ctemp <- cmap[, e2, drop=FALSE]
+        eta.beta2 <- derivfun(ctemp)
+        parmcount[2] <- sum(unique(ctemp[ctemp>0]))
+    }
+    if (nlp[3] >0) {
+        e3 <- nlp[1] +nlp[2] + 1:nlp[3]
+        ctemp <- cmap[, e3, drop=FALSE]
+        eta.beta3 <- derivfun(ctemp)
+        parmcount[3] <- sum(unique(ctemp[ctemp>0]))
+    }
+ 
+    # Set up parallel, Windows can't fork, others can
+    if (mc.cores >1 && control$makecluster) {
+        fork <- FALSE
+        hmm_cluster <- makeCluster(mc.cores) #start up parallel
+        }
+    else fork <- TRUE
+    time1 <- proc.time()
+
+    # Set up copies of the hmm1 and hmm2 functions to have the scope
+    #  of this function. See "scope" in the code vignette for details.
+    # We do the same with the hmmloglik, hmmgrad, and hmmboth routines.
+    # Arguments to msh.fit that haven't yet been touched, and are needed 
+    #  downstream are 'forced' so that they have been copied to the environment.
+    # (A small bit of slight-of-hand is that "msh.fit" is later in the
+    #   alphabet, so the "hmm" routines compile first and are available).
+    # I don't really need the 'x' suffix below, but it helps me remember what
+    #   I am doing.  
+    force(iprob); 
+    hmm1x <- hmm1; hmm2x <- hmm2
+    hmmloglikx <- hmmloglik
+    hmmgradx <- hmmgrad; hmmbothx <- hmmboth
+    environment(hmm1x) <- environment()
+    environment(hmm2x) <- environment()
+    environment(hmmloglikx) <- environment()
+    environment(hmmgradx)   <- environment()
+    environment(hmmbothx)   <- environment()
+
+    browser()
+    # get the initial loglik and penalty
+    param <- B.to.coef(B, cmap)
+    initial.loglik <- hmmloglikx(param, logfun=hmm1x)
+
+    if (length(initial.loglik) ==0) 
+        stop("unable to evaluate at the intial parameters")
+
+    if (!is.null(penmat))
+        penalty0 <- sum(param *(penmat %*% param))/2
+    else penalty0 <- 0
+
+    if (iter ==0) {
+        # no need to iterate, create return
+        if (is.list(initial.loglik)) {
+            # this occurs with certain debug options, which return everthing
+            rval <- list(loglik=initial.loglik$loglik, penalty=penalty0,
+                         fit= initial.loglik)
+        } else rval <- list(loglik= initial.loglik, penalty=penalty0)
+        return(rval)
+    }
+       
+    clist <- list() # build the do.call argument list
+    clist[[mfattr$par]] <- param
+    if (mfattr$deriv) {
+        # most common call, iteration using gradients
+        if (is.null(mfattr$gfun)) {
+            # the maximizer expects gradients as an attribute
+            clist[[mfattr$fn]] <- hmmbothx
+        } else {
+            clist[[mfattr$fn]] <- hmmloglikx
+            clist[[mfattr$gfun]] <- hmmgradx
+        }
+        clist[["logfun"]] <- hmm2x
+    } else {
+        clist[[mfattr$fn]] <- hmmloglikx
+        clist[["logfun"]] <- hmm1x
+    }
+
+    # figure out where to put the iter argument into the mfun call
+    if (is.character(mfattr$iter)) clist[[mfattr$iter]] <- iter  #simple arg
+    else { # add it to an mpar argument (optim uses control$maxit)
+        tname <- names(mfattr$iter) # what's it called
+        temp <- mpar[tname] 
+        if (is.null(temp)) {
+            temp <- list() # if null, add it as a list
+            temp[[mfattr$iter]] <- iter
+            clist[[tname]] <- temp
+        } else if (is.null(temp[[mfattr$iter]])) {
+            temp[[mfattr$iter]] <- iter
+            mpar$tname <- temp
+        }
+    }
+    
+    fit <- do.call(mfun, clist)
+
+    cat ("fit done "); browser()
+
+    # find the fitted coefs in the output, and the loglik
+    # optim uses par and value, hmmscore coef and loglik
+    nfit <- names(fit)
+    indx <- pmatch(c("coef", "par", "log", "value"), nfit, nomatch=0)
+
+    param <- if (indx[1] >0) fit[[indx[1]]] 
+             else if (indx[2]>0) fit[[indx[2]]] 
+             else {
+                 zz <- seq_along(nfit)[-indx]
+                 fit[[zz[1]]]
+             }
+    loglik <-  if (indx[3] >0) fit[[indx[3]]] 
+               else if (indx[4]>0) fit[[indx[4]]] else NULL
+
+        # Compute the penalties
+        if (!is.null(penmat)) {  #matrix ones later
+            penalty <- sum(param * (penmat %*% param))/2
+        pderiv  <-  c(param %*% penmat)
+        }
+        else penalty <- 0
+    }

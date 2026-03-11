@@ -1,36 +1,33 @@
-    
 # This next set of functions hmmloglik, hmmderiv, hmmboth will normally be
-#  called via a maximization function,  hmmloglik or hmmdebug are called
-#  directly by hmm for the zeroth iteration.
+#  called via a maximization function; hmmloglik is also called by msh.fit  
 #    hmmloglik: just the loglik, no derivatives
 #    hmmgrad  : just the derivatives
-#    hmmboth  : loglik and derivative, plus a bit more
-#    hmmdb: for debugging, pass back everything
+#    hmmboth  : loglik and derivative
 # These functions in turn call hmm1 (loglik) and hmm2 (loglik and deriv)
 #   to do the actual work, they are called for each separate id, in parallel.
-# Because of the call chain hmm -> hmmscore -> hmmboth -> hmm2 for 
+# Because of the call chain msh.fit -> hmmscore -> hmmboth -> hmm2 for 
 #   instance, we need to pass everthing that hmm1/hmm2 need all the way down
 #   the chain. I originally had these all functions' code within
 #   the outer {} of hmm itself, which allows arguments to be found via lexical 
 #   scoping, but code simply became too unweildy to be managable.
 # "logfun" is a copy of hmm1 or hmm2, properly scoped, and passed down the chain
 #  Those two get their first two arguments "who" (the id for which to compute
-#  a loglik) and "beta" from here, all others are found in the hmm frame
+#  a loglik) and "beta" from here, all others are found in the msh.fit frame
 # 
 # A reminder: B is the matrix of parameters, of the same shape as cmap; it will
-#  have zeros if some covariates that are not used for all transitions.
-#  "param" is the label used by the maximizer, for the vector of parameters
-#  "coefficients" is what it is labeled in the result, to match lm, glm, etc.
+#  have zeros for covariates that are not used in a given linear predictor.
+#  "param" is the vector of parameters from the maximizer, which does not
+#   contain fixed coefs, "coefficients" in the result does have fixed coefs.
 #  \beta is what we call the vector of parameters within the math documentation
 grab <- function(x, what) 
     if (what %in% names(x)) x[[what]] else NULL
 
-hmmloglik <- function(param, B, cmap, id, mc.cores, fork, logfun, penmat) {
-    B[cmap>0] <- param[c(cmap)]   #"param[cmap]" fails if cmap has 2 columns
+hmmloglik <- function(param, logfun) {
+    B2 <- coef.to.B(param, cmap, B) #copy with updated parameters
     if (mc.cores > 1) {
         if (!fork)
-            mcfit <- parLapply(hmm_cluster, unique(id), logfun, B=B) 
-        else mcfit <- mclapply(unique(id), logfun, B= B,
+            mcfit <- parLapply(hmm_cluster, unique(id), logfun, B=B2) 
+        else mcfit <- mclapply(unique(id), logfun, B= B2,
                                mc.cores= mc.cores, mc.set.seed=FALSE)
     }
     else mcfit <- lapply(unique(id), logfun, B=B)
@@ -47,75 +44,35 @@ hmmloglik <- function(param, B, cmap, id, mc.cores, fork, logfun, penmat) {
         stop(words[1])
     }
 
-    loglik <- sum(unlist(mcfit))
     tpar <- c(param)  # used for constraints
     if (!is.null(penmat)) loglik <- loglik - sum(tpar * (penmat %*% tpar))/2
     
-    # This might be added back at a later date
-    #if (!is.null(conmat)) {
-    #    temp <-  conmat %*% tpar
-    #    loglik <- loglik + sum(log(pmax(temp,0)))# -Inf if there are violations
-    #}
-    loglik
-}
-
-# hand back everything (debug).
-# Called as the zero iteration rather than hmmloglik during the debugging phase
-#  it returns a list with one element per id.
-hmmdb <- function(param, B, cmap, id, mc.cores, fork, logfun, penmat) {
-    B[cmap>0] <- param[c(cmap)]
-    if (mc.cores > 1) {
-        if (!fork)
-            mcfit <- parLapply(hmm_cluster, unique(id), logfun, B= B) 
-        else mcfit <- mclapply(unique(id), logfun, B= B,
-                               mc.cores= mc.cores, mc.set.seed=FALSE)
-    }
-    else mcfit <- lapply(unique(id), logfun, B=B)
-
-    alpha <- sapply(mcfit, function(x) grab(x, "alpha"))
-    offset <- sapply(mcfit, function(x) grab(x, "offset"))
-    if (any(sapply(mcfit, is.character))) {
-        # failure
-        words <- sapply(mcfit, function(x) ifelse(is.character(x), x, ""))
-        if (any(words == "underflow")) {
-            # assume a bad guess from a maximizer, return a bad hit
-            loglik <- -Inf
-            mcfit <- mcfit[which(words=="")]  # toss the bad results and go on
-        }
-        else {
-            words <- words[words!=""]
-            stop(words[1])
-        }
-    }
-    else loglik <- sum(log(colSums(alpha)) + offset)
-    
-    ecount <- sapply(mcfit, function(x) grab(x, "ecount"))
-    dd <- dim(mcfit[[1]]$deriv)
-    rval <- list(alpha = alpha,
-                 offset = offset,
-                 loglik = loglik,
-                 deriv = array(unlist(lapply(mcfit, function(x) grab(x, "deriv"))),
-                               dim=c(dd, length(mcfit))),
-                 ecount=ecount)
-    tpar <- param
-    if (!is.null(penmat)) rval$penalty <- sum(tpar* (penmat %*% tpar))/2
-    #if (!is.null(conmat)) {
-    #    temp <- tpar %*% conmat
-    #    rval$constraint <- log(pmax(temp,0))
-    #}
-    rval
+    if (control$debug == -1) {
+        # Hand back more stuff
+        alpha <- sapply(mcfit, function(x) grab(x, "alpha"))
+        offset <- sapply(mcfit, function(x) grab(x, "offset"))
+        loglik <- sum(log(colSums(alpha)) + offset)    
+        ecount <- sapply(mcfit, function(x) grab(x, "ecount"))
+        rval <- list(alpha = alpha,
+                     offset = offset,
+                     loglik = loglik,
+                     ecount=ecount)
+        tpar <- param
+        if (!is.null(penmat)) rval$penalty <- sum(param* (penmat %*% param))/2
+        rval
+    } else sum(unlist(mcfit)) # mcfit returns a single number
 }
 
 # This function is used by the score based iteration
-hmmboth <- function(param, B, cmap, id, mc.cores, fork, logfun, penmat){
-    B[cmap>0] <- param[c(cmap)]
+hmmboth <- function(param, logfun){
+    B2 <- coef.to.B(param, cmap, B) #copy with updated parameters
     if (mc.cores > 1) {
         if (!fork)
-            mcfit <- parLapply(hmm_cluster, unique(id), logfun, B=B)
-        else mcfit <- mclapply(unique(id), logfun, B=B,
+            mcfit <- parLapply(hmm_cluster, unique(id), logfun, B=B2)
+        else mcfit <- mclapply(unique(id), logfun, B=B2,
                                mc.set.seed=FALSE, mc.cores=mc.cores)
     }
-    else mcfit <- lapply(unique(id), logfun, B=B)
+    else mcfit <- lapply(unique(id), logfun, B=B2)
 
     alpha <- sapply(mcfit, function(x) sum(grab(x, "alpha")))
     offset <- sapply(mcfit, function(x) grab(x, "offset"))
@@ -169,15 +126,15 @@ hmmboth <- function(param, B, cmap, id, mc.cores, fork, logfun, penmat){
 }
 
 # This is used by optim
-hmmgrad <- function(param, x, B, cmap, mc.cores, fork, grfun, penmat) {
-    B[cmap>0] <- param[c(cmap)]
+hmmgrad <- function(param, grfun) {
+    B2 <- coef.to.B(param, cmap, B) #copy with updated parameters
     if (mc.cores > 1) {
         if (!fork)
-            mcfit <- parLapply(hmm_cluster, unique(id), grfun, B=B)
-        else mcfit <- mclapply(unique(id), grfun, B=B,
+            mcfit <- parLapply(hmm_cluster, unique(id), grfun, B=B2)
+        else mcfit <- mclapply(unique(id), grfun, B=B2,
                                mc.set.seed=FALSE, mc.cores=mc.cores)
     }
-    else mcfit <- lapply(unique(id), grfun, B=B)
+    else mcfit <- lapply(unique(id), grfun, B=B2)
     
     if (any(sapply(mcfit, is.character))) {
         # failure

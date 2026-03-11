@@ -21,7 +21,7 @@ hmm1 <- function(who, B) {
     # starting probability
     if (!is.null(iprob)) alpha <- iprob[who,]
     else if (is.null(p0fixed))
-        alpha <- pfun(nstate, eta[1,b3], gradient=FALSE)
+        alpha <- pfun(nstate, eta[1,e3], gradient=FALSE)
     else alpha <- p0fixed
     
     # Now the response functions for this set
@@ -29,7 +29,7 @@ hmm1 <- function(who, B) {
     if (any(rneed)) {
         rlist <- vector("list", nmarker)
         for (k in 1:nmarker) {
-            j <- b2map[[k]]  #columns of B for this response
+            j <- e2map[[k]]  #columns of B for this response
             indx <- rneed & !is.na(yobs[rows, k])
             yy <- yobs[rows[indx], k]
             if (length(yy) >0) {
@@ -79,7 +79,7 @@ hmm1 <- function(who, B) {
             alpha[-k] <- 0
         } else if (otype[j] == 2) {
             # exact event time (death)
-            rmat[rindex] <- exp(eta[jj-1, b1]) #covariate just before this point
+            rmat[rindex] <- exp(eta[jj-1, e1]) #covariate just before this point
             k <- ystate[j]  # the exact state just entered
             alpha[k] <- sum(alpha*rmat[,k])
             alpha[-k] <- 0  # known to not be in another state
@@ -165,6 +165,7 @@ Ptrans <- function(alpha, dP, cmap, x) {
     # Can we do it without a loop?
     dim(newd) <- c(dd[1], dd[1]*nbeta)
     temp <- crossprod(newd, alpha)
+    cat("Ptrans "); browser()
     matrix(temp, ncol=dd[1], byrow=TRUE)
 }
 
@@ -205,7 +206,7 @@ hmm2 <- function(who,  B) {
 
     # starting probability
     if (!is.null(iprob)) alpha <- iprob[who,]
-    else if (is.null(p0fixed)) alpha <- pfun(nstate, eta[1,b3], gradient=TRUE)
+    else if (is.null(p0fixed)) alpha <- pfun(nstate, eta[1,e3], gradient=TRUE)
     else alpha <- p0fixed
     if (nlp[3]) {
         pi.d <- pitrans(attr(alpha, 'gradient'), X[rows[1],])
@@ -218,7 +219,7 @@ hmm2 <- function(who,  B) {
     if (any(rneed)) {
         for (k in 1:nmarker) {
             index <- rneed & !is.na(yobs[rows,k])
-            j <- b2map[[k]]  #linear predictors for this response
+            j <- e2map[[k]]  #linear predictors for this response
             yy <- yobs[rows[index], k]
             if (length(yy) > 0) {
                 temp <- rfun[[k]](yy, nstate, eta[index, j, drop=FALSE], 
@@ -312,7 +313,7 @@ hmm2 <- function(who,  B) {
 
         if (jj < r2) { # not the last row
             # state matrix transformation P
-            rmat[rindex] <- exp(eta[jj,b1])
+            rmat[rindex] <- exp(eta[jj,e1])
             if (!all(is.finite(rmat))) {
                 # a horrible beta can overflow
                 if (control$debug > 1) 
