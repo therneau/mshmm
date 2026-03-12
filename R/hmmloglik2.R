@@ -165,7 +165,6 @@ Ptrans <- function(alpha, dP, cmap, x) {
     # Can we do it without a loop?
     dim(newd) <- c(dd[1], dd[1]*nbeta)
     temp <- crossprod(newd, alpha)
-    cat("Ptrans "); browser()
     matrix(temp, ncol=dd[1], byrow=TRUE)
 }
 
@@ -241,7 +240,7 @@ hmm2 <- function(who,  B) {
     for (jj in seq_along(rows)) {
         j <- rows[jj]
         if (otype[j] ==1) { # interval censored
-            if (control$debug >2) cat("otype1 "); browser()
+            if (control$debug >2) {cat("otype1 "); browser()}
             k <- ystate[j]
             alpha[-k] <- 0
             P.d[, -k] <- 0
@@ -253,7 +252,7 @@ hmm2 <- function(who,  B) {
             dtemp[k] <- 0      # we don't want -1*rowsum here
             if (nlp[3]) pi.d <- pi.d * rep(dtemp, nlp[3])
             if (nlp[2]) R.d  <- R.d  * rep(dtemp, nlp[2])
-            cat("death "); browser()
+            if (control$debug >1) {cat("death "); browser()}
             # Why the j-1 below?  A death density will depend on covariates
             #  measured prior to the death, not measured at the death
             # dtemp above already has this lag, since rmat is from prior iter
@@ -262,7 +261,6 @@ hmm2 <- function(who,  B) {
             # 
             if (nlp[1] >0 ) {
                 part1 <- P.d %*% dtemp # multiply each row times D
-                P.d[k,] <- xxx
                 P.d  <- P.d + t(alpha * deathtrans(rmat, X[j-1,], cmap.b1)) #part 2
             }
             alpha[k] <- alpha * dtemp
@@ -335,8 +333,10 @@ hmm2 <- function(who,  B) {
             }
             if (nlp[3]) pi.d <- t(ptemp$P) %*% pi.d 
             if (nlp[2]) R.d <-  t(ptemp$P) %*% R.d 
-            if (nlp[1]) 
+            if (nlp[1]) {
+                if (control$debug>1) {cat("Ptrans2 "); browser()}
                 P.d <-  P.d %*% ptemp$P + Ptrans(alpha, ptemp$dmat, cmap, X[j,])
+            }
             alpha <- drop(alpha %*% ptemp$P)   # ditch the dimensions
             if (control$debug > 4) {
                 cat("\n j=", j, "jj=", jj, "alpha=", format(alpha), "\n")

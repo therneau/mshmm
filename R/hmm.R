@@ -52,7 +52,13 @@ hmm <- function(formula, data, subset, weights, na.action,
         stop("the diagonal of qmatrix should be 0")
     if (any(qmatrix < 0)) stop("qmatrix elements must be >=0")
     qmap <- which(qmatrix != 0)   
-    ntransitions <- length(qmap)
+    # nlp = number of linear predictors used by transitions, markers, and
+    #  initial state.  Set the first element, others will be done later.
+    nlp <- integer(3)
+    nlp[1] <- sum(qmap)
+    # mark each element of qmatrix with the linear predictor which it maps to
+    #  this is used when computing for transitons to death
+    qmatrix[qmap] <- 1:(nlp[1])
 
     # If the user did not provide an exact argument, don't complain if
     #  our default value of "death" is not one of the known states, instead
@@ -183,20 +189,21 @@ hmm <- function(formula, data, subset, weights, na.action,
     cmap <- parse2$cmap # coefficients for the transitions
     tmap <- parse2$tmap # terms for the transitions
 
-    # nlp[3] = number of linear predictors (cols of cmap) that are
+    # number of linear predictors (cols of cmap) that are
     #  devoted to rates, markers, and intial state.  The last is filled
     #  in further below in the initial state section.
     # For categorical markers we will also want to know the number of 
     #   categories (used to set up response functions)
+    # We
     if (nmarker >0) {
         markerlevels <- sapply(marker1$marker, function(x) 
             length(levels(mf[[x]])))
         marker2 <- parsemarker2(marker1, stateddata, Terms, colnames(X), 
                                 xassign, markerlevels)
-        nlp <- c(ncol(cmap), ncol(marker2$cmap), 0)
+        nlp[2] <- ncol(marker2$cmap)
         cmap <- cbind(cmap,
                       ifelse(marker2$cmap==0, 0, marker2$cmap +max(cmap))) 
-    } else nlp <- c(ncol(cmap), 0, 0)
+    } 
 
     nparam <- max(cmap) # total estimated parameters
                            

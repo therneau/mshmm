@@ -10,3 +10,4 @@ vignettes/.*.bbl
 vignettes/.*.blg
 *~
 data/renal.R
+vignettes/temp

@@ -917,7 +917,7 @@ One subtle aspect of the above is the use of unique.
 If there are any fixed coefficients in the model, as specified by a
 \code{fixed} argument to hmm, they will appear in \code{cmap} as a negative
 index, e.g., if coefficient 4 were fixed then cmap will contain a -4.
-That $X\beta$ term is still part of relevant linear predictors and will be
+That $X\beta$ term is still part of relevant linear predictor and will be
 part of the \code{coefficients} vector in the fitted model, but 
 the internal param vector, which contains the parameters for optimization,
 will not include it. The deta.dbeta function above, the coef.to.B and
@@ -930,6 +930,7 @@ marker, and initial state linear predictors, respectively.
 Each of these functions is created by \code{derivfun}, essentially the code
 shown above, but with the indices encoded as default values for the function.
 
+\subsection{Transition matrix}
 \index{derivative!transition matrix}
 The linear predictors for the transition matrix, the initial probability, and
 marker functions are not allowed to share any parameters.
@@ -971,9 +972,10 @@ the derivative matrix \code{P.d} of $\alpha$ with respect to transition
 coefficients is kept as a matrix with one row per coefficient and one column
 per state; multiply it by the $s,s$ matrix $P(s,t)$.
 
-The final sum in equation \eqref{pderiv1} is exactly matrix multiplication
-of the vector of derivatives wrt $\theta$ times the transformation matrix
-of the prior section. 
+For the final sum in equation \eqref{pderiv1}, consider any single slice
+\code{deriv[i,j,]} of the derivative matrix.  The sum is exactly
+matrix multiplication of the vector of derivatives of $P_{ij}$ with respect to
+$\theta$, times the transformation matrix of the prior section. 
 This is accomplished for all elements of $P$ at once by the first line below.
 The matrix t1 will have $s^2$ rows, one per element of $P$ and one colum per
 coefficient.  If we were to reset the dimension to $(s,s,p)$, then
@@ -983,20 +985,69 @@ By resetting the dimension of t1 to $(s, sp)$ a single matrix multiplication
 gives the nstate values for $\beta_1$, then for $\beta_2$, ... as a single
 long vector which can be reshaped.
 <<echo=TRUE, eval=FALSE>>=
-t1 <- matrix(deriv, ncol=k) %*% eta.beta1(X[i,])
+t1 <- crossprod(matrix(deriv, ncol=k), eta.beta1(X[i,])
 t2 <- matrix(alpha %*% matrix(t1, nrow=nstate), ncol=nstate, byrow=TRUE)
 @ 
 
-
-
-For derivatives with respect to the $D$ matrices 
-\index{derivative, simple D} first recall
+\subsection{Censoring and death}
+\index{derivative, simple D} First recall
 \begin{align}
 \alpha(t) &= \alpha(s) P(s,t) D(t)  \nonumber \\
           &\equiv \alpha*(t)D(t) \nonumber\\
 \frac{\partial \alpha(t)}{\partial \beta_j} &=
     \frac{\partial \alpha^*(t)}{\partial \beta_j}D(t) + 
-           \alpha^*(t)  \frac{\partial D(t)}{\partial \beta_j} \label{dderiv1}
+           \alpha^*(t) \left[\sum_k \frac{\partial D(t)}{\partial \eta_k} 
+             \frac{\partial \eta_k}{\partial \beta_j} \label{dderiv1}
+\end{align}
+
+If this time point corresponds to entry into a known state, 
+e.g., simple interval censoring and state $k$.
+Then the $D$ matrix consists of a single elements $D_{kk}=1$ with all others
+zero, and the derivative of $D$ is zero.
+Set $p(t)$ to zero for all except the $k$ element, and likewise all columns of
+\code{P.d} to zero except the $k$th.
+A censored observation is known to not be in any of the \code{exactabsorb}
+states, $D$ will be a diagonal matrix with 0 for the exact-absorb states 
+(if any) and 1 for the others; those the values of \code{alpha} and columns 
+of \code{P.d} corresponding to the zeros to zero.
+
+If this is entry to an exact state $k$, e.g. death, then
+all columns of $D$ are 0 except the $k$th,
+which contains the $\exp(\eta)$ values for transitions to state $k$; i.e.,
+the $\eta$ values associated with column $k$ of the transition matrix.
+associated with column $k$ of $P$ with the appropriate values. 
+(Early in the hmm function qmatrix was filled in with those indices, i.e. if
+$Q[1,5] =3$ then the 1:5 transition is associated with $\eta_3$.)
+For the first part of equation \eqref{dderiv1} we only need the $k$th
+column of $D$, all other elememts of the updated value are 0.
+The derivative of $D$ with respect to each $\eta$ will  have a single  
+$\exp(\eta)$ values in that particular row and column $k$.
+Looking at the second term, each element of the sum selects off a particuar
+row of the \code{eta.beta1} matrix and multiplies it by the the appropriate
+scale.
+Pseudo code looks like below, along with lines to zero elements other than $k$.
+
+<<echo=TRUE, eval=FALSE>>=
+dtemp <- double(nlp[1])  
+index <- qmatrix[qmatrix[,k]>0, k]  # the indices of the eta values
+dtemp[index] <- eta[i, index]       # X values for data row i
+term2 <- dtemp* eta.beta1[x[i,]]    # elementwise multiplication
+@ 
+
+We need to create a zero vector with length the number of linear predictors
+associated with the transition matrix ($P$ or $Q$), and fill in the elements
+associated with column $k$ of $P$ with the appropriate values. 
+(Early in the hmm function qmatrix was filled in with those indices.)
+The update formula is
+
+\index{derivative, simple D} First recall
+\begin{align}
+\alpha(t) &= \alpha(s) P(s,t) D(t)  \nonumber \\
+          &\equiv \alpha*(t)D(t) \nonumber\\
+\frac{\partial \alpha(t)}{\partial \beta_j} &=
+    \frac{\partial \alpha^*(t)}{\partial \beta_j}D(t) + 
+           \alpha^*(t) \left[\sum_k \frac{\partial D(t)}{\partial \eta_k} 
+             \frac{\partial \eta_k}{\partial \beta_j} \label{dderiv1}
 \end{align}
 The $D$ matrices for case 1 and 3 above are 0/1 diagonal matrices so have
 derivative 0, which means that the second term of equation \eqref{dderiv1}

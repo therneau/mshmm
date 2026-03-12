@@ -116,7 +116,6 @@ msh.fit <- function(id, ytime, ystate, X, iprob, B,
     environment(hmmgradx)   <- environment()
     environment(hmmbothx)   <- environment()
 
-    browser()
     # get the initial loglik and penalty
     param <- B.to.coef(B, cmap)
     initial.loglik <- hmmloglikx(param, logfun=hmm1x)
