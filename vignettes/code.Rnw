@@ -966,7 +966,7 @@ the matrix exponential will still return a matrix for that particular
 transition, but that column of the $(\partial \eta)/(\partial \beta)$
 matrix will be zero, giving the proper increment of 0 to the derivative.
 
-The first term in equation \ref{pderiv1} is simple matrix multiplication:
+The first term in equation \eqref{pderiv1} is simple matrix multiplication:
 the derivative matrix \code{P.d} of $\alpha$ with respect to transition 
 coefficients is kept as a matrix with one row per coefficient and one column
 per state; multiply it by the $s,s$ matrix $P(s,t)$.
@@ -976,19 +976,16 @@ of the vector of derivatives wrt $\theta$ times the transformation matrix
 of the prior section. 
 This is accomplished for all elements of $P$ at once by the first line below.
 The matrix t1 will have $s^2$ rows, one per element of $P$ and one colum per
-coefficient.
+coefficient.  If we were to reset the dimension to $(s,s,p)$, then
+\code{alpha \%*\% t1[,,1]} would be the second term of equation \eqref{pderiv1},
+for the first coefficient $\beta_1$.  
+By resetting the dimension of t1 to $(s, sp)$ a single matrix multiplication
+gives the nstate values for $\beta_1$, then for $\beta_2$, ... as a single
+long vector which can be reshaped.
 <<echo=TRUE, eval=FALSE>>=
 t1 <- matrix(deriv, ncol=k) %*% eta.beta1(X[i,])
-t2 <- tcrossprod(alpha, t1)
-
+t2 <- matrix(alpha %*% matrix(t1, nrow=nstate), ncol=nstate, byrow=TRUE)
 @ 
-A single matrix multiplication
-\code{matrix(dd, ncol=k) \%*\% Z} creates a the matrix of derivatives with 
-respect to beta
-A small slight of hand is to change the dimension of the deriv array from
-$(s,s, k)$, $s$= number of states and $k$ the number of linear predictors, to
-$(s^2,k)$; then a single matrix multiplication generates the transformation
-of all $s^2$ elements.
 
 
 

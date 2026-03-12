@@ -1,0 +1,6 @@
+    The addition of optional constraints was particularly helpful. 
+    We have data sets where certain obvious constraints, e.g., 
+    death rates increase with disease state, are not active at the final
+    solution point, but nevertheless guide the maximizer away from bad
+    intermediate guesses.  My imperfect analogy is to ``never pass through the
+    bad part of town''.
