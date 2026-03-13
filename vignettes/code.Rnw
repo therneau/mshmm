@@ -972,22 +972,36 @@ the derivative matrix \code{P.d} of $\alpha$ with respect to transition
 coefficients is kept as a matrix with one row per coefficient and one column
 per state; multiply it by the $s,s$ matrix $P(s,t)$.
 
-For the final sum in equation \eqref{pderiv1}, consider any single slice
-\code{deriv[i,j,]} of the derivative matrix.  The sum is exactly
-matrix multiplication of the vector of derivatives of $P_{ij}$ with respect to
-$\theta$, times the transformation matrix of the prior section. 
-This is accomplished for all elements of $P$ at once by the first line below.
+For the second term, we first have to transform the matrix of derivatives
+\code{temp\$dmat} from dimension (nstate, nstate, ncol(cmap)) to 
+(nstate, nstate, nrow(cmap)), transforming from derivatives wrt $\eta$ to
+those wrt $\beta$.  The straightforward way to do this is a pair of
+1:nstate nested loops, followed by creation of each row of the second term
+of formula \ref{pderiv1}
+<<echo=TRUE, eval=FALSE>>=
+for (j in 1:nstate) {
+    for (k in 1:nstate) 
+        newd[j,k, ] <- deriv[j,k,] %*% Z
+}
+for (k in 1: dim(newd)[3]) { # for each element of $\beta
+    secondterm[k,] <- alpha %*% newd[,,k]
+}
+@  
+
+Faster is to use matrix manipulations.
+We can do all of the multiplications of the first pair of loops, at once,
+by recasting the deriv array as an $(s^2, k)$ matrix, then using
+crossprod.
 The matrix t1 will have $s^2$ rows, one per element of $P$ and one colum per
-coefficient.  If we were to reset the dimension to $(s,s,p)$, then
-\code{alpha \%*\% t1[,,1]} would be the second term of equation \eqref{pderiv1},
-for the first coefficient $\beta_1$.  
+coefficient. 
 By resetting the dimension of t1 to $(s, sp)$ a single matrix multiplication
 gives the nstate values for $\beta_1$, then for $\beta_2$, ... as a single
 long vector which can be reshaped.
 <<echo=TRUE, eval=FALSE>>=
-t1 <- crossprod(matrix(deriv, ncol=k), eta.beta1(X[i,])
+t1 <- tcrossprod(matrix(deriv, ncol=k), eta.beta1(X[i,]))
 t2 <- matrix(alpha %*% matrix(t1, nrow=nstate), ncol=nstate, byrow=TRUE)
 @ 
+
 
 \subsection{Censoring and death}
 \index{derivative, simple D} First recall
@@ -1031,36 +1045,26 @@ Pseudo code looks like below, along with lines to zero elements other than $k$.
 dtemp <- double(nlp[1])  
 index <- qmatrix[qmatrix[,k]>0, k]  # the indices of the eta values
 dtemp[index] <- eta[i, index]       # X values for data row i
-term2 <- dtemp* eta.beta1[x[i,]]    # elementwise multiplication
+term1 <- P.d %*% dtemp
+term2 <- alpha %*% (dtemp* eta.beta1[x[i,]])    # elementwise multiplication
+P.d[,-k] <- 0; P.d[,k] <- term1 + term2
 @ 
 
-We need to create a zero vector with length the number of linear predictors
-associated with the transition matrix ($P$ or $Q$), and fill in the elements
-associated with column $k$ of $P$ with the appropriate values. 
-(Early in the hmm function qmatrix was filled in with those indices.)
-The update formula is
+As an example consider the simple case of a 3 state, 3 transition cancer model of
+entry/progression/death. 
 
-\index{derivative, simple D} First recall
-\begin{align}
-\alpha(t) &= \alpha(s) P(s,t) D(t)  \nonumber \\
-          &\equiv \alpha*(t)D(t) \nonumber\\
-\frac{\partial \alpha(t)}{\partial \beta_j} &=
-    \frac{\partial \alpha^*(t)}{\partial \beta_j}D(t) + 
-           \alpha^*(t) \left[\sum_k \frac{\partial D(t)}{\partial \eta_k} 
-             \frac{\partial \eta_k}{\partial \beta_j} \label{dderiv1}
-\end{align}
-The $D$ matrices for case 1 and 3 above are 0/1 diagonal matrices so have
-derivative 0, which means that the second term of equation \eqref{dderiv1}
-is 0, while the first term sets appropriate columns of P.d to zero.
-For case 2, an outcome at a known time (normally death), $D$ is a zero matrix
-except for the outcome state, say it is column $d$, which will have elements
-of $\exp(\eta_?)$ for each non-zero transition, the appropriate eta for each
-non-zero element of $Q$ in that column.
-The partial of $D$ with respect to $\eta$ is a zero matrix for all linear
-predictors $\eta$ that do not appear in this column, and a matrix with a
-single nonzero element $\exp(\eta)$ for each that does appear.
-Since $AC + BC = (A+B)C$ for matrices, the derivative wrt $\beta$ turns out to
-be $DZ$.
+\begin{itemize}
+  \item the eta.beta1 matrix is the 3x3 identity ($X$ has only the intercept
+    column)
+  \item  $D$ is 3 by 3 with third column of $(\exp(\beta_2), \exp(\beta_3), 0)$,
+    index will be 2:3 (linear predictor 1 is the entry:progression transition)
+  \item (dtemp*eta.beta1) will be 3x3 and diagonal, first column = derivatives
+    of D[1,3] wrt coefficient 1, 2, and 3; second col= derivatives of D[2,3],
+    third col will be 0 since D[3,3]=0.  This is the final sum in equation
+    \eqref{dderiv1}
+  \item term1 + term2 = the new column 3 of P.d, cols 1 and 2 will be 0
+\end{itemize}
+
 
 
 The second complexity in the routine is multiplication. 
@@ -1068,25 +1072,7 @@ Formula \ref{pderiv1} applies separately to \emph{each} element $P_{jk}$
 of the transition matrix.
 Let \code{P.d} be the derivative matrix, one row for each parameter $\beta$
 and one column per state.  The first term in the equation is easy,
-\code{P.d \%*\% P} updates all of the rows of P.d at once.  For the
-second term, we first have to transform the matrix of derivatives
-\code{temp\$dmat} from dimension (nstate, nstate, ncol(cmap)) to 
-(nstate, nstate, nrow(cmap)), transforming from derivatives wrt $\eta$ to
-those wrt $\beta$.  The straightforward way to do this is a pair of
-1:nstate nested loops, followed by creation of each row of the second term
-of formula \ref{pderiv1}
-<<echo=TRUE, eval=FALSE>>=
-for (j in 1:nstate) {
-    for (k in 1:nstate) 
-        newd[j,k, ] <- deriv[j,k,] %*% Z
-}
-for (k in 1: dim(newd)[3]) { # for each element of $\beta
-    secondterm[k,] <- alpha %*% newd[,,k]
-}
-@  
-Faster is to use matrix manipulations, which again will be a bit obscure.
-The test file ptrans.R suggests that there is a significant speed up.
-
+\code{P.d \%*\% P} updates all of the rows of P.d at once.  
 Aside:The \code{cmap} matrix tracks the mapping between the matrix form of the
 parameters $B$ and the vector form $\beta$;
 the matrix form is what we want for $XB$ and the vector form is what the

@@ -55,7 +55,7 @@ hmm <- function(formula, data, subset, weights, na.action,
     # nlp = number of linear predictors used by transitions, markers, and
     #  initial state.  Set the first element, others will be done later.
     nlp <- integer(3)
-    nlp[1] <- sum(qmap)
+    nlp[1] <- length(qmap)
     # mark each element of qmatrix with the linear predictor which it maps to
     #  this is used when computing for transitons to death
     qmatrix[qmap] <- 1:(nlp[1])

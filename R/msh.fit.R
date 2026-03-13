@@ -73,20 +73,20 @@ msh.fit <- function(id, ytime, ystate, X, iprob, B,
     if (nlp[1] > 0) { #should always be true
         ctemp <- cmap[, 1:nlp[1], drop=FALSE]
         eta.beta1 <- derivfun(ctemp)
-        parmcount[1] <- sum(unique(ctemp[ctemp>0]))
+        parmcount[1] <- length(unique(ctemp[ctemp>0]))
         e1 <- 1:nlp[1]  # the columns of eta for transition matrix
     }
     if (nlp[2] >0) {
         e2 <- nlp[1] + 1:nlp[2] # cols for the
         ctemp <- cmap[, e2, drop=FALSE]
         eta.beta2 <- derivfun(ctemp)
-        parmcount[2] <- sum(unique(ctemp[ctemp>0]))
+        parmcount[2] <- length(unique(ctemp[ctemp>0]))
     }
     if (nlp[3] >0) {
         e3 <- nlp[1] +nlp[2] + 1:nlp[3]
         ctemp <- cmap[, e3, drop=FALSE]
         eta.beta3 <- derivfun(ctemp)
-        parmcount[3] <- sum(unique(ctemp[ctemp>0]))
+        parmcount[3] <- length(unique(ctemp[ctemp>0]))
     }
  
     # Set up parallel, Windows can't fork, others can

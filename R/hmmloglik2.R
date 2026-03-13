@@ -128,56 +128,7 @@ hmm1 <- function(who, B) {
     loglik
 }
 
-# Helper function for the derivatives in hmm2
 
-# See "derivatives, eta to beta" in the code vignette, the definition of
-#  Z particularly needs the longer explanation.
-# This function is for P, the nstate by nstate transition matrix.
-#  alpha = vector of probality in state
-#  dP = derivatives of P wrt eta
-#   x = one row of the X matrix, for the observation in question
-Ptrans <- function(alpha, dP, cmap, x) {
-    dd <- dim(dP)  
-    # dP will have dim(nstate, nstate, number of etas)
-    #  it contains the deriviative wrt each eta, for each element of P
-    # cmap has a row for each variable, column for each eta
-    # Z transforms from d/deta to d/dbeta (derivatives), the R code is arcane
-    # see the discussion in the code document.
-    nbeta <- max(cmap)
-    Z <- matrix(0,dd[3], nbeta)
-    cz <- which(cmap>0)
-    Z[cbind(col(cmap)[cz], cmap[cz])] <- x[row(cmap)[cz]]
-   
-    # A simple transform is
-    #   for (i in 1:nstate) {
-    #      for (j 1:nstate) newd[i,j,] <- dP[i,j,] %*% Z }
-    # That is, treat each i,j element separately in the chain rule equation
-    #   of the eta to beta section of the code vignette
-    # Try to be faster using matrix mult, but use the above to validate.
-    #  Temporarly make dP an (nstate*nstate, dd[3]) matrix to allow this.
-    # Changing an attrbute should not force a copy of dP to be made.
-    dim(dP) <- c(dd[1]*dd[1], dd[3])
-    newd <- dP %*% Z 
-
-    # If we think of newd as (nstate, nstate, beta), then newd[,,1] is the
-    #  derivative of each element of P wrt beta[1], etc.
-    # We want a new matrix whose jth row is alpha %*% newd[,,j].  
-    # Can we do it without a loop?
-    dim(newd) <- c(dd[1], dd[1]*nbeta)
-    temp <- crossprod(newd, alpha)
-    matrix(temp, ncol=dd[1], byrow=TRUE)
-}
-
-makeindex <- function(cmap, all=cmap) {
-    nonzero <- (cmap > 0)
-    parms <- sort(unique(all[all>0]))  # the parameter numbers for this group
-    p <- ncol(cmap)    # number of linear predictors
-    k <- match(cmap[nonzero], parms)  #parameter number
-    nparm <- length(parms)
-    rr <- row(cmap)[nonzero]  # which X to use
-    cc <- col(cmap)[nonzero]  #which eta this is
-    list(xindex= rr, tindex= cc + (k-1)*p, dim=c(p, nparm))
-}
 
 psetup <- function(rmat, rindex, nstate) {
     n.eta <- length(rindex)
@@ -260,10 +211,11 @@ hmm2 <- function(who,  B) {
             #  for derivatives see the discussion in the code vignette
             # 
             if (nlp[1] >0 ) {
-                part1 <- P.d %*% dtemp # multiply each row times D
-                P.d  <- P.d + t(alpha * deathtrans(rmat, X[j-1,], cmap.b1)) #part 2
+                term1 <- P.d %*% dtemp # first term, for col k
+                term2 <- alpha %*% (dtemp * eta.beta1(X[j-1,]))
+                P.d[,-k] <- 0; P.d[,k] <- term1 + term2
             }
-            alpha[k] <- alpha * dtemp
+            alpha[k] <- sum(alpha * dtemp)
             alpha[-k] <- 0
 
             if (control$debug > 2) {
@@ -274,7 +226,7 @@ hmm2 <- function(who,  B) {
             }
             if (control$debug > 2) cat("A2: j=", j, "alpha=", alpha, "\n")
         }
-        else if (otype[j]==3) {  # marker(s) was observed
+        else if (otype[j]==3) {  # marker(s) were observed
             for (k in 1:nmarker) {
                 if (!is.na(yobs[j,k])) {
                     nc[k] <- nc[k] +1
@@ -335,7 +287,10 @@ hmm2 <- function(who,  B) {
             if (nlp[2]) R.d <-  t(ptemp$P) %*% R.d 
             if (nlp[1]) {
                 if (control$debug>1) {cat("Ptrans2 "); browser()}
-                P.d <-  P.d %*% ptemp$P + Ptrans(alpha, ptemp$dmat, cmap, X[j,])
+                t1 <- tcrossprod(matrix(ptemp$dmat, nrow=nstate^2), eta.beta1(X[j,]))
+                t2 <- matrix(alpha %*% matrix(t1, nrow=nstate), 
+                             ncol=nstate, byrow=TRUE)
+                P.d <-  P.d %*% ptemp$P + t2
             }
             alpha <- drop(alpha %*% ptemp$P)   # ditch the dimensions
             if (control$debug > 4) {
@@ -362,16 +317,4 @@ hmm2 <- function(who,  B) {
     if (control$debug >3) browser()
     list(alpha=alpha, deriv= rbind(P.d, t(R.d), t(pi.d)), ecount=ecount,
          offset = offset)
-}
-
-# A function to compute alpha * derivative of D, when D is a
-deathtrans <- function(R, x, map, death) {
-    rows <- which(R[,death] > 0)  #non-zero elements of column d
-    dmat <- matrix(0, nstate, map$dim[1])
-    for (i in 1:length(rows)) 
-        dmat[rows[i], deathcol[i]] <- R[rows[i], death]
-
-    tmat <- 0*map
-    tmat[map$tindex] <- x[map$xindex]
-    dmat %*% tmat
 }

@@ -11,3 +11,4 @@ vignettes/.*.blg
 *~
 data/renal.R
 vignettes/temp
+R/maybe

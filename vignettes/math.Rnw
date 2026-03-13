@@ -90,7 +90,7 @@ The coxph fit assumes that a 0MC:1MC transition has occured at exactly age
 unknown time betwee 55 and 58.2.
 Interval censored data is also known as panel data, from studies where
 the particpants come back at a regular interal and each visit involves
-a panel of tests. The state at each visit is known, but not when any between
+a panel of tests. The state at each visit is known, but not the
 state transitions had occured.
 
 The perceptive user will have noticed that a call to icsmh looks remarkably
@@ -122,7 +122,7 @@ HMM models as applied to clinical studies were actually the motivation for
 this package.
  For a multistate hidden Markov model the assumption is that the internal
 states (other than death) are not observed directly. Instead we observe
-one or more imperfect biomarkers of each state. Badly damaged lungs (true state)
+one or more imperfect biomarkers of each state. Damaged lungs (true state)
 might reveal themselves via a low forced expiratory volume (FEV) test, for
 instance.
 
@@ -197,29 +197,34 @@ subject $i$.
 The second is the straightforward multistate survival curve for subject
 $i$, given their starting state, represented as a 
 row vector $p(0)$ which contains a single 1 at their starting state 
-and remainger zeros. 
+and remainder zeros. 
+Let $\Eta = XB$ be the matrix of linear predictors where $X$ is the
+matrix of covariates and $B$ a matrix of coefficients, one column for each
+transition rate.  (In the Greek alphabet upper case $\eta$ is $\Eta$, I will
+often use the lower case version for any single linear predictor).
 Each element $k$ of the nstate by nstate transition matrix $P$ will be
-a single (per subject) linear predictor $\exp(X_i B_{.k})$, 
-where $B$ the matrix of coefficients, one column per transition.
-Let $H_i$ be the resulting normed transition matrix for subject $i$, 
+a single (per subject) linear predictor $\exp(\Eta_{ik}) = \exp(X_{i.} B_{.k})$, 
+Let $R_i$ be the resulting normed transition rate matrix for subject $i$, 
 with off diagonal elements containing the rates and diagonal element 
 set such that row sums are 0.
 The predicted survival curve at times $t_{1}, t_{2}, \ldots$ for the subject
 will be
 \begin{align}
   p(t_1) &= p(0)  \label{sp1}\\
-  p(t_2) &= p(0)e^{(t_2 - t_1)H_i} \label{sp2} \\
-  p(t_3) &= p(0)e^{(t_2 - t_1)H_i}e^{(t_3 - t_2)H_i} \label {sp3} \\
-  p(t_4) &= p(0)e^{(t_2 - t_1)H_i}e^{(t_3 - t_2)H_i}e^{(t_4 - t_3)H_i} \label{sp4} \\
+  p(t_2) &= p(0)e^{(t_2 - t_1)R_i} \label{sp2} \\
+  p(t_3) &= p(0)e^{(t_2 - t_1)R_i}e^{(t_3 - t_2)R_i} \label {sp3} \\
+  p(t_4) &= p(0)e^{(t_2 - t_1)R_i}e^{(t_3 - t_2)R_i}e^{(t_4 - t_3)R_i} \label{sp4} \\
   &\vdots
 \end{align}
 This is the predicted multistate survival for subject $i$, if there
 were no further measurements of their state after enrollment.
+It is precisely the computation that is done when we compute the predicted
+probabilty is state curves from a fitted model.
 
 The third step is to apply a correction to this sequence each time the subject 
 \emph{is} observed.  If at time $t_2$ the subject was observed to be
 state 3, then modify $p(t_2)$ to reflect reality: just after the last term
-in equation \eqref{sp2}  sett all elements of $p$ but the third to zero.
+in equation \eqref{sp2}  set all elements of $p$ but the third to zero.
 If at time $t_3$ they were also in state 3, then do this again
 at the end of equation \eqref{sp3}.
 Last, assume they were censored at $t_4$, then set $p_{death}(t_4)$ to zero;
@@ -234,7 +239,7 @@ at their final observation
 $t_m$ say, it is $\sum_k p_k(t_m)$; log-likekihood of $\log\sum_k p_k(t_m)$.
 
 In summary, at each step we first apply the transition probability matrix 
-and to create a distribution for $p$, then ``winnow away'' probability 
+to create a distribution for $p$, then ``winnow away'' probability 
 contributions for ``states where they ain't''.
 The approach easily accomodates a partially observed visit, e.g., if
 at time 2 they were known to be in state 1 or 2 but not which, the
@@ -1063,12 +1068,13 @@ At the solution $\hat\beta$ we have
   E(U) &= 0 \\
   E(U'U) &= {\rm var}{\hat\theta} \\
          &= E(H^{-1}) \\
-  H_{jk} &= \frac{\partial^2 \log(f)}{\theta_j \theta_k}
+  \mathcal{H}_{jk} &= \frac{\partial^2 \log(f)}{\theta_j \theta_k}
 \end{align*}
-$H$ is the second derivative matrix or Hessian. 
-
+$\mathcal{H}$ is the second derivative matrix or Hessian. 
+% Note: the Hessian only appears here, and standard math H looks just like
+%  \Eta that I used earlier
 The first idea in the code is to use the empirical value $U'U/n$ as a 
-replacement for $H$ in the Newton-Raphson algorithm.
+replacement for $\mathcal{H}$ in the Newton-Raphson algorithm.
 The first derivatives of all log-likelihood components are available
 analytically, including the matrix exponential, so are economical to
 compute.  For modest problems ($< 50$ parameters) we have found the compute
