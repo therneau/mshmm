@@ -198,12 +198,12 @@ The second is the straightforward multistate survival curve for subject
 $i$, given their starting state, represented as a 
 row vector $p(0)$ which contains a single 1 at their starting state 
 and remainder zeros. 
-Let $\Eta = XB$ be the matrix of linear predictors where $X$ is the
+Let $H = XB$ be the matrix of linear predictors where $X$ is the
 matrix of covariates and $B$ a matrix of coefficients, one column for each
-transition rate.  (In the Greek alphabet upper case $\eta$ is $\Eta$, I will
+transition rate.  (In the Greek alphabet upper case $\eta$ is $H$, I will
 often use the lower case version for any single linear predictor).
 Each element $k$ of the nstate by nstate transition matrix $P$ will be
-a single (per subject) linear predictor $\exp(\Eta_{ik}) = \exp(X_{i.} B_{.k})$, 
+a single (per subject) linear predictor $\exp(H_{ik}) = \exp(X_{i.} B_{.k})$, 
 Let $R_i$ be the resulting normed transition rate matrix for subject $i$, 
 with off diagonal elements containing the rates and diagonal element 
 set such that row sums are 0.
@@ -835,22 +835,7 @@ only 3 of which are actual transitions.
 (The underlying code takes care of that part).
 
 \section{Matrix exponential}
-We tend to forget that deep in the standard libraries the standard exp()
-function is defined using an approximation.  One idea is that 
-\begin{align*}
-  \exp(x) & = \left(e^{x/2}\right)^2 \\
-          &=  \left(\left(e^{x/4}\right)^2\right)^2 \\
-          &=  \left(\left(\left(e^{x/8}\right)^2\right)^2\right)^2 \\
-          &\vdots
-\end{align*}
-along with the fact that for a limited range $a < x < b$, $\exp(x)$ is well
-appoximated by a simple polynomial or ratio of polynomials (Pade method). 
-As an accurate approximation to $\exp(x)$
-compute the Pade aproximation of $\exp(x/2^k)$ for an approriate $k$, 
-then repeatedly square the result. 
-The actual code is more sophisticated but this is the basic structure.
-
-The exponetial of a matrix $A$ is defined similarly to the standard exponential
+The exponential of a matrix $A$ is defined similarly to the standard exponential
 and has the same limit property
 \begin{align}
   \exp(x) &= 1+ x + x^2/2 + x^3/3! + x^4/4! + \ldots \nonumber \\
@@ -858,6 +843,7 @@ and has the same limit property
   \exp(A) &= I + A + A^2/2 + A^3/3! + A^4/4! + \ldots \label{expTaylor}\\
          &= \lim_{n \rightarrow \infty} \left( I+ A/n\right)^n \nonumber
 \end{align}
+
 Moler and van Loan's famous 1978 paper ``Nineteen dubious ways to compute the 
 exponential of a matrix'' and its 2003 update \cite{Moler78, Moler03}
 showed that the compuation can be difficult and inspired much work on the topic.
@@ -893,16 +879,16 @@ The msm package has pursued this approach, we have not.
 If the eigenvectors of $A$ are linearly independent, then 
 \begin{align*} 
    A   &= U \Lambda U^{-1} \\
-  e^A = U{\rm diag}(e^\lambda)U^{-1}
+  e^A &= U{\rm diag}(e^\Lambda)U^{-1}
 \end{align*}
-A (right) eigenvector $u$ satisfies $Au= \lambda u$, or 
-$AU = U\Lambda$ where $U$ is the matrix of eigenvectors, one per column and
-$\Lambda$ a diagonal matrix of the eigenfvalues.
+where $\Lambda$ is a diagonal matrix containing the eigenvectors.
 The exponential of a diagonal matrix $\Lambda$ is a diagonal matrix with 
 $jj$ element $\exp(\Lambda_{jj})$.
 The final equation above arises directly from equation \eqref{expTaylor},
 since $A^k = U \Lambda^k U^{-1}$ (write it out).
 
+A (right) eigenvector $u$ satisfies $Au= \lambda u$, or 
+$AU = U\Lambda$ where $U$ is the matrix of eigenvectors, one per column.
 A left eigenvector matrix $V$ satisfies $VA = \Lambda V$. 
 This can also be defined as the transpose of the right eigenvectors of 
 $A$ transpose, more properly the conjugate or Hermitian transpose to
@@ -914,21 +900,26 @@ The eigenvalues that correspond to left and right eigenvectors are identical,
 and it turns out that $VU=I$. 
 (I found this last identity listening to a lecture, but have not found it 
 mentioned in any of the texts I have looked at.)
-The lapack eigen routines wil return both left and right eigenmatrices if
+The lapack eigen routines will return both left and right eigenmatrices if
 requested; there is no need for our routine to compute $U$-inverse.
 
 Misc notes:
 \begin{itemize}
   \item If the eigenvalues $\lambda$ are distinct, then $U$ must be full rank.
-  \item If there are tied eigenvalues, $U$ may still be full rank (it often is)
-    and if it is not the Jordan canonical form applies.
+  \item If there are tied eigenvalues, $U$ may still be full rank (it often is).
+    A transition matrix has rank nstate -1 (the rows sums are zero), yet
+    $U$ will be full rank.  The lapack routines simply fill in an orthangonal
+    column.
+  \item If $U$ is singular, then one can in theory do the same computations 
+    using Jordan canonical form, Kalbfleisch and Lawless \cite{Kalbfleisch85}
+    state this as somewhat of an aside.
   \item If $U$ is close to singular, then the eigen algorithm for the matrix
     exponential can be imprecise,
     with error proportional to the condition number of $U$ times the underlying
     machine precision. When $U$ is exactly singular, computation of the
     Jordan form is very difficult; small round off errors cause the problem to
     flip back and forth between \emph{exactly} singular and \emph{almost}
-    singular.
+    singular.  
   \item The better approach, exemplified in the expm-eigen.c function in the
     expm package, is to pay attention to the condition number, and switch to
     a Pade approach if it is large.  They use an inverse condition number
@@ -1072,7 +1063,7 @@ At the solution $\hat\beta$ we have
 \end{align*}
 $\mathcal{H}$ is the second derivative matrix or Hessian. 
 % Note: the Hessian only appears here, and standard math H looks just like
-%  \Eta that I used earlier
+%  is the uppercase Greek eta
 The first idea in the code is to use the empirical value $U'U/n$ as a 
 replacement for $\mathcal{H}$ in the Newton-Raphson algorithm.
 The first derivatives of all log-likelihood components are available
