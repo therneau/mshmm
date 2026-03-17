@@ -8,6 +8,7 @@ vignettes/.*.tex
 vignettes/.*.pdf
 vignettes/.*.bbl
 vignettes/.*.blg
+vignettes/zzz
 *~
 data/renal.R
 vignettes/temp

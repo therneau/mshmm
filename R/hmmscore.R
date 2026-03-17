@@ -68,8 +68,7 @@ hmmscore <- function(par, fn, gr, iter=30,
             }
         
         cmat[i+1,] <- newpar
-        newfit <- fn(newpar)
-        #cat("score stop\n"); browser()
+        newfit <- fn(newpar, ...)
         
         if (newfit$loglik <= -2*abs(log0)) {
             # fn() returns -Inf when the computation fails due
@@ -106,8 +105,8 @@ hmmscore <- function(par, fn, gr, iter=30,
                     for (i in 1:ncoef) {
                         delta <- rep(0., length(par))
                         delta[i] <- epsilon
-                        temp1 <- fn(par + delta)
-                        temp2 <- fn(par - delta)
+                        temp1 <- fn(par + delta, ...)
+                        temp2 <- fn(par - delta, ...)
                         hmat[i,] <- (temp2$deriv - temp1$deriv)/(2* epsilon)
                         if (debug>1) cat(" hessian ", i)
                     }
@@ -124,7 +123,7 @@ hmmscore <- function(par, fn, gr, iter=30,
                 
                 if (gder >0 & lambda>0 & lambda <1) { # backtrack
                     try2 <- (1-lambda)*par + lambda*newpar
-                    fit2 <- fn(try2)  # we expect this to usually work
+                    fit2 <- fn(try2, ...)  # we expect this to usually work
                     if (fit2$loglik > fit$loglik) { # shrinkage worked
                         logmat[i+1,4] <- fit2$loglik
                         fit <- fit2
@@ -158,8 +157,8 @@ hmmscore <- function(par, fn, gr, iter=30,
         for (i in 1:ncoef) {
             delta <- rep(0., length(par))
             delta[i] <- epsilon
-            temp1 <- fn(par + delta)
-            temp2 <- fn(par - delta)
+            temp1 <- fn(par + delta, ...)
+            temp2 <- fn(par - delta, ...)
             hmat[i,] <- (temp2$deriv - temp1$deriv)/(2* epsilon)
             if (debug>1) cat(" hessian ", i)
         }

@@ -1,7 +1,6 @@
 # Checks of the survexpm routine
 #
-library(Matrix)
-
+library(hmm)
 q1 <- matrix(0, 5, 5)  # the simple model of the NAFLD data
 q1[1,2] <- q1[2,3] <- q1[3,4] <- 1
 q1[1:4,5] <- 1
@@ -78,32 +77,40 @@ if (FALSE) {
 # Non-triangular
 set.seed(1953)
 type <- logical(100)
+good <- logical(100)
 for (i in 1:100) {
     temp <- matrix(runif(49, .05, .15), 7, 7)
     diag(temp) <- diag(temp) - rowSums(temp)
     test <- survexpm(temp, deriv=TRUE)
     type[i] <- (test$method=="eigen")
+    good[i] <- all.equal(test$P, expm(temp))
 }
-table(type) 
+table(type,good)  
 
-# something is weird
-e1 <- eigen(temp)
-e2 <- eigen(t(temp))
-e3 <- hmmeigen(temp)
-e4 <- hmmeigen(t(temp))
+#
+# A case where Pade occurs, tied eigenvalues, upper triangular, 
+#  eigenvectors and values are real
+#
+tied <- rbind(c(-.1, .02, .03,   0, .05),
+              c( 0 , -.2,   0, .04, .16),
+              c( 0,   0,  -.3,  .2,  .1),
+              c( 0,   0,    0, -.2,  .2), 0)
 
-scale3 <- colSums(e3$right*e3$left)
-scale4 <- colSums(e4$right*e4$left)
+test <- survexpm(tied, deriv=T)
+test$method
+all.equal(test$P, expm(tied))
 
-rinv3 <- solve(e3$right)
+etest <- hmmeigen(tied)
+rinv <- solve(etest$right)
+scale <- colSums(etest$right * etest$left)
+norm(etest$right)* norm(rinv)
+max(1/scale)
 
+# Both of these fail, showing that survexp was correct to avoid the eigen
+test2 <- etest$right %*% diag(etest$values) %*% rinv
+all.equal(test2, tied)
+p1 <- etest$right %*% diag(exp(etest$values)) %*% rinv
+all.equal(p1, test$P)
 
-ord3 <- order(Mod(e3$values), decreasing=TRUE)  # eigen sorts them post dgeev
-ord4 <- order(Mod(e4$values), decreasing=TRUE)
-
-all.equal(e1$value,  e2$values)
-all.equal(e1$values, e3$values[ord3])
-all.equal(e1$values, e4$values[ord4])
-all.equal(e1$vectors, e3$right[,ord3)
-all.equal(e2$vectors, e3$left[,ord3]
-
+# The expm eigen has a more forgiving cutoff before switching to Pade
+all.equal(expm(tied), expm(tied, method="R_Eigen"))

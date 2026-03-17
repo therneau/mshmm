@@ -42,11 +42,12 @@ survexpm <- function(R, time=1.0, deriv=FALSE, tol=1e-10,
         # We currently do most of the work in R, in order to better understand
         #  the algorithm. The hmmeigen routine returns eigenvalues, left and
         #  right eigenvectors
-        scale <- 1/colSums(efit$left* efit$right) 
-        iright <- scale* t(efit$left) # inverse of right eigenvector matrix
-        cond <- norm(iright)*norm(efit$right)
+        scale <- 1/colSums(Conj(efit$left)* efit$right) 
+        iright <- scale* t(Conj(efit$left)) # inverse of right eigenvectors
         # If too close to singular the eigen algorithm is not accurate
         #  expm-eigen.c uses .Machine$double.eps, which I think is too forgiving
+        #if (any(Mod(scale) > 1/tol)) method <- "pade"
+        cond <- norm(iright)*norm(efit$right)  # more formally correct
         if (1/cond < tol) method <- "pade" 
     }
 
@@ -64,7 +65,7 @@ survexpm <- function(R, time=1.0, deriv=FALSE, tol=1e-10,
 
     if (method == "eigen") {
         right <- efit$right
-        P <- right %*% diag(exp(time* efit$values)) %*% iright
+        P <- Re(right %*% diag(exp(time* efit$values)) %*% iright)
         if (deriv) {
             dmat <- array(0.0, dim=c(nstate, nstate, npos))
             vtemp <- outer(efit$values, efit$values, 
@@ -74,7 +75,7 @@ survexpm <- function(R, time=1.0, deriv=FALSE, tol=1e-10,
             for (i in 1:npos) {
                 G <- iright %*% dR[,,i] %*% right
                 V <- G*vtemp
-                dmat[,,i] <- right %*% V %*% iright
+                dmat[,,i] <- Re(right %*% V %*% iright)
             }
             list(P=P, deriv=dmat, method="eigen")
         } else P

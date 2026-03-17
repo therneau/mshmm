@@ -90,7 +90,7 @@ hmmboth <- function(param, logfun){
     else loglik <- sum(log(alpha) + offset)
     
     d.alpha <- sapply(mcfit, function(x) rowSums(grab(x, "deriv")))
-    u <- d.alpha * rep(1/alpha, each=nparm)
+    u <- d.alpha * rep(1/alpha, each=nrow(d.alpha))
     # this will be a matrix with nparm rows, one col per subject
     deriv <- rowSums(u)
     S <- tcrossprod(u)
@@ -144,7 +144,7 @@ hmmgrad <- function(param, grfun) {
     alpha <- sapply(mcfit, function(x) sum(grab(x, "alpha")))
     d.alpha <- sapply(mcfit, function(x) rowSums(grab(x, "deriv")))
     # this will be a matrix with npar rows, one col per subject
-    u <- d.alpha * rep(1/alpha, each=nparm)
+    u <- d.alpha * rep(1/alpha, each= nrow(d.alpha))
 
     if (is.null(penmat)) deriv <- rowSums(u)
     else deriv <- rowSums(u) - c(param %*% penmat)

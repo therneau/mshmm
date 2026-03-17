@@ -228,7 +228,7 @@ statefig(1:2, ctrans)  # visual check that it is correct
 A transition matrix is necessary for the fit: possible transitions
 are marked by 1 and invalid transitions by 0.
 The code actually allows any positive value, since the statefig routine
-uses non-integer values between 0 and 2 for drawing curved connecting lines.
+uses non-integer values between 0 and 2 for drawing curved connections.
 
 <<colon2b>>=
 # Crude transitions, as a starting estimate
@@ -240,10 +240,10 @@ temp2 <- with(cdata, tapply(year[i2]-year[i1], status[i1], sum))[-1]
 crude <-  (temp1/c(temp2))[ctrans>0]
 cfit0 <- hmm(Surv(year, status) ~ 1, id=id,  init=log(crude),
              qmatrix= ctrans, exact="death", data= cdata,
-             mc.cores=1)
+             mc.cores=2)
 cfit1 <- hmm(Surv(time, status) ~ rx + node4 + extent, id=id,
              qmatrix= ctrans, exact="death", data= cdata, mc.cores=1, 
-             init= cfit1)
+             init= cfit0)
 @ 
 
 

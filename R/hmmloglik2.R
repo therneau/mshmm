@@ -55,7 +55,7 @@ hmm1 <- function(who, B) {
         for (i in (1:r2)[-r2]) {
             rmat[qmatrix>0] <- exp(eta[i, 1:nlp[1]])
             diag(rmat) <- diag(rmat) - rowSums(rmat)
-            Pmat[,,i] <- survexpm(rmat, ytime[rows[i]], deriv=FALSE) 
+            Pmat[,,i] <- survexpm(rmat, dtime[rows[i]], deriv=FALSE) 
         }
         if (control$debug >2 & (any(Pmat < -control$smallpos)) ||
             any(Pmat > (1  + control$smallpos))) 
@@ -145,15 +145,15 @@ hmm2 <- function(who,  B) {
     if (control$debug >1) cat("in hmm2\n")
     rows <- which(id == who)  # the subjects of interest
     eta <- X[rows,] %*% B
-    P.d  <- matrix(0., parmcount[1], nstate)
-    R.d  <- matrix(0., nstate, parmcount[2])
-    pi.d <- matrix(0., nstate, parmcount[3])
+    P.d  <- matrix(0., nparm[1], nstate)
+    R.d  <- matrix(0., nstate, nparm[2])   # might be 0 columns
+    pi.d <- matrix(0., nstate, nparm[3])   # might be 0 columns
 
     # starting probability
     if (!is.null(iprob)) alpha <- iprob[who,]
     else if (is.null(p0fixed)) alpha <- pfun(nstate, eta[1,e3], gradient=TRUE)
     else alpha <- p0fixed
-    if (nlp[3]) {
+    if (nlp[3] >0) {
         pi.d <- pitrans(attr(alpha, 'gradient'), X[rows[1],])
         attr(alpha, 'gradient') <- NULL  # no longer needed
     }
@@ -266,7 +266,7 @@ hmm2 <- function(who,  B) {
             }
             
             diag(rmat) <- diag(rmat) -rowSums(rmat)
-            ptemp <- survexpm(rmat, ytime[j], deriv=TRUE)
+            ptemp <- survexpm(rmat, dtime[j], deriv=TRUE)
             if (any(ptemp$P < -control$smallpos | ptemp$P >1)) {
                 if (control$debug>1) 
                     save(ptemp, beta, file=paste0("pfail", who, ".rda"))

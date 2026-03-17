@@ -868,19 +868,44 @@ There are three different approaches that will be of interest to us.
 \subsection{Closed form solutions}
 If all of the positive elements of $A$ lie in a single row or a single
 column, then there are simple closed form formulas. This occurs quite often
-in the survival package, e.g., for any time point at which only a single
-of transition occurs, but rarely if at all in this package.
+in the survival package, but rarely if at all in this package.
+If all the nonzero elements lie in a single row $k$, i.e., only one state had
+departures, then
+\begin{equation*}
+  \left(e^{Rt}\right)_{ij} = \left\{
+  \begin{array}{cc}
+    \exp(R_{kk}t) & i=j=k \\
+    (1- \exp(R_{kk}t) \frac{R_{kj}}{\sum_{i\ne k} R_{ki}} & i=k, j\ne k \\
+    1 & i=j, i \ne k \\
+    0 & {\rm otherwise} \end{array} \right.
+\end{equation*}
+Competing risks falls into this case. Also, in the survival package, any 
+event time with a single event, or one where multiple events occur which
+just happen to all have the same starting state.  I have not had any examples
+of interval-censored competing risks, but it is certainly possible.
+
+If only a single column $k$ of $R$ has positive values then
+\begin{equation*}
+  \left(e^{Rt}\right)_{ij} = \left\{
+  \begin{array}{cc}
+    \exp(R_{ii}t) & i\ne k, i=j \\
+    (1- \exp(R_{ii}t) & i\ne k, j=k \\
+    1 & i=j=k \\
+    0 & {\rm otherwise} \end{array} \right.
+\end{equation*}
+This occurs in the survival package for a time point with a single event
+and shared hazards.
 
 Beyond this, there is a small set of designs for which the closed form formulas 
 can be derived, though these formulas quickly become more complex.
-The msm package has pursued this approach, we have not.
+The msm package has pursued this latter approach, we have not.
 
 \subsection{Matrix decomposition}
 If the eigenvectors $U$ of $A$ are linearly independent, then 
 \begin{align} 
    A   &= U \Lambda U^{-1} \label{eigen1}\\
   e^A &= U{\rm diag}(e^\Lambda)U^{-1} \label{eigen2}
-\end{align*}
+\end{align}
 where $\Lambda$ is a diagonal matrix containing the eigenvectors.
 The exponential of a diagonal matrix $\Lambda$ is a diagonal matrix with 
 $jj$ element $\exp(\Lambda_{jj})$.
@@ -889,7 +914,7 @@ since $A^k = U \Lambda^k U^{-1}$ (write it out).
 
 A (right) eigenvector $u$ satisfies $Au= \lambda u$, or 
 $AU = U\Lambda$ where $U$ is the matrix of eigenvectors, one per column.
-A left eigenvector matrix $V$ satisfies $VA =  \Lamda V$, where each row
+A left eigenvector matrix $V$ satisfies $VA =  \Lambda V$, where each row
 of $V$ contains a right eigenvector. Right and left eigenvalues $lambda$ are
 identical.
 If ``eigenvector'' is used without a modifier the right eigenvector is
@@ -900,24 +925,48 @@ assumed.
   (VA)^T &= A^TV^T  \nonumber \\
         &= V^T \Lambda \label{e1x} \\
   A &= (A^T)^T \nonumber \\
-  U \Lambda  U^{-1} &= (V \Lambda V^{-1})^{T} \nonumber
+  U \Lambda  U^{-1} &= (V \Lambda V^{-1})^{T} \nonumber \\
   &=  (V^T)^{-1} \Lambda V^T \label{e2x}
-  
+\end{align}
+
 Equation \eqref{e1x} shows that left eigenvectors of $A$ are the (transpose of)
 the right eigenvectors of $A^{T}$.
 Equation \eqref{e2x} implies that $V^T$ is the inverse of $U$.
 (I found this last identity listening to a lecture, but have not found it 
 mentioned in any of the texts I have looked at.)
+A quick check shows that the left and right eigenvector matrices returned by
+Lapack routine dgeev do not have this relationship; the reason is due to 
+scaling.
+
+If $u$ is an eigenvector of matrix $A$, then $2u$ is also an eigenvector, and
+ditto for any constant.  
+For any invertible diagonal matrix $D$, $U$ and $UD$ are both eigenvalue
+matrices; by default the version is returned such that each column of $U$
+has length 1. Since diagonal matrices commute equation \eqref{eigen1}
+still holds.
+\begin{align*}
+  (UD)\Lambda(UD)^{-1} &= (UD)\Lambda(D^{-1} U^{-1}) \\
+                      &= U \Lambda U^{-1})
+\end{align*}
+The left eigenvectors returned by dgeev are scaled to have a row length
+of 1. Converting from left eigenvectors to the inverse or right is just
+a bit subtle for complex values.  First, the length of a complex
+vector x is \code{sqrt(sum(x * Conj(x)))}.
+We also need to use the conjugate of $V$.
+To find the scaling factor from $V$ to $U^{-1}$ it suffices to look at
+the diagonal of $V^{*T}U$, which we want to equal 1.  In R code this
+turns out to be \code{scale = colSums(Conj(V)* U)}, and
+{Uinverse = (1/scale) t(Conj(V))}.
 The lapack eigen routines will return both left and right eigenmatrices if
-requested; there is no need for our routine to compute $U$-inverse.
+requested; there is no need for our routine to compute $U$-inverse itself.
+(The is an assumption here that dgeev can compute left and right as fast, or
+faster, than right followed by computing an inverse.)
 
 Misc notes:
 \begin{itemize}
-  \item the rank($U \ge$ the number of unique eigenvalues. If all eigenvalues
+  \item The rank($U \ge$ the number of unique eigenvalues. If all eigenvalues
     are unique then $U$ is full rank; if there are tied eigenvales it may or may
-    not be full rank (but not if it is also upper triangular).
-  \item Equation \eqref{e1x} shows that left eigenvectors of $A$ are the 
-    (transpose of) the right eigenvectors of $A^{T}$.
+    not be full rank (but I think not if it is also upper triangular).
   \item Complex eigenvalues come in pairs, a value and its complex conjugate.
     The corresponding eigenvalues are a vector and its complex conjugate.
   \item If there is an absorbing state, e.g. death, then the transition matrix 
@@ -935,32 +984,14 @@ Misc notes:
     flip back and forth between \emph{exactly} singular and \emph{almost}
     singular.  
   \item The better approach, exemplified in the expm-eigen.c function in the
-    expm package, is to pay attention to the condition number, and switch to
-    a Pade approach if it is large.  They use an inverse condition number
+    expm package, is avoid Jordan form. 
+    Pay attention to the condition number, and switch to a Pade approach
+    if it is large.  The expm package codes use an inverse condition number
     of \code{.Machine\$double.eps}, which is quite aggressive. Our hmmeigen
     function uses 1e-10.
-  \item Equation \eqref{e2x} implies that $U^{-1} = V^T$.  Since the lapack
-    routine dgeev will return both left and right eigenmatrices if requested
-    there should be no need to compute $U$ inverse.  This is almost true.
-    \begin{itemize}
-      \item If $u$ is an eigenvector then $cu$ is also an eigenvector for any
-        constant $c$. The routines return eigenvectors $U$ with length 1, 
-        but one
-        can rescale the columns to any value, even a different value per column,
-        and equations \eqref{eigen1} and \eqref{eigen2} will still hold.
-      \item The column of $U^{-1}$ are not length 1, in fact if $U$ is ill
-        conditioned the values can be very large.  $V^T$ also has column norm 1.
-      \item However, if we scale columns of $V$ by 
-        \code{scale = 1/colSums(U*V)} 
-        (elementwise multiplication) the result is $U$ inverse. 
-        This simply re-norms each column to what the column norm of $U^{-1}$ 
-        must be: we know the inner product of row $k$ of $U$ and column
-        $k$ of $U^{-1}$ is 1.
-      \item As a check of singularity we can use the maximum element of 
-        \code{scale}. (Maximum norm, since scale may be complex).
-        Since $V$ also has columns with length 1, the result
-        will be of similar magnitude to the 1 norm of $U$-inverse.
-    \end{itemize}
+  \item As a check of singularity we can use the maximum element of 
+        \code{scale}. Since $U$ has columns with length 1, its norm is
+        of order 1 and likewise for $V$.
 \end{itemize}
 
 The following examples illustrate some of the above:
@@ -990,6 +1021,7 @@ aeq(test3, rmat1) #scale transpose can replace the inverse
 rmat2 <-  matrix(c(-.3, .1, 0, .2, 0, -.1, .05, .05, 0,0,-.1, .1, 0,0,0,0),4,
                  byrow=TRUE, dimnames= list(from=tname, to=tname)) 
 rmat2
+e2 <- eigen(rmat2)
 svd(e2$vectors)$d  #last value is essentially 0
 
 # Completely mixed, two pairs of complex eigenvalues
@@ -1000,11 +1032,6 @@ e3b <- eigen(t(rmat3))
 test1 <- e3$vectors %*% diag(e3$values) %*% solve(e3$vectors)
 aeq(Re(test1), rmat3)
 range(Im(test1))
-
-(solve(e3$vectors)/t(e3b$vectors))[,1]  # the scale factors
-scale <- 1/colSums(e3$vectors* e3b$vectors)
-test2 <- e3$vectors %*% diag(e3$values) %*% (scale* t(e3b$vectors))
-aeq(Re(test2), rmat3)  # the scaling still works for complex
 @ 
 
 
@@ -1015,12 +1042,12 @@ for many of the solution methods. Per Kalbfleisch and Lawless
 \cite{Kalbfleisch85}
 
 \begin{align}
- \frac{\partial e^A}{\partial \theta} &= UVU^{-1}  \label{eigen1}\\
+ \frac{\partial e^A}{\partial \theta} &= UVU^{-1}  \label{deigen1}\\
  V_{jk} &= \left\{ \begin{array}{cc} G_{jk}\frac{e^{\lambda_j} - e^{\lambda_k}}
      {\lambda_j- \lambda_k} & \lambda_j \ne \lambda_k  \nonumber\\
       G_{jk}e^{\lambda_j} & \lambda_j= \lambda_k \end{array} \right.  \nonumber \\
- G &=  U^{-1} \frac{\partial A}{\partial \theta} U \label{eigen2}
-\end{align*}
+ G &=  U^{-1} \frac{\partial A}{\partial \theta} U \label{deigen2}
+\end{align}
 
 In our code we take a chained approach.  The matrix exponential routines
 calculate the above derivatives with $\theta$ as the individual elements of
@@ -1029,7 +1056,7 @@ diagonal and -1 for the matching diagonal element.
 If $A$ contains $m$ non-zero transition rates this leads to $m$ derivative
 matrices for $\exp(A)$. 
 At first glance one might guess that the sparse structure of $dA$ would
-lead to a sparse $G$ per equation \eqref{eigen2}, but this is not so.
+lead to a sparse $G$ per equation \eqref{deigen2}, but this is not so.
 
 The likelihood for a subject involves a series of vector-matrix products
 $$

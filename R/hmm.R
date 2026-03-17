@@ -243,7 +243,6 @@ hmm <- function(formula, data, subset, weights,
         ytime <- Y
         ystate <- rep(0L, nrow(mf)) # all censored
     }   
-    ytime <- c(diff(ytime), 0)  # the time interval for each observation
 
     weights <- model.weights(mf)
     if (length(weights) >0) warning("weights are not yet supported")
@@ -259,10 +258,9 @@ hmm <- function(formula, data, subset, weights,
     # apply last-value-carried-forward to the rate variables
     # this doesn't work (statistically) if the first obs for a person is NA
     for (i in 1:ncol(X)) {
-        if (any(is.na(X[,i]))) X[,i] <- lvcf(id, X[,i], ytime)
+        if (any(is.na(X[,i]))) X[,i] <- lvcf(id, X[,i])
     }
     xfirstmiss <- apply(is.na(X[first,,drop=FALSE]),1, any)         
-
     # we are cruel: anyone with a hole is no longer a valid timeline
     #  toss the entire subject
     tossid <- unique(c(id[ymiss | idmiss | is.na(weights)], 
@@ -299,13 +297,13 @@ hmm <- function(formula, data, subset, weights,
     if (!missing(init)) {
         if (inherits(init, "hmm")) { # a prior hmm model
             priormod <- init
-            init <- coef.to.B(priormod$coefficients, priormod$cmap, fixed=TRUE)
+            init <- coef(priormod, matrix=TRUE, fixed=TRUE)
         }
         if (is.matrix(init)) {
             # allow for partial matching, so that a smaller model can feed a 
             #  larger
-            rmatch <- match(row.names(init), row.names(cmap))
-            cmatch <- match(col.names(init), col.names(cmap))
+            rmatch <- match(rownames(init), rownames(cmap))
+            cmatch <- match(colnames(init), colnames(cmap))
             if (any(is.na(rmatch))) 
                 stop("init has covariates not in the current model")
             if (any(is.na(cmatch)))
@@ -313,7 +311,7 @@ hmm <- function(formula, data, subset, weights,
             B[rmatch, cmatch] <- init
         } else if (is.numeric(init)) {
             if (!is.null(names(init))) {
-                index <- match(names(init), param.names)
+                index <- match(names(init), beta.names)
                 if (any(is.na(index)))
                     stop("init has an coefficient not found in the model: ",
                          (names(init)[is.na(index)])[1])
@@ -379,18 +377,20 @@ hmm <- function(formula, data, subset, weights,
         xtrans <- diag(1/Xscale)      # btrans inverse, transforms X
         xtrans[1, rvar] <- -(Xmean/Xscale)[rvar]
         B <- btrans %*% B  # the coefs were in terms of unscaled X
+    } else {
+        xtrans <- diag(ncol(X)) # no transformation
+        btrans <- xtrans
     }
-
     param <- B.to.coef(B, cmap)  # don't use "coef" as variable name
 
     # preprocess constraint and penalty
     if (!missing(constraint)) {
         constraint <- hmmconstraint(constraint, Terms, cmap)
-        constraint <- constraint %*% xtran # users write for untransformed X
+        constraint <- constraint %*% xtrans # users write for untransformed X
     } else constraint <- NULL
     if (!missing(penalty)) {
         penalty <- hmmconstraint(penalty, Terms)
-        penalty <- penalty %*% xtran # the are written for untransformed X
+        penalty <- penalty %*% xtrans # the are written for untransformed X
         penmat <- crossprod(penalty)
     } else penmat <- NULL
     
@@ -496,8 +496,8 @@ hmm <- function(formula, data, subset, weights,
         if (any(is.na(match(mfname, names(mfattr)))))
             stop("the mfattr argument is not complete")
     } else stop("user supplied optimizer must include mfattr argument")
-
-    fit <- msh.fit(id, ytime, ystate, X, iprob, B,
+    time1 <- proc.time()
+    mfit <- msh.fit(id, ytime, ystate, X, iprob, B,
                      cmap, nlp, ymarker, rlist, qmatrix,
                      mc.cores, control, mfun, mfattr, mpar, iter,
                      iexact, conmat, penmat)
@@ -508,48 +508,32 @@ hmm <- function(formula, data, subset, weights,
 
     # Undo any scaling and centering
     if (control$scale) {
-        B <- coef.to.B(param, cmap, fit$B)
+        B <- coef.to.B(mfit$param, cmap, B)
         Bscale <- xtrans %*% B
-        param <- B.to.coef(Bscale, cmap)
+        param <- B.to.coef(Bscale, cmap, fixed=TRUE)
     }
 
-    # Add nice dimnames
-    bcol <- paste0(row(qmatrix)[qmatrix!=0], ":",
-                   col(qmatrix)[qmatrix!=0])
-    if (nlp[2]>0) {
-        temp <- unique(rcoef[, c("marker", "lp")])
-        lp <- temp$lp + 1 - temp$lp[match(temp$response, temp$response)]
-        bcol <- c(bcol, paste0("M", paste(temp$response, lp, sep='.')))
-    }
-    if (nlp[3]>0) bcol <- c(bcol, paste0("p", 1:nlp[3]))
-    dimnames(B) <- list(dimnames(X)[[2]], bcol)
-    dimnames(cmap) <- dimnames(beta)
-
-
-    time3 <- proc.time()
+    # Add names
+    pname <- outer(rownames(cmap), colnames(cmap), paste, sep='_')
+    names(param) <- pname[cmap!=0]
     compute.time <- rbind(setup= time1-time0,
-                          compute= time2- time1,
-                          finish = time3 - time2)
-
+                          compute= time2- time1)
+    
     final <- list(coefficients= param, 
-                  loglik = c(intial=initial.loglik, final=loglik),
-                  penalty= c(initial=penalty0, final=penalty),
-                  beta=beta,
+                  loglik = mfit$loglik,
                   time = compute.time,
-                  nlp = nlp,
-                  cmap=cmap, rmap=rindex,
+                  cmap= cmap, 
                   qmatrix = qmatrix,   # the structure and state names
-                  nstate = nstate,
-                  n = c(observations =nrow(mf), id =nid),
-                  na.action = na.action,
-                  removed = removed, 
-                  call=Call,  xlevels=xlevels,
+                  n = c(observations =nrow(mf), id =nid)
+                  )
+    if (!is.null(removed)) final$removed <- removed
+    if (mfit$penalty >0)   
+        final$penalty <- c(initial= penalty0, final= mfit$penalty)
+    if (!is.null(mfit$fit)) final$fit <- mfit$fit
+    final <- c(final, list(call=Call,  xlevels=xlevels,
                   contrasts= attr(X, "contrasts"),
                   terms = Terms
-                  )
-    if (!is.null(penmat)) fit$pen.deriv <- pderiv
-    if (!is.null(fit)) fit$fit <- fit
-
+                  ) )    
     class(final) <- "hmm"
     final
 }

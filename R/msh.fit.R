@@ -30,6 +30,8 @@ msh.fit <- function(id, ytime, ystate, X, iprob, B,
     rindex <- which(qmatrix > 0) # index to the non-zero rates
     nmarker <- length(ymarker)
     nstate <- nrow(qmatrix)
+    dtime  <- diff(ytime)  #the time interval to the next visit
+    dimnames(X) <- NULL    # make X %*% B a bit faster
 
     # a 0 row in qmap = an absorbing state (you never leave)
     absorb <- (rowSums(qmatrix>0) ==0)
@@ -54,7 +56,7 @@ msh.fit <- function(id, ytime, ystate, X, iprob, B,
     otype <- ifelse(temp1, 2L,
                     ifelse(ystate>0, 1L, 3L*temp3))
 
-    # nlp has the number of linear predictors for the rates, markers, and initial
+    # nlp has the number of linear predictors for the rates, markers, and init
     #  state, each linear predictor is a column of cmap.
     # Much of the code is built around a central idea, which is that the 
     #  underlying computations of transition probability, markers, and intial 
@@ -67,26 +69,26 @@ msh.fit <- function(id, ytime, ystate, X, iprob, B,
     #  respectively.  (These have disjoint portions of the parameter vector).
     # Because hmm1/hmm2 can be called lots of times (once per subject per
     #  iteration) we set up some indices to make them faster/simpler.
-    # parmcount is the number of iterated parameters for each of the three
+    # nparm is the number of iterated parameters for each of the three
     # e1, e2, e3 are the columns of eta for each
-    parmcount <- rep(0L,3)
+    nparm <- rep(0L,3)
     if (nlp[1] > 0) { #should always be true
         ctemp <- cmap[, 1:nlp[1], drop=FALSE]
         eta.beta1 <- derivfun(ctemp)
-        parmcount[1] <- length(unique(ctemp[ctemp>0]))
+        nparm[1] <- length(unique(ctemp[ctemp>0]))
         e1 <- 1:nlp[1]  # the columns of eta for transition matrix
     }
     if (nlp[2] >0) {
         e2 <- nlp[1] + 1:nlp[2] # cols for the
         ctemp <- cmap[, e2, drop=FALSE]
         eta.beta2 <- derivfun(ctemp)
-        parmcount[2] <- length(unique(ctemp[ctemp>0]))
+        nparm[2] <- length(unique(ctemp[ctemp>0]))
     }
     if (nlp[3] >0) {
         e3 <- nlp[1] +nlp[2] + 1:nlp[3]
         ctemp <- cmap[, e3, drop=FALSE]
         eta.beta3 <- derivfun(ctemp)
-        parmcount[3] <- length(unique(ctemp[ctemp>0]))
+        nparm[3] <- length(unique(ctemp[ctemp>0]))
     }
  
     # Set up parallel, Windows can't fork, others can
@@ -95,7 +97,6 @@ msh.fit <- function(id, ytime, ystate, X, iprob, B,
         hmm_cluster <- makeCluster(mc.cores) #start up parallel
         }
     else fork <- TRUE
-    time1 <- proc.time()
 
     # Set up copies of the hmm1 and hmm2 functions to have the scope
     #  of this function. See "scope" in the code vignette for details.
@@ -168,10 +169,7 @@ msh.fit <- function(id, ytime, ystate, X, iprob, B,
             mpar$tname <- temp
         }
     }
-    
     fit <- do.call(mfun, clist)
-
-    cat ("fit done "); browser()
 
     # find the fitted coefs in the output, and the loglik
     # optim uses par and value, hmmscore coef and loglik
@@ -187,10 +185,14 @@ msh.fit <- function(id, ytime, ystate, X, iprob, B,
     loglik <-  if (indx[3] >0) fit[[indx[3]]] 
                else if (indx[4]>0) fit[[indx[4]]] else NULL
 
-        # Compute the penalties
-        if (!is.null(penmat)) {  #matrix ones later
-            penalty <- sum(param * (penmat %*% param))/2
+    # Compute the penalties
+    if (!is.null(penmat)) {  #matrix ones later
+        penalty <- sum(param * (penmat %*% param))/2
         pderiv  <-  c(param %*% penmat)
-        }
-        else penalty <- 0
     }
+    else penalty <- 0
+    rval <- list(param=param, 
+                 loglik= c(initial= initial.loglik, final= loglik),
+                 penalty=penalty, iter=fit$iter, fit=fit)
+    rval
+}
