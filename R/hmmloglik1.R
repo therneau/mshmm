@@ -52,11 +52,9 @@ hmmloglik <- function(param, logfun) {
         alpha <- sapply(mcfit, function(x) grab(x, "alpha"))
         offset <- sapply(mcfit, function(x) grab(x, "offset"))
         loglik <- sum(log(colSums(alpha)) + offset)    
-        ecount <- sapply(mcfit, function(x) grab(x, "ecount"))
         rval <- list(alpha = alpha,
                      offset = offset,
-                     loglik = loglik,
-                     ecount=ecount)
+                     loglik = loglik)
         tpar <- param
         if (!is.null(penmat)) rval$penalty <- sum(param* (penmat %*% param))/2
         rval
@@ -91,13 +89,6 @@ hmmboth <- function(param, logfun){
     }
     else loglik <- sum(log(alpha) + offset)
     
-    # total number of expm calls, total number that used the pade() function
-    ecount <- rowSums(sapply(mcfit, function(x) grab(x, "ecount")))
-    # hmm_count_of_calls was set to (0,0) before iteration 
-    # This was a question of how often tied eigenvalues show up, across
-    #  iterations
-    hmm_count_of_calls <<- hmm_count_of_calls + ecount
-
     d.alpha <- sapply(mcfit, function(x) rowSums(grab(x, "deriv")))
     u <- d.alpha * rep(1/alpha, each=nparm)
     # this will be a matrix with nparm rows, one col per subject

@@ -5,101 +5,80 @@
 \description{Fit an hmm model to a population data set}
 
 \usage{
-hmm(formula, data, subset, weights, na.action=na.pass, id,
-    istate, otype, qmatrix, qcoef,
-    rfun, rcoef, pfun=hmminit, pcoef, entry, iprob, death,
-    mfun=hmmtest,  mpar=list(), mc.cores=getOption("mc.cores", 2L),
-    icoef, scale=c(FALSE,FALSE), penalty, constraint, cutoff=0,
-    debug=0, makefork=FALSE)
+hmm(formula, data, subset, weights, 
+    id, qmatrix, markers, iprob, init, fixed,  
+    penalty,  constraint, statedata,
+    iter=30, exact= "death", mfun=hmmscore, mpar=list(), mfattr, 
+    mc.cores=getOption("mc.cores", 2L), control= hmm.control(), ...)
 }
-%- maybe also 'usage' for other objects documented here.
 \arguments{
-  \item{formula}{a formula for the HMM.  The left hand side will be a
-    numeric vector or a call to Surv.
+  \item{formula}{a formula for the model.  The left hand side will be a
+    numeric vector or a call to Surv.}
   \item{data}{dataframe containing the data to be fit}
   \item{subset}{subset of the data to be used}
   \item{weights}{not currently implemented}
-  \item{na.action}{any special actions for missingness}
   \item{id}{the variable name that contains the subject identifier.
     This will normally be in the data set pointed to by \code{data}.}
   \item{qmatrix}{a square matrix whose row and column labels are the
     states, positive elements indicate valid transitions}
-  \item{markers}{a list of formulas defining state:marker relationships}
+  \item{markers}{an optional list of formulas defining state:marker
+      relationships, a key component of hidden Markov models (HMM)}
   \item{iprob}{optional, the initial distribution of states. Either a
-    matrix with one row per unique id and one column per state, or a
-    vector with one element per state.}
-  \item{pfun}{a function that provides the initial probabilities for
-    each state.}
-  \item{pcoef}{a data frame which describes which model terms are
-    associated with the initial probability function.}
-  \item{entry}{a vector giving the probability of enrollment for each
-    state, i.e., 0 for the death state.
-    This requires data preprocessing, see below.}
-  \item{death}{optional, the state which corresponds to death}
-  \item{exact}{optional, states for which the time of entry to the state
+    matrix with one row per unique id and one column per state, a
+    vector with one element per state, or a formula}
+  \item{init}{optional, initial values for the parameters}
+  \item{fixed}{optional, initial values that are fixed}
+  \item{penalty}{an optional data frame descibing penalties.}
+  \item{constraint}{an optional data frame descibing constraints.}
+  \item{statedata}{a data frame which provides aliases for the states}
+  \item{iter}{maximum number of iterations}
+  \item{exact}{states for which the time of entry to the state
   is known exactly}
   \item{mfun}{the optimization function to use}
   \item{mpar}{any parameters for the optimization function}
+  \item{mfattr}{optional information about the optimization function}
   \item{mc.cores}{how many parallel cores to use for computing the
     per-subject log-likelihood contributions}
-  \item{icoef}{initial coefficients.  An alternative to inital values in
-    the \code{qcoef}, \code{rcoef} and \code{pcoef} arguments.  (Useful
-    for restarting a model.)}
-
-  \item{scale}{two logical values where the first determines if the
-    covariates are recentered and the second if they should also be
-    scaled.  A single logical is replicated.
-    Alternatively, a list containing the centering and scaling vectors.}
-
-  \item{penalty}{an optional data frame descibing penalties.}
-
-  \item{constraint}{an optional data frame descibing constraints.}
-
-  \item{cutoff}{the threshold value for constraints}
-
-  \item{debug}{higher values lead to selected debuging printout.}
-  \item{makefork}{controls which portion of the parallel library is
-    used: the fork option is not available in MS-Windows.}
+  \item{control}{a list of control parameters, normally created with
+      the \code{hmm.control} function.}
+  \item{...}{optional parameters, any names that match control arguments are
+      used as input to \code{hmm.control}}
 }
 \value{an hmm fit object}
 \details{
   If the response is \code{Surv(time, status)}, then the status variable
   should be a factor whose first level corresponds to censored, and
-  other levels are a subset of the states in \code{qmatrix}.  Any states
-  in said subset are assumed to me measured without error. Normally, the
-  only state of that type, in a hidden Markov model (HMM), will be death,
-  and in that particular case a 0/1 status code is allowed.
+  other levels are a subset of the states in \code{qmatrix}.  Any observed
+  outcomes are assumed to me measured without error, which would be the
+  case for simple interval censored data.  For an HMM, an observation will
+  normally be marked as censored and the true state is (imperfectly) inferred
+  from marker variables.
+  In the particular case that the only completely observed state is death,
+  then a 0/1 status code is allowed.
   
   It is possible to have exact states other than death, one example
-  might be a particular surgery.  The difference arises with censored
-  observations: at that point we know the subject is not dead, even for
-  an out of study follow-up, but we would not know the status of other
-  states.
+  might be a particular surgery.  Formally, a censored observation is only
+  known to not be any state that is both exact and absorbing, of which death is
+  the most common example.
+  (Absorbing states are inferred from \code{qmatrix}).
 
-  
-  Entry into a trial is one important issue for HMM models, we allow three
-  different likelihoods: a common entry probability vector for all, per-
-  subject entry probabilities, and computed probabilities.  The first
-  two can depend on parameters and covariates, and depend on the
-  \code{iprob} and \code{rcoef} arguments.
+The \code{icoef} argument can be a matrix with transitions as the columns and
+predictors as the rows, i.e., in the same form as the output from a fit
+provided by \code{coef(fit, matrix=TRUE)}.  Or it can be a named vector with
+names similar to \code{coef(fit)}.  In either case not all transitions or 
+covariates need be present, the remainder are assumed to be 0. 
+This makes it easy to use a smaller fit as intial values for a larger one.
 
-The last is applicable when subjects were sampled at random from a
-population, and makes use of the \code{entry} argument.  Assume that
-subjects are entered at various ages, but we are willling to assume
-that all come from a single distribution at younger ages, e.g., no one
-is demented before age 50.
-Then the data can be set up so that everyone ``enters'' at age 50 in the
-known starting state, and the actual entry observation marked as \code{obtype=3}.
-At that point the current state probality estimates will be rescaled
-using the \code{entry} values, e.g., no one enrolls after death.
-The necessary preprocessing, i.e., adding the extra rows to the data
-set, is not feasable if there are time-dependent covariates for the hazard.
-
-The \code{icoef} argument can be a matrix in the form of the returned
-\code{beta} value, or a vector as in the returned \code{coefficient}
-vector.  It is useful for restarting a model at a prior solution.
-If the former, it is matched to the current model's \code{beta} matrix
-by row and column names, replacing those rows/columns.
-This allows one to use coefficients from a prior model that was smaller.
+Missing values are dealt with in a way peculiar to the hmm function.
+Any \code{id} value with a missing value for the response, weight, or intial
+rate covariates is removed, i.e., all rows for that id. 
+This is because retaining only some rows
+is likely to lead to an invalid timeline for that subject, e.g., one with gaps.
+Rate covariates are
+those that appear on the right hand side of the primary formula.
+Missing rate variables at intermediate times are filled in using last value
+carried forward. 
+Missing markers are ignored, as episodic observation of marker variables is
+expected.
 }
-\author{Wiste, Weigand, and Therneau}
+\author{Terry Therneau}

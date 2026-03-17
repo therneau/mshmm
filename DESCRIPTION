@@ -2,7 +2,7 @@ Title: Interval censored models and hidden Markov models for multistate data.
 Description: Models for multi-state time to event data.  The icmsh function fits an interval censored multi-state hazard model, the hmm function extends this to hidden Markov models (HMM)
 Package: mshmm
 Version: 2.0-0
-Depends: survival, expm
+Depends: survival, expm, R (>= 3.5.0)
 Imports:  parallel, mvtnorm, quadprog
 Suggests: msm, knitr
 Lazyload: Yes

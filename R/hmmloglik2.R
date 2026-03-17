@@ -42,28 +42,24 @@ hmm1 <- function(who, B) {
     }
 
     # Compute the collection of matrix exponentials for the subject
-    # The upper routine sends back the array of results as a vector
-    #  along with the number of times there were tied eigenvalues
-    #  we'll send the ties back as an attribute
-    # We don't need the last row for each subject.
-    # The call to upper uses the Ward approx (nterm=0) rather than
-    #  the Higham09.  The former seems to better match my pade routine.
+    #  (eventually add a check for upper triangular, all at once)
     r2 <- length(rows)  # there should always be at least 2 rows per id
-    if (length(rows) > 1) {  # but add a failsafe
+    if (r2 >1) { # failsafe
+        Pmat <- array(0, dim=c(nstate, nstate, r2-1))
         if (any(abs(eta[-r2,]) > .Machine$double.max.exp/2)) {
             # such a bad estimate that it may blow up the matrix exp
             if (control$debug >1) cat("underflow "); browser()
             return("underflow")
         }
-        myexp <- .Call("upper", nstate, eta[-r2,,drop=FALSE], 
-                       ytime[rows[-r2]], rindex, 1e-7, 0)
-        ucount <- c(length(rows)-1, myexp$ties)
-        Pmat <- array(myexp$P, dim=c(nstate, nstate, length(rows)-1))
-        
-        if (control$debug >2 & any(Pmat < -control$smallpos)) {
-            cat ("stop1\n"); browser()}
-        if (any(Pmat > (1+control$smallpos) | 
-                Pmat < -control$smallpos)) return("underflow")
+        rmat <- matrix(0, nstate, nstate)
+        for (i in (1:r2)[-r2]) {
+            rmat[qmatrix>0] <- exp(eta[i, 1:nlp[1]])
+            diag(rmat) <- diag(rmat) - rowSums(rmat)
+            Pmat[,,i] <- survexpm(rmat, ytime[rows[i]], deriv=FALSE) 
+        }
+        if (control$debug >2 & (any(Pmat < -control$smallpos)) ||
+            any(Pmat > (1  + control$smallpos))) 
+                {cat ("stop1\n"); browser()}
         Pmat <- pmax(Pmat, 0)  # we sometimes get tiny negative numbers
     } 
     
@@ -124,7 +120,6 @@ hmm1 <- function(who, B) {
     }
 
     loglik <- offset + log(sum(alpha))
-    attr(loglik, "counts") <- ucount
     loglik
 }
 
@@ -183,7 +178,6 @@ hmm2 <- function(who,  B) {
     # Walk through the observations one by one
     P.d  <- matrix(0., nlp[1], nstate)
     offset <- 0  # watch out for underflow
-    ecount <- c(length(rows), 0)
     nc <- integer(nmarker)    #number otype==3, so far, per marker
     r2 <- length(rows)
     rmat <- matrix(0., nstate, nstate)
@@ -213,7 +207,7 @@ hmm2 <- function(who,  B) {
             if (nlp[1] >0 ) {
                 term1 <- P.d %*% dtemp # first term, for col k
                 term2 <- alpha %*% (dtemp * eta.beta1(X[j-1,]))
-                P.d[,-k] <- 0; P.d[,k] <- term1 + term2
+                P.d[,-k] <- 0; P.d[,k] <- c(term1) + c(term2)
             }
             alpha[k] <- sum(alpha * dtemp)
             alpha[-k] <- 0
@@ -272,12 +266,7 @@ hmm2 <- function(who,  B) {
             }
             
             diag(rmat) <- diag(rmat) -rowSums(rmat)
-            tder <- psetup(rmat, rindex, nstate)
-            if (any(diff(sort(diag(rmat))) < 1e-6)) {
-                ptemp <- pade(rmat *ytime[j], tder*ytime[j])
-                ecount[2] <- ecount[2] +1
-            }
-            else ptemp <- derivative(rmat, ytime[j], tder)
+            ptemp <- survexpm(rmat, ytime[j], deriv=TRUE)
             if (any(ptemp$P < -control$smallpos | ptemp$P >1)) {
                 if (control$debug>1) 
                     save(ptemp, beta, file=paste0("pfail", who, ".rda"))
@@ -287,7 +276,7 @@ hmm2 <- function(who,  B) {
             if (nlp[2]) R.d <-  t(ptemp$P) %*% R.d 
             if (nlp[1]) {
                 if (control$debug>1) {cat("Ptrans2 "); browser()}
-                t1 <- tcrossprod(matrix(ptemp$dmat, nrow=nstate^2), eta.beta1(X[j,]))
+                t1 <- tcrossprod(matrix(ptemp$deriv, nrow=nstate^2), eta.beta1(X[j,]))
                 t2 <- matrix(alpha %*% matrix(t1, nrow=nstate), 
                              ncol=nstate, byrow=TRUE)
                 P.d <-  P.d %*% ptemp$P + t2
@@ -315,6 +304,6 @@ hmm2 <- function(who,  B) {
         }
     }
     if (control$debug >3) browser()
-    list(alpha=alpha, deriv= rbind(P.d, t(R.d), t(pi.d)), ecount=ecount,
+    list(alpha=alpha, deriv= rbind(P.d, t(R.d), t(pi.d)),
          offset = offset)
 }

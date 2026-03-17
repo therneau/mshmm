@@ -1,5 +1,5 @@
-src/.*.so
-src/.*.o
+src/*.so
+src/*.o
 src/cdecomp.c
 noweb
 vignettes/.*.aux

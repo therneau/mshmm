@@ -8,5 +8,6 @@ noweb/
 .gitignore
 vignettes/test
 vigtemp
+R/maybe
 
 

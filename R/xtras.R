@@ -64,15 +64,16 @@ derivfun <- function(cmap) {
     tfun
 }
     
-hmm.control <- function(smallpos= 1e-3, debug= 0,
+hmm.control <- function(smallpos= 1e-3, debug= 0, scale=TRUE,
                          makecluster= .Platform$OS.type=="windows") {
     if (!is.numeric(smallpos) || length(smallpos) >1 || smallpos <=0)
         stop("smallpos must be a single value >0")
-     if (!is.logical(makecluster)) stop("makecluster must be TRUE/FALSE")
+    if (!is.logical(scale)) stop("scale must be TRUE/FALSE")
+    if (!is.logical(makecluster)) stop("makecluster must be TRUE/FALSE")
     if (is.logical(debug)) debug <- as.integer(debug)
     if (!is.numeric(debug) || debug != floor(debug)) 
         stop("debug must be TRUE/FALSE or an integer")
 
-    list(smallpos= smallpos, debug=debug, makecluster=makecluster)
+    list(smallpos= smallpos, debug=debug, scale=scale, makecluster=makecluster)
 }
                          

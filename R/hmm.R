@@ -1,10 +1,9 @@
 # The main function
-hmm <- function(formula, data, subset, weights, na.action, 
-                id, qmatrix, markers, iprob,
-                mfun= hmmscore, mpar= list(), mfattr, iter=20,
-                mc.cores= getOption("mc.cores", 2L),
-                init, fixed, scale=TRUE, penalty, constraint,
-                statedata, exact ="death",
+hmm <- function(formula, data, subset, weights, 
+                id, qmatrix, markers, iprob, init, fixed,  
+                penalty,  constraint, statedata,
+                iter=30, exact= "death", mfun=hmmscore, mpar=list(), mfattr, 
+                mc.cores=getOption("mc.cores", 2L), 
                 control= hmm.control(), ...) {
     Call <- match.call()
     time0 <- proc.time()
@@ -26,10 +25,10 @@ hmm <- function(formula, data, subset, weights, na.action,
     # create a call to model.frame() that contains the formula (required)
     #  and any other of the relevant optional arguments
     #  but don't evaluate it just yet
-    indx <- match(c("formula", "data", "subset", "weights", "na.action",
+    indx <- match(c("formula", "data", "subset", "weights", 
                     "id"), names(Call), nomatch=0)
     if (indx[1] ==0) stop("a formula argument is required")
-    if (indx[6] ==0) stop("an id argument is required")
+    if (indx[5] ==0) stop("an id argument is required")
     tform <- Call[c(1,indx)]  # only keep the arguments we wanted
     tform$na.action <- quote(stats::na.pass)  # NA done by hand, later
     tform[[1L]] <- quote(stats::model.frame)  # change the function called
@@ -365,7 +364,7 @@ hmm <- function(formula, data, subset, weights, na.action,
     # Markers are not in the X matrix, so don't get scaled
     if (xassign[1]!=0 || any(cmap[1,] ==0)) 
         stop("-1 in formulas not allowed")
-    if (scale && ncol(X) >1) {
+    if (control$scale && ncol(X) >1) {
         rvar <- 2:ncol(X) # don't scale the intercept!
         Xmean <-  rep(0, ncol(X))
         Xscale <- rep(1, ncol(X))
@@ -508,7 +507,7 @@ hmm <- function(formula, data, subset, weights, na.action,
     if (mc.cores > 1 & control$makecluster) stopCluster(hmm_cluster)
 
     # Undo any scaling and centering
-    if (scale) {
+    if (control$scale) {
         B <- coef.to.B(param, cmap, fit$B)
         Bscale <- xtrans %*% B
         param <- B.to.coef(Bscale, cmap)
@@ -537,7 +536,6 @@ hmm <- function(formula, data, subset, weights, na.action,
                   penalty= c(initial=penalty0, final=penalty),
                   beta=beta,
                   time = compute.time,
-                  scale =  scale,
                   nlp = nlp,
                   cmap=cmap, rmap=rindex,
                   qmatrix = qmatrix,   # the structure and state names

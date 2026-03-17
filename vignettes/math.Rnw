@@ -788,8 +788,8 @@ ones (9 coefficients).
 The design of our multistate models is backward from the usual glm model, say,
 in that for the coxph, msm, and hmm software covariate*transition interactions 
 are assumed and have to be explicityly removed,
-whereas in a glm model additivity is uniformly assumed and interactions are
-added with *.
+whereas in a glm model additivity is uniformly and interactions have to be
+explicitly added with *.
 
 If we assume overall additivity for covariates, 
 then how do we model interactions between the processes themselves, 
@@ -876,10 +876,10 @@ can be derived, though these formulas quickly become more complex.
 The msm package has pursued this approach, we have not.
 
 \subsection{Matrix decomposition}
-If the eigenvectors of $A$ are linearly independent, then 
-\begin{align*} 
-   A   &= U \Lambda U^{-1} \\
-  e^A &= U{\rm diag}(e^\Lambda)U^{-1}
+If the eigenvectors $U$ of $A$ are linearly independent, then 
+\begin{align} 
+   A   &= U \Lambda U^{-1} \label{eigen1}\\
+  e^A &= U{\rm diag}(e^\Lambda)U^{-1} \label{eigen2}
 \end{align*}
 where $\Lambda$ is a diagonal matrix containing the eigenvectors.
 The exponential of a diagonal matrix $\Lambda$ is a diagonal matrix with 
@@ -889,15 +889,23 @@ since $A^k = U \Lambda^k U^{-1}$ (write it out).
 
 A (right) eigenvector $u$ satisfies $Au= \lambda u$, or 
 $AU = U\Lambda$ where $U$ is the matrix of eigenvectors, one per column.
-A left eigenvector matrix $V$ satisfies $VA = \Lambda V$. 
-This can also be defined as the transpose of the right eigenvectors of 
-$A$ transpose, more properly the conjugate or Hermitian transpose to
-respect complex numbers
-\begin{equation*}
-A^* V^* = V^* \Lambda
-\end{equation*}
-The eigenvalues that correspond to left and right eigenvectors are identical, 
-and it turns out that $VU=I$. 
+A left eigenvector matrix $V$ satisfies $VA =  \Lamda V$, where each row
+of $V$ contains a right eigenvector. Right and left eigenvalues $lambda$ are
+identical.
+If ``eigenvector'' is used without a modifier the right eigenvector is
+assumed.
+
+\begin{align}
+  VA &= \Lambda V  \nonumber\\
+  (VA)^T &= A^TV^T  \nonumber \\
+        &= V^T \Lambda \label{e1x} \\
+  A &= (A^T)^T \nonumber \\
+  U \Lambda  U^{-1} &= (V \Lambda V^{-1})^{T} \nonumber
+  &=  (V^T)^{-1} \Lambda V^T \label{e2x}
+  
+Equation \eqref{e1x} shows that left eigenvectors of $A$ are the (transpose of)
+the right eigenvectors of $A^{T}$.
+Equation \eqref{e2x} implies that $V^T$ is the inverse of $U$.
 (I found this last identity listening to a lecture, but have not found it 
 mentioned in any of the texts I have looked at.)
 The lapack eigen routines will return both left and right eigenmatrices if
@@ -905,14 +913,20 @@ requested; there is no need for our routine to compute $U$-inverse.
 
 Misc notes:
 \begin{itemize}
-  \item If the eigenvalues $\lambda$ are distinct, then $U$ must be full rank.
-  \item If there are tied eigenvalues, $U$ may still be full rank (it often is).
-    A transition matrix has rank nstate -1 (the rows sums are zero), yet
-    $U$ will be full rank.  The lapack routines simply fill in an orthangonal
-    column.
-  \item If $U$ is singular, then one can in theory do the same computations 
-    using Jordan canonical form, Kalbfleisch and Lawless \cite{Kalbfleisch85}
-    state this as somewhat of an aside.
+  \item the rank($U \ge$ the number of unique eigenvalues. If all eigenvalues
+    are unique then $U$ is full rank; if there are tied eigenvales it may or may
+    not be full rank (but not if it is also upper triangular).
+  \item Equation \eqref{e1x} shows that left eigenvectors of $A$ are the 
+    (transpose of) the right eigenvectors of $A^{T}$.
+  \item Complex eigenvalues come in pairs, a value and its complex conjugate.
+    The corresponding eigenvalues are a vector and its complex conjugate.
+  \item If there is an absorbing state, e.g. death, then the transition matrix 
+    will have a zero row and a zero eigenvalue. $U$ can still be full rank:
+    the lapack routines simply fill in an independent column. The results with
+    respect to the matrix exponential and derivative still hold.
+  \item If $U$ is singular (not full rank), then one can in theory do the same
+    computations using matrices that have Jordan canonical form, Kalbfleisch
+    and Lawless \cite{Kalbfleisch85} state this as somewhat of an aside.
   \item If $U$ is close to singular, then the eigen algorithm for the matrix
     exponential can be imprecise,
     with error proportional to the condition number of $U$ times the underlying
@@ -923,8 +937,76 @@ Misc notes:
   \item The better approach, exemplified in the expm-eigen.c function in the
     expm package, is to pay attention to the condition number, and switch to
     a Pade approach if it is large.  They use an inverse condition number
-    of \code{.Machine\$double.eps}, which is fairly aggressive.
+    of \code{.Machine\$double.eps}, which is quite aggressive. Our hmmeigen
+    function uses 1e-10.
+  \item Equation \eqref{e2x} implies that $U^{-1} = V^T$.  Since the lapack
+    routine dgeev will return both left and right eigenmatrices if requested
+    there should be no need to compute $U$ inverse.  This is almost true.
+    \begin{itemize}
+      \item If $u$ is an eigenvector then $cu$ is also an eigenvector for any
+        constant $c$. The routines return eigenvectors $U$ with length 1, 
+        but one
+        can rescale the columns to any value, even a different value per column,
+        and equations \eqref{eigen1} and \eqref{eigen2} will still hold.
+      \item The column of $U^{-1}$ are not length 1, in fact if $U$ is ill
+        conditioned the values can be very large.  $V^T$ also has column norm 1.
+      \item However, if we scale columns of $V$ by 
+        \code{scale = 1/colSums(U*V)} 
+        (elementwise multiplication) the result is $U$ inverse. 
+        This simply re-norms each column to what the column norm of $U^{-1}$ 
+        must be: we know the inner product of row $k$ of $U$ and column
+        $k$ of $U^{-1}$ is 1.
+      \item As a check of singularity we can use the maximum element of 
+        \code{scale}. (Maximum norm, since scale may be complex).
+        Since $V$ also has columns with length 1, the result
+        will be of similar magnitude to the 1 norm of $U$-inverse.
+    \end{itemize}
 \end{itemize}
+
+The following examples illustrate some of the above:
+<<expexample>>=
+aeq <- function(a,b) all.equal(as.vector(a), as.vector(b)) # avoid names
+#1  rmat1 is not full rank, due to death, leading to a zero eigenvalue
+#   the eigenvector matrix is still full rank
+#   eigenvalues are the diagonals of rmat, but in sorted order
+tname <- c(letters[1:3], "death")
+rmat1 <-  matrix(c(-.3, .1, 0, .2, 0, -.1, .05, .05, 0,0,-.2, .2, 0,0,0,0),4,
+                 byrow=TRUE, dimnames= list(from=tname, to=tname)) 
+rmat1
+e1 <- eigen(rmat1)
+e1$values
+e1$vectors
+test1 <- e1$vectors %*% diag(e1$values) %*% solve(e1$vectors)
+aeq(test1, rmat1)
+
+e1b <- eigen(t(rmat1)) # eigenvectors of t(rmat1)
+test2 <- t(solve(e1b$vectors)) %*% diag(e1b$values) %*% t(e1b$vectors)
+aeq(test2, rmat1) # they also work
+scale <- 1/colSums(e1$vectors* e1b$vectors)
+test3 <- e1$vectors %*% diag(e1$values) %*% (scale*t(e1b$vectors))
+aeq(test3, rmat1) #scale transpose can replace the inverse
+
+# tied eigenvalue, singular U
+rmat2 <-  matrix(c(-.3, .1, 0, .2, 0, -.1, .05, .05, 0,0,-.1, .1, 0,0,0,0),4,
+                 byrow=TRUE, dimnames= list(from=tname, to=tname)) 
+rmat2
+svd(e2$vectors)$d  #last value is essentially 0
+
+# Completely mixed, two pairs of complex eigenvalues
+rmat3 <- matrix(rep((1:6)/20, length=25),5,5)
+diag(rmat3) <- diag(rmat3) - rowSums(rmat3)
+e3 <- eigen(rmat3)
+e3b <- eigen(t(rmat3))
+test1 <- e3$vectors %*% diag(e3$values) %*% solve(e3$vectors)
+aeq(Re(test1), rmat3)
+range(Im(test1))
+
+(solve(e3$vectors)/t(e3b$vectors))[,1]  # the scale factors
+scale <- 1/colSums(e3$vectors* e3b$vectors)
+test2 <- e3$vectors %*% diag(e3$values) %*% (scale* t(e3b$vectors))
+aeq(Re(test2), rmat3)  # the scaling still works for complex
+@ 
+
 
 A primary attraction of the decompostion method is that it gives an immediate
 solution for computing the derivatives of $\exp(A)$ with respect to the
@@ -932,20 +1014,22 @@ parameters, and derivatives are something that we need
 for many of the solution methods. Per Kalbfleisch and Lawless 
 \cite{Kalbfleisch85}
 
-\begin{align*}
- \frac{\partial e^A}{\partial \theta} &= UVU^{-1} \\
+\begin{align}
+ \frac{\partial e^A}{\partial \theta} &= UVU^{-1}  \label{eigen1}\\
  V_{jk} &= \left\{ \begin{array}{cc} G_{jk}\frac{e^{\lambda_j} - e^{\lambda_k}}
-     {\lambda_j- \lambda_k} & \lambda_j \ne \lambda_k \\
-      G_{jk}e^{\lambda_j} & \lambda_j= \lambda_k \end{array} \right. \\
- G &=  U^{-1} \frac{\partial A}{\partial \theta} U
+     {\lambda_j- \lambda_k} & \lambda_j \ne \lambda_k  \nonumber\\
+      G_{jk}e^{\lambda_j} & \lambda_j= \lambda_k \end{array} \right.  \nonumber \\
+ G &=  U^{-1} \frac{\partial A}{\partial \theta} U \label{eigen2}
 \end{align*}
 
 In our code we take a chained approach.  The matrix exponential routines
 calculate the above derivatives with $\theta$ as the individual elements of
 $A$, i.e., $dA/d\theta$ will be a matrix of zeros with a single 1 off the
-diagonal and -1 on the diagonal.
+diagonal and -1 for the matching diagonal element.
 If $A$ contains $m$ non-zero transition rates this leads to $m$ derivative
 matrices for $\exp(A)$. 
+At first glance one might guess that the sparse structure of $dA$ would
+lead to a sparse $G$ per equation \eqref{eigen2}, but this is not so.
 
 The likelihood for a subject involves a series of vector-matrix products
 $$
@@ -970,15 +1054,13 @@ matrix exponential routine.
 The \code{Matrix} library includes an \code{expm} function and the \code{expm}
 library a more refined version of \code{expm}, both based on more recent work by
 \cite{Higham08}.
-The Higham approach is a refinement of the simple ``scale and square'' 
-algorithm mentioned above for the simple exponent.
-That is, if the elements of $A/s$ are bounded below a given threshold then
+If the elements of $A/s$ are bounded below a given threshold then
 $$
   e^{A/s} \approx p(A/s)/q(A/s)
 $$
 where $p$ and $q$ are polynomials in $A/s$. The order of the polynomial is 2
 to 8, chosen dynamically based on matrix values.
-The scale factor $s$ is chosen as the power of 2 the properly bounds the 
+The scale factor $s$ is chosen as the power of 2 which properly bounds the 
 elements, and at the end the result $\exp(A/s)$ is repeatedly squared to
 create $\exp(A)$. 
 
@@ -986,7 +1068,7 @@ If we don't need derivatives it is difficult to improve on the \code{expm}
 library, certainly in terms of reliability.  But we do need derivatives.
 We have created a clone of one of the simpler methods (Wards method) from
 the expm library --- it skips the more sophisticated preconditioning steps ---
-and then compute the derivative by brute force. 
+and compute the derivative by brute force. 
 This is based on the unproven assertion that transition matrices are ``nice''
 and we can skip these preconditioning steps, as working out the impact 
 of these steps on the derivative is well beyond my skill set.
@@ -1039,14 +1121,14 @@ which expects a Schur matrix as input.
 Many of our multistate problems have involved irreverible processes,
 in which case the transition matrix can be arranged so as to be upper
 triangular.
-Note that since the row sums of a transition matrix are 0, the final row of
-an upper triangular transition matrix is 0 (the death state, which absorbs from
-all others.) 
+Note that since the row sums of a transition matrix are 0, the rows for
+any absorbing state, e.g. death, will be zero.
 
 When we do a matrix mulitplication in R, this also uses the BLAS code behind
 the scenes.  This leads to the at first counter-intuitive result that moving
 a computation from R into ``more efficient'' C code will result in slower
 execution.  
+
 
 \section{Fisher scoring}
 The hmm function allows ``Fisher scoring'' as a choice of algorithm for finding

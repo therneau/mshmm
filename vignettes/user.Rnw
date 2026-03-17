@@ -14,7 +14,7 @@
 
 <<setup, echo=FALSE>>=
 library(survival)
-library(hmm)
+library(mshmm)
 library(msm)
 library(knitr)
 opts_chunk$set(tidy=FALSE, fig.keep='none',
@@ -228,43 +228,9 @@ statefig(1:2, ctrans)  # visual check that it is correct
 A transition matrix is necessary for the fit: possible transitions
 are marked by 1 and invalid transitions by 0.
 The code actually allows any positive value, since the statefig routine
-uses non-integer values between 0 and 2 for curved connecting lines.
+uses non-integer values between 0 and 2 for drawing curved connecting lines.
 
 <<colon2b>>=
-# Crude transitions, as a starting estimate
-cdata$year <- cdata$time/365.25  # rates per year are more understandable
-i1 <- duplicated(cdata$id, fromLast=TRUE)
-i2 <- duplicated(cdata$id)
-temp1 <- with(cdata, table(from= status[i1], to= status[i2]))[-1,-1]
-temp2 <- with(cdata, tapply(year[i2]-year[i1], status[i1], sum))[-1]
-crude <-  (temp1/c(temp2))[ctrans>0]
-cfit0 <- hmm(Surv(year, status) ~ 1, id=id,  init=log(crude),
-             qmatrix= ctrans, exact="death", data= cdata,
-             mc.cores=1any time $t$ cannot depend on any predictors
-measured at or after time $t$. 
-The hmm function enforces this: any observed outcome on a line of data is
-predicted using information from prior rows of data.
-One consequence is that covariate values on the final row for a subject have
-no impact. 
-A second action within hmm is to use the most recently observed value for
-any predictor; it is not necessary to fill in the values for treatment, age at
-entry, etc in every row of the data set.
-It is a bit of a semantic argument whether each row of a timeline data set 
-should contain only values \emph{measured} at that time or all
-values \emph{known} at that time, i.e., whether fixed covariates like sex
-should be propogated across all rows. 
-The hmm function is happy with either, and more capable data set creation tools
-than the basic R merge used above may well fill these in. 
-
-We can now fit the model.
-
-<<colon2>>=
-# create the transition matrix
-cstate <- c("entry", "progression", "death")
-ctrans <- matrix(c(0,0,0,1,0,0,1,1,0), nrow=3,
-                 dimnames= list(from= cstate, to= cstate))
-statefig(1:2, ctrans)  # visual check that it is correct
-
 # Crude transitions, as a starting estimate
 cdata$year <- cdata$time/365.25  # rates per year are more understandable
 i1 <- duplicated(cdata$id, fromLast=TRUE)

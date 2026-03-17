@@ -14,7 +14,7 @@ Leuven (Belgium) between 21 January 1983 and 16 August 2000.
 \format{
   A data frame with 73091 observations on the following 8 variables.
   \describe{
-    \item{\code{id}}{subject identifier, 1 to 416
+    \item{\code{id}}{subject identifier, 1 to 416}
     \item{\code{day}}{day of observation}
     \item{\code{fail}}{1= graft failure, 0= censor}
     \item{\code{age}}{age at renal transplant}
@@ -22,7 +22,7 @@ Leuven (Belgium) between 21 January 1983 and 16 August 2000.
     \item{\code{prot}}{presence of proteinuria: 0= no, 1= yes}
     \item{\code{haem}}{haemocrit: 100 times the ratio of the
     volume of red blood cells to the total volume of blood}
-    \item{\code{gfr}}{glomular filtration rate, ml/min/m^2
+    \item{\code{gfr}}{glomular filtration rate, ml/min/m^2}
   }
 }
 \details{
@@ -34,12 +34,5 @@ baseline values are not.
 }
 \source{
 The joineRML package
-}
-\references{
-%%  ~~ possibly secondary sources and usages ~~
-}
-\examples{
-data(t4)
-## maybe str(t4) ; plot(t4) ...
 }
 \keyword{datasets}
