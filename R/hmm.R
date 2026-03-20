@@ -62,11 +62,10 @@ hmm <- function(formula, data, subset, weights,
     # If the user did not provide an exact argument, don't complain if
     #  our default value of "death" is not one of the known states, instead
     #  treat the default as NULL
-    if (missing(exact) || length(exact) ==0) exact <- NULL
-    else {
-        temp <- match(exact, statenames)
-        if (any(is.na(temp)))
-            stop("exact argument contains a state not in qmatrix")
+    temp <- match(exact, statenames)
+    if (any(is.na(temp))) {
+        if (missing(exact) || length(exact) ==0) exact <- NULL
+        else stop("exact argument contains a state not in qmatrix")
     } 
 
     # a 0 row in qmap = an absorbing state (you never leave)
@@ -277,7 +276,7 @@ hmm <- function(formula, data, subset, weights,
         weights <- weights[keep]
         mf <- mf[keep,]  # the markers have not yet been pulled out
         # message for printout
-        removed <- c(subjects= length(toss), y= sum(ymiss), rate=sum(xmiss),
+        removed <- c(subjects= length(tossid), y= sum(ymiss), rate=sum(xmiss),
                      id= sum(idmiss))
     }
     else {

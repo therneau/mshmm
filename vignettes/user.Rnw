@@ -80,7 +80,7 @@ form:
     likewise for stratification variables, if present.
   \item Outcomes occur at the end of the interval.
 \end{itemize}
-The data for cmsh should be in \emph{timeline} form.
+The data for icmsh should be in \emph{timeline} form.
 \begin{itemize}
   \item Each line of the data has a subject id, along with a time value
   \item Other variables on the line are information that was measured or
@@ -99,7 +99,8 @@ time point (alive/dead).
 This is different than the traditional way that survival data is coded,
 i.e., a single observation with a time/status variable pair.
 The multistate format for the survival package evolved out of simple survival
-and so retains that instance as a special case, i.e., one line per subject.
+and so retains that instance as a special case, i.e., one line per subject
+for the simple case.
 
 This second observation in a timeline dataset will also have many missing 
 values, e.g., blood pressure would not normally be known at death, especially if
@@ -124,9 +125,9 @@ ntrue[ntrue<1] <- 0
  \label{fig:nafld1}
 \end{figure}
  
-In censored multistate data, the subjects may be observed to be in some 
-state $s$ at time $t$, with the the time of entry to that state is unknown.
-When there is interval censoring, the user will needs to create a map of
+In interval censored multistate data, the subjects may be observed to be in
+some state $S$ at time $t$, with the the time of entry to that state is unknown.
+When there is interval censoring, the user will need to create a map of
 the valid transitions, as the underlying code is not able to do so with
 assurance.  For example consider the data for the NAFLD study, found in 
 the survival package.  
@@ -135,16 +136,15 @@ visit, by the number of metabolic comorbidities (MC) that they had accumulated
 where the MC were diabetes, hyperlipiemia, and hypertension.
 Figure \ref{fig:nafld1} shows the observed transtions.
 A given subject might have a multi-year gap between two office visits,
-leading to the accumulation of multipe MC in the interim;
+leading to the accumulation of multiple MC in the interim;
 these observed transitions are drawn as dotted lines in Figure \ref{fig:nafld1}.
 The true transition matrix is below, which would be used as input 
 to the fitting function; it has zero for transtions which do not actually
 occur (biologically).
-(The msm package uses the non-zero elements as a convenient place to store
-initial estimates of the rates.)
 
 In this data set the 1MC state is interval censored: for a subject who had
-at their medical visit at age 56 and 1 MC observed at a visit 2 years later,
+none of the three conditions at their initial visit
+visit at age 56, and 1 MC observed at a visit 2 years later,
 we do not know exactly when the condition arose in that interval.
 For almost all interval censored data sets there is at least one state which
 is not interval censored, i.e., death.  Such states are specified by the
@@ -157,15 +157,15 @@ fit by coxph, a status of censored means ``no transition was observed at this
 time''. With respect to the likelihood and predicted curves, a subject is
 assummed to still occupy the state of their most recent transtion, e.g.,
 1MC at 3 years and censored at 10 implies 1MC at 10.
-In an interval censored MSH, censoring means ``not dead at this time''.
+In an interval censored MSH, censoring means only ``not dead at this time''.
 A subject who is 1MC at year 3 and censored at 10 could be in any of the
 1MC, 2MC, or 3MC states at that later time.
 
-Formally, the code treats censored as ``not in any state which is both
-exact and absorbing''.  The former is taken from the \code{exact} argument,
-the latter is inferred from the transition matrix.
+More formally, the code treats censored as ``not in any state which is both
+exact and absorbing''.  The first of these is taken from the \code{exact} 
+argument, the latter is inferred from the transition matrix.
 It is possible to an exact state which is not absorbing, an example is the
-surgical resection state in Crohn's disease \cite{Therneau2000}.
+surgical resection state in Crohn's disease \cite{Therneau2000}. 
 
 \section{Interval censored data}
 \subsection{Colon cancer trial}
@@ -176,7 +176,7 @@ The data set is organized with 2 rows per subject, the first containing the
 progression outcome and the second the death outcome.
 
 <<colon1>>=
-# Only a few have with only progression, even fewer deaths before progression
+# Only a few have with only progression, even fewer death before progression
 with(colon, table(prog= status[etype==1], death= status[etype==2]))
 
 # Make the timeline data set, we will use only a few predictors
@@ -200,10 +200,10 @@ One of the necessary conditions for a valid model, per underlying counting
 process theory, is the concept of a predictable process.
 In essense, an outcome observed at time $t$ cannot depend on any predictors
 measured at or after time $t$. 
-The hmm function enforces this: any observed outcome on a line of data is
+The hmm function enforces this: any observed outcome on a given line of data is
 predicted using information from prior rows of data.
-One consequence is that covariate values on the final row for a subject have
-no impact. 
+One consequence is that prediction covariantes on the final row for a subject 
+have no impact. 
 A second action within hmm is to use the most recently observed value for
 any predictor; it is not necessary to fill in the values for treatment, age at
 entry, etc in every row of the data set.
@@ -214,7 +214,35 @@ should be propogated across all rows.
 The hmm function is happy with either, and more capable data set creation tools
 than the basic R merge used above may well fill these in. 
 
-We can now fit the model.
+For comparison, also create a timeline data set, and use it to create the
+multi-state cumulative hazard and probability in state (survival) curves.
+
+<<coloncount>>=
+cdata2 <- tmerge(subset(cdata, !duplicated(id), -c(time, status)), 
+                 subset(cdata, !duplicated(id, fromLast=TRUE)), id=id,
+                 death = event(time, status=="death"),
+                 options=list(tstartname="time1", tstopname="time2"))
+cdata2 <- tmerge(cdata2, cdata, id=id, cstate= tdc(time, status),
+                 state= event(time, status))
+subset(cdata2, id <4, -death)
+survcheck(Surv(time1, time2, state) ~1, cdata2, id=id, istate=cstate)
+
+aj1 <- survfit(Surv(time1, time2, state) ~ 1, cdata2, id=id, istate=cstate)
+plot(aj1, col=1:3, xscale=365, lwd=2,
+     xlab="Years post randomization", ylab="Probability in state")
+legend(200, .54, c("Entry", "Progression", "Death"), lty=1, lwd=2, col=1:3,
+       bty='n')
+plot(aj1, cumhaz=TRUE, col=1:3, xscale=365, lwd=2,  
+     xlab="Years post randomization", ylab= "Cumulative Hazard")
+legend(1500, 2, c("Entry:Progression", "Entry:Death", "Progression:Death"),
+       col=1:3, lwd=2, lty=1, bty='n')
+@ 
+
+The cumulative hazards at 8 years are about .7, .1 and 4 for the transition
+rates of entry to progression, entry to death and progression to death,
+which provide reasonable starting estimates for the baseline hazards of the
+interval censored fit. 
+Using years as the time scale will give more interpretable coefficients. 
 
 <<colon2>>=
 # create the transition matrix
@@ -233,15 +261,11 @@ uses non-integer values between 0 and 2 for drawing curved connections.
 <<colon2b>>=
 # Crude transitions, as a starting estimate
 cdata$year <- cdata$time/365.25  # rates per year are more understandable
-i1 <- duplicated(cdata$id, fromLast=TRUE)
-i2 <- duplicated(cdata$id)
-temp1 <- with(cdata, table(from= status[i1], to= status[i2]))[-1,-1]
-temp2 <- with(cdata, tapply(year[i2]-year[i1], status[i1], sum))[-1]
-crude <-  (temp1/c(temp2))[ctrans>0]
+crude <-  c(.7, .1, 4)/8
 cfit0 <- hmm(Surv(year, status) ~ 1, id=id,  init=log(crude),
              qmatrix= ctrans, exact="death", data= cdata,
              mc.cores=2)
-cfit1 <- hmm(Surv(time, status) ~ rx + node4 + extent, id=id,
+cfit1 <- hmm(Surv(year, status) ~ rx + node4 + extent, id=id,
              qmatrix= ctrans, exact="death", data= cdata, mc.cores=1, 
              init= cfit0)
 @ 

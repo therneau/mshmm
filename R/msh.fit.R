@@ -1,4 +1,4 @@
-# The icmsh function has done all of the formula and parameter parsing, and
+# The hmm function has done all of the formula and parameter parsing, and
 #  calls this function to do the work. 
 # id   : subject id of 1,1,1,.. 2,2,2 etc. Data sorted by time within subject
 # ytime: vector of times, only used to create the length of time between rows
@@ -42,12 +42,13 @@ msh.fit <- function(id, ytime, ystate, X, iprob, B,
     # the otype variable: 1= interval censored = is in a known state at
     #  this time point; 2= exact = known state and we know exactly when it
     #  was entered (e.g. death), 3= one or more markers, 0 = none of these
-    # ymarker is a data.frame, not a matrix, hence sapply
+    # The likelihood for an exact outcome depends on covariate values before
+    #   that time point, we have to treat 'exact' on obs 1 of a subject as
+    #   an ordinary "we know their state at this time", i.e. a 1
     # What to do with an obs where markers are measured, but the state is
     #  known, i.e., ystate>0?  I think it is data dependent, so we warn the
     #  user. The current hmm1/hmm2 code will ignore the markers.
-    temp1 <- ystate %in% iexact
-    temp2 <- ystate %in% exactabsorb
+    temp1 <- (ystate %in% iexact) & duplicated(id)
     if (nmarker >0 ) {
         temp3 <- rowSums(sapply(ymarker, is.na)) >0
         if (any(temp3 & ystate>0))
@@ -132,9 +133,11 @@ msh.fit <- function(id, ytime, ystate, X, iprob, B,
         # no need to iterate, create return
         if (is.list(initial.loglik)) {
             # this occurs with certain debug options, which return everthing
-            rval <- list(loglik=initial.loglik$loglik, penalty=penalty0,
+            rval <- list(param=param, loglik=initial.loglik$loglik, 
+                         penalty=penalty0,
                          fit= initial.loglik)
-        } else rval <- list(loglik= initial.loglik, penalty=penalty0)
+        } else rval <- list(param=param, loglik= initial.loglik,
+                            penalty=penalty0)
         return(rval)
     }
        

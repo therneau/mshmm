@@ -53,7 +53,7 @@ hmm1 <- function(who, B) {
         }
         rmat <- matrix(0, nstate, nstate)
         for (i in (1:r2)[-r2]) {
-            rmat[qmatrix>0] <- exp(eta[i, 1:nlp[1]])
+            rmat[qmatrix>0] <- exp(eta[i, e1])
             diag(rmat) <- diag(rmat) - rowSums(rmat)
             Pmat[,,i] <- survexpm(rmat, dtime[rows[i]], deriv=FALSE) 
         }
@@ -62,20 +62,25 @@ hmm1 <- function(who, B) {
                 {cat ("stop1\n"); browser()}
         Pmat <- pmax(Pmat, 0)  # we sometimes get tiny negative numbers
     } 
-    
+
     # Now walk through the visits one by one
     offset <- 0   # watch out for underflow
     nc <- integer(nmarker)  # the number of otype=3 so far, per marker
     rmat <- matrix(0., nstate, nstate)
 
     for (jj in seq_along(rows)) {
-        j <- rows[jj] # j is the index in the original data, jj in our subset
+        # j is the index in the original data, jj in our subset, e.g., eta, P
+        j <- rows[jj] 
         if (otype[j] ==1 ) { # interval censored outcome
             k <- ystate[j] # in this state, at this time
             alpha[-k] <- 0
         } else if (otype[j] == 2) {
             # exact event time (death)
-            rmat[rindex] <- exp(eta[jj-1, e1]) #covariate just before this point
+            k <- ystate[j]  # the exact state just entered
+            # we need col k of rmat, using the prior covariates, otype is
+            #  never 2 on the first row (jj=1)
+            rmat[,k] <-0
+            rmat[qmatrix>0] <- exp(eta[jj-1, e1]) 
             k <- ystate[j]  # the exact state just entered
             alpha[k] <- sum(alpha*rmat[,k])
             alpha[-k] <- 0  # known to not be in another state
@@ -122,24 +127,6 @@ hmm1 <- function(who, B) {
     loglik <- offset + log(sum(alpha))
     loglik
 }
-
-
-
-psetup <- function(rmat, rindex, nstate) {
-    n.eta <- length(rindex)
-    out <- array(0., c(nstate, nstate, n.eta))
-    temp <- matrix(0., nstate, nstate)
-    rr <- row(temp)[rindex]
-    for (i in 1:n.eta) {
-        temp2 <- temp
-        exp.eta <- rmat[rindex[i]]  # elements of rmat are exp(eta)
-        temp2[rindex[i]] <-  exp.eta
-        temp2[rr[i], rr[i]] <- -exp.eta
-        out[,,i] <- temp2
-    }
-    out
-}
-
 
 hmm2 <- function(who,  B) {
     if (control$debug >1) cat("in hmm2\n")
@@ -194,7 +181,7 @@ hmm2 <- function(who,  B) {
             # exact event time (death)
             k <- ystate[j]
             dtemp <- rmat[,k]  #rate at this point
-            dtemp[k] <- 0      # we don't want -1*rowsum here
+            dtemp[k] <- 0      # we don't want -1*rowsum (r[k,k]) here
             if (nlp[3]) pi.d <- pi.d * rep(dtemp, nlp[3])
             if (nlp[2]) R.d  <- R.d  * rep(dtemp, nlp[2])
             if (control$debug >1) {cat("death "); browser()}
@@ -257,7 +244,7 @@ hmm2 <- function(who,  B) {
 
         if (jj < r2) { # not the last row
             # state matrix transformation P
-            rmat[rindex] <- exp(eta[jj,e1])
+            rmat[qmatrix>0] <- exp(eta[jj, e1])
             if (!all(is.finite(rmat))) {
                 # a horrible beta can overflow
                 if (control$debug > 1) 

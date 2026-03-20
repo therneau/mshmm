@@ -5,13 +5,56 @@ library(msm)
 library(hmm)
 aeq <- function(x, y, ...) all.equal(as.vector(x), as.vector(y), ...)
 
-# source("../trial/loadall.R") # for testing without loading
-# load('../data/test1.rda')  #simple data set with 4 subjects
-
+# test1 has 4 subjects, 17 rows
 # The age intervals are about a year, so make transitions around 5-15% per
 # year.  This makes the loglik far from 1.
 sname <- levels(test1$state)
 qmat <- matrix(0, 6, 6, dimnames=list(from= sname, to=sname))
+qmat[1,2:3] <- 1
+qmat[2:3, 4] <- 1
+qmat[3:4, 5] <- 1
+qmat[-6,6] <- 1
+# statefig(c(1,2,2,1), qmat)
+icoef <- log(c(.05, .05, .06, .07, .05, .15, rep(c(.05,.07, .15), c(3,1,1))))
+
+# make it a survival endpoint
+test1$state <- factor(test1$istate, 0:6, c("censor", sname))
+
+# The simplest model
+hfit1 <- hmm(Surv(age,state) ~1, data=test1, id=id, qmatrix=qmat,
+             init=icoef, iter=0)
+
+# msm wants the intital rates in qmat, hmm uses icoef
+qmat[qmat>0] <- exp(icoef)
+mfit1 <- msm(istate ~ age, data=test1, subject=id, 
+             qmatrix = qmat, fixedpar=TRUE)
+
+# do the computation by hand
+phat <- matrix(1, 4, 4)
+idlist <- unique(test1$id)
+rmat <- qmat
+rmat[rmat!=0] <- exp(icoef)
+diag(rmat) <- diag(rmat) - rowSums(rmat)
+
+for (i in 1:4) {
+    tdata <- subset(test1, id==idlist[i])
+    delta <- diff(tdata$age)
+    oldstate <- tdata$istate[-nrow(tdata)]
+    newstate <- tdata$istate[-1]
+
+    for (j in 1:length(delta)) {
+        P <- expm(rmat * delta[j])
+        phat[i,j] <- P[oldstate[j], newstate[j]]
+    }
+}
+p2 <- apply(phat, 1, prod)
+aeq(sum(log(p2)), hfit1$loglik[2])
+
+# msm wants the intital rates in qmat, hmm just need 0 vs >0
+qmat[qmat>0] <- exp(icoef)
+mfit1 <- msm(istate ~ age, data=test1, subject=id, 
+             qmatrix = qmat, fixedpar=TRUE)
+
 qmat[1,2] <- qmat[1,3] <- .05
 qmat[2,4] <- .06
 qmat[3,4] <- .07
@@ -59,7 +102,7 @@ for (i in 1:4) {
     }
 }
 p2 <- apply(phat, 1, prod)
-aeq(sum(log(p2)), hfit1$loglik[2])
+aeq(sum(log(p2)), hfit1$loglik)
 
 
 # Add covariates
