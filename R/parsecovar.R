@@ -298,7 +298,8 @@ parsecovar2 <- function(parse1, statedata, dformula, Terms, qmatrix,
     #  formula line, ie. the set of transitions.The result will be a list,
     translist <- lapply(parse1$lhs, function(x) {
         temp <- statepair(x, statedata)
-        id <- paste(temp[1,], temp[2,], sep=':')
+        if (is.matrix(temp)) id <- paste(temp[1,], temp[2,], sep=':')
+        else id <- paste(temp[1], temp[2], sep=':')  #single transition
         indx <- match(id, tran.id)
         # A specification like A(0):A(1) will generate spurious illegal 
         #  combinations, ignore them silently.

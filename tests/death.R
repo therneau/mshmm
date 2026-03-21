@@ -35,3 +35,12 @@ icoef <- matrix(log(c(.1, .2, .3)), nrow=1,
 hfit <- hmm(Surv(time, state) ~ 1, id= id, qmatrix=qmat,
             data=ddata, init=icoef, iter=0, mc.cores=1)
 all.equal(hfit$loglik, loglik1)
+
+# detail=TRUE forces 0 iterations, but returns full detail on the estimated
+#  alpha vector and its derivative, per subject.  And it exercises a different
+#  part of the code (hmm2 routine) than the usual iter=0 (hmm1 routine)
+# One doesn't need derivatives if not iterating (or debugging)
+h2 <- hmm(Surv(time, state) ~ 1, id= id, qmatrix=qmat,
+            data=ddata, init=icoef, iter=0, mc.cores=1, detail=TRUE)
+log2 <- sum(log(colSums(h2$alpha)))
+all.equal(log2, loglik1)

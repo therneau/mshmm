@@ -45,24 +45,13 @@ hmmloglik <- function(param, logfun) {
     }
 
     tpar <- c(param)  # used for constraints
+    loglik <- sum(unlist(mcfit)) # mcfit returns a single number
     if (!is.null(penmat)) loglik <- loglik - sum(tpar * (penmat %*% tpar))/2
-    
-    if (control$debug == -1) {
-        # Hand back more stuff
-        alpha <- sapply(mcfit, function(x) grab(x, "alpha"))
-        offset <- sapply(mcfit, function(x) grab(x, "offset"))
-        loglik <- sum(log(colSums(alpha)) + offset)    
-        rval <- list(alpha = alpha,
-                     offset = offset,
-                     loglik = loglik)
-        tpar <- param
-        if (!is.null(penmat)) rval$penalty <- sum(param* (penmat %*% param))/2
-        rval
-    } else sum(unlist(mcfit)) # mcfit returns a single number
+    loglik
 }
 
 # This function is used by the score based iteration
-hmmboth <- function(param, logfun){
+hmmboth <- function(param, logfun, detail = FALSE){
     B2 <- coef.to.B(param, cmap, B) #copy with updated parameters
     if (mc.cores > 1) {
         if (!fork)
@@ -89,6 +78,24 @@ hmmboth <- function(param, logfun){
     }
     else loglik <- sum(log(alpha) + offset)
     
+    if (detail) {
+        # This is a special call for debugging.  Return the per subject
+        #  raw values, logfun above will have been hmm2 (detail arg isn't passed
+        #  to hmm1).  Give names, since I'll use this only rarely and forget
+        pname <- outer(rownames(cmap), colnames(cmap), paste, sep='_')
+        pname <- pname[cmap>0]  # names of the parameters
+        alpha <-  sapply(mcfit, function(x) x$alpha)
+        uid <- unique(id)
+        sname <- colnames(qmat) # the state names
+        dimnames(alpha) <- list(state=sname, id=uid)
+        deriv <-  sapply(mcfit, function(x) x$deriv)
+        deriv <- array(deriv, dim=c(length(pname), nstate, length(uid)),
+                       dimnames=list(param=pname, state=sname, id=uid))
+        offset <- sapply(mcfit, function(x) x$offset)
+        return(list(loglik= loglik, 
+                    alpha= alpha, deriv=deriv, offset=offset))
+    }
+
     d.alpha <- sapply(mcfit, function(x) rowSums(grab(x, "deriv")))
     u <- d.alpha * rep(1/alpha, each=nrow(d.alpha))
     # this will be a matrix with nparm rows, one col per subject

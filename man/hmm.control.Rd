@@ -8,7 +8,7 @@
 }
 \usage{
 hmm.control(smallpos = 0.001, debug = FALSE, scale=TRUE,
-             makecluster = .Platform$OS.type == "windows")
+             makecluster = .Platform$OS.type == "windows", detail=FALSE)
 }
 \arguments{
   \item{smallpos}{due to round off error the internal computations may
@@ -25,7 +25,10 @@ hmm.control(smallpos = 0.001, debug = FALSE, scale=TRUE,
   the fork system primitive, or \code{parLappy} which is based on
   clustering. We slihtly prefer the first, but it is not available on
   Windows systems.
-}}
+}
+\item{detail}{If TRUE, no iteration is done, and the contributions of
+  each individual id to the estimate and derivatives is returned}
+}
 \value{a list containing the options}
 \seealso{\code{\link{hmm}}
 }

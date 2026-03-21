@@ -177,9 +177,10 @@ hmm2 <- function(who,  B) {
             alpha[-k] <- 0
             P.d[, -k] <- 0
         }
-        else if (otype[j] == 2 & jj> 1) {
+        else if (otype[j] == 2) {
             # exact event time (death)
-            k <- ystate[j]
+            k <- ystate[j]        # transitioning to state k       
+            klp <- (qmatrix[,k])  #linear preds for transitions to state k
             dtemp <- rmat[,k]  #rate at this point
             dtemp[k] <- 0      # we don't want -1*rowsum (r[k,k]) here
             if (nlp[3]) pi.d <- pi.d * rep(dtemp, nlp[3])
@@ -193,7 +194,8 @@ hmm2 <- function(who,  B) {
             # 
             if (nlp[1] >0 ) {
                 term1 <- P.d %*% dtemp # first term, for col k
-                term2 <- alpha %*% (dtemp * eta.beta1(X[j-1,]))
+                etemp <- eta.beta1(X[j-1,])[klp,] # eta to beta for these lp
+                term2 <- alpha[klp>0] %*% (dtemp[klp>0] * etemp)
                 P.d[,-k] <- 0; P.d[,k] <- c(term1) + c(term2)
             }
             alpha[k] <- sum(alpha * dtemp)

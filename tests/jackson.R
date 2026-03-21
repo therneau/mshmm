@@ -24,144 +24,101 @@ test1$state <- factor(test1$istate, 0:6, c("censor", sname))
 hfit1 <- hmm(Surv(age,state) ~1, data=test1, id=id, qmatrix=qmat,
              init=icoef, iter=0)
 
-# msm wants the intital rates in qmat, hmm uses icoef
-qmat[qmat>0] <- exp(icoef)
-mfit1 <- msm(istate ~ age, data=test1, subject=id, 
-             qmatrix = qmat, fixedpar=TRUE)
-
 # do the computation by hand
-phat <- matrix(1, 4, 4)
-idlist <- unique(test1$id)
-rmat <- qmat
-rmat[rmat!=0] <- exp(icoef)
-diag(rmat) <- diag(rmat) - rowSums(rmat)
-
-for (i in 1:4) {
-    tdata <- subset(test1, id==idlist[i])
-    delta <- diff(tdata$age)
-    oldstate <- tdata$istate[-nrow(tdata)]
-    newstate <- tdata$istate[-1]
-
-    for (j in 1:length(delta)) {
-        P <- expm(rmat * delta[j])
-        phat[i,j] <- P[oldstate[j], newstate[j]]
-    }
+byhand <- function(data, eta, q=qmat, missmat) {
+    idlist <- unique(data$id)
+    nid <- length(idlist)
+    phat <- matrix(0, nid, 6)  # n subjects, 4 states
+    if (missing(missmat)) missmat <- diag(6)  # no errors
+    for (i in 1:nid) {
+        tdata <- subset(data, id== idlist[i])
+        n <- nrow(tdata)
+        e2 <- eta[data$id==idlist[i],]
+        phat[i, tdata$istate[1]] <- 1  # initial state
+        delta <- diff(tdata$age)
+        for (j in 1:(n-1)) {
+            # go forward
+            rmat <- q
+            rmat[rmat>0] <- exp(e2[j,])
+            diag(rmat) <- diag(rmat) - rowSums(rmat)
+            phat[i,] <- phat[i,] %*% as.matrix(expm(rmat*delta[j]))
+            # multiply by D
+            k <- tdata$istate[j+1]
+            if (tdata$state[j+1]== "death") {
+                temp <- rmat
+                temp[,-6] <- 0
+                temp[6,]  <- 0
+                phat[i,] <-phat[i,] %*% temp
+            } else  phat[i,] <- phat[i,]* missmat[k,]
+        }
+    }       
+    phat
 }
-p2 <- apply(phat, 1, prod)
-aeq(sum(log(p2)), hfit1$loglik[2])
+eta1 <- outer(rep(1, nrow(test1)), icoef)
+true1 <- byhand(test1, eta1)
+truelog <- sum(log(rowSums(true1)))
+aeq(hfit1$loglik, truelog)
 
-# msm wants the intital rates in qmat, hmm just need 0 vs >0
+hfit1b <- hmm(Surv(age,state) ~1, data=test1, id=id, qmatrix=qmat,
+             init=icoef, detail=TRUE, mc.cores=1)
+aeq(hfit1b$loglik, truelog)
+# derivatives
+eps <- 1e-7
+deriv <- double(11)
+for (i in 1:11) {
+    i2 <- icoef
+    i2[i] <- i2[i]+ eps
+    tfit <- hmm(Surv(age,state) ~1, data=test1, id=id, qmatrix=qmat,
+             init=i2, iter=0)
+    deriv[i] <- (tfit$loglik - hfit1$loglik)/eps
+}
+aeq(deriv, apply(hfit1b$deriv,1,sum))
+
+
+# msm wants the intital rates in qmat, hmm only uses 0 vs >0
 qmat[qmat>0] <- exp(icoef)
-mfit1 <- msm(istate ~ age, data=test1, subject=id, 
+mfit1 <- msm(istate ~ age, data=test1, subject=id, death=6,
              qmatrix = qmat, fixedpar=TRUE)
+# Below verifies that Chris Jackson and I agree wrt formulas
+aeq(mfit1$minus2loglik, -2*truelog)  
 
-qmat[1,2] <- qmat[1,3] <- .05
-qmat[2,4] <- .06
-qmat[3,4] <- .07
-qmat[3,5] <- .05
-qmat[4,5] <- .15
-qmat[1:5,6]  <- c(.05, .05, .05, .07, .15)
+# Add select covariates
+i2 <- rbind(icoef,0,0)
+dimnames(i2) <- list(c("(Intercept)", "educ", "male"), colnames(hfit1$cmap))
+i2["educ", "1:3"] <- .1
+i2["male", c("1:6", "2:6")] <- c(.2, .3)
+# init arg expectes an object that looks look like coef(hfit2, matrix=TRUE)
 
-# first, a non HMM
-test1$istate <- as.numeric(test1$state)
-# msm does not use the subset argument
-mfit1 <- msm(istate ~ age, data=test1, subject=id, 
-             qmatrix = qmat, fixedpar=TRUE)
-
-#
-# one can fool an HMM into doing non-HMM by starting with p0= 1 for
-#  all the possible starting states, and then making the
-#  response function  "perfection".
-#
-init4 <- function(nstate, ...) {
-    init <- rep(0, nstate)
-    init[1:4] <- 1
-    init
-}
-    
-hfit1 <- hmm(hbind(age, state) ~ 1, data=test1, mc.cores=1,
-             id = id, qmatrix = qmat, rfun=hmm_noerror,
-             pfun=init4, mfun=hmmtest, mpar=list(fn="hmmloglik"))
-
-aeq(-2*hfit1$loglik[2], mfit1$minus2loglik)
-
-# do the computation by hand
-phat <- matrix(1, 4, 4)
-idlist <- unique(test1$id)
-rmat <- qmat
-diag(rmat) <- diag(rmat) - rowSums(rmat)
-for (i in 1:4) {
-    tdata <- subset(test1, id==idlist[i])
-    delta <- diff(tdata$age)
-    oldstate <- tdata$istate[-nrow(tdata)]
-    newstate <- tdata$istate[-1]
-
-    for (j in 1:length(delta)) {
-        P <- expm(rmat * delta[j])
-        phat[i,j] <- P[oldstate[j], newstate[j]]
-    }
-}
-p2 <- apply(phat, 1, prod)
-aeq(sum(log(p2)), hfit1$loglik)
+hfit2 <- hmm(list(Surv(age,state) ~1, 
+                  1:3 ~ educ, 1:6+ 2:6 ~ male),
+             data=test1, id=id, qmatrix=qmat, init=i2, iter=0)
+eta2 <- model.matrix(hfit2) %*% i2
+true2 <- byhand(test1, eta2)
+aeq(hfit2$log, sum(log(rowSums(true2))))
 
 
-# Add covariates
-mfit1b <- msm(istate ~ age, data=test1, subject=id, 
-              qmatrix = qmat, fixedpar=TRUE,
+# hmm centered the covariates internally *and* also transformed the 
+#  coefficients, i.e., the user never sees the change.  msm on the
+#  other hand presents coefs wrt recentered data
+mfit2 <- msm(istate ~ age, data=test1, subject=id, 
+              qmatrix = qmat, fixedpar=TRUE, death=6, 
               covariates= list("1-3"= ~educ,  "1-6"= ~male, "2-6"= ~male),
               covinits= list(educ=.1, male=c(.2, .3)))
 
-q1b <- data.frame(state1=c(1,1,2), state2=c(3,6,6), term=c(1,2,2), coef=1:3,
-                  init=c(.1, .2, .3))
-
-# To get the exact same answer we have center the data in the way that
-#  msm does, and then forego our own scaling.
-# If a model has ~1 on the right it is not necessary
+# To match msm we need to precenter our data to match it
 test1b <- test1
-center <- attr(mfit1b$data$mm.cov, "means")
+#center <- attr(mfit1b$data$mm.cov, "means")
+center <- c("educ"= 13.1538462,  "male"= 0.230769)
 test1b$educ <- test1b$educ - center["educ"]
 test1b$male <- test1b$male - center["male"]
-hfit1b <- hmm(hbind(age, state) ~ educ + male, data=test1b, mc.cores=1,
-              id = id, qmatrix = qmat, rfun=hmm_noerror, qcoef=q1b,
-              pfun=init4, mfun=hmmtest, mpar=list(fn="hmmloglik"),
-              scale=FALSE)
-aeq(-2*hfit1b$loglik[2], mfit1b$minus2loglik)  
 
-# do this second computation by hand
-# Note that msm uses centered covariates, and hmm has an option for 
-#  centering and/or scaled. 
-# msm and hsm has somewhat differnent estimates of a "mean".
-phat2 <- matrix(1, 4, 4)
-for (i in 1:4) {
-    tdata <- subset(test1b, id==idlist[i])
-    delta <- diff(tdata$age)
-    oldstate <- tdata$istate[-nrow(tdata)]
-    newstate <- tdata$istate[-1]
+hfit2b <- hmm(list(Surv(age,state) ~1, 
+                  1:3 ~ educ, 1:6+ 2:6 ~ male),
+             data=test1b, id=id, qmatrix=qmat, init=i2, iter=0)
+aeq(-2*hfit2b$loglik[2], mfit2$minus2loglik)  
 
-    for (j in 1:length(delta)) {
-        rmat <- qmat
-        rmat[1,3] <- rmat[1,3] *exp(q1b$init[1]*tdata$educ[j])
-        rmat[1,6] <- rmat[1,6] *exp(q1b$init[2]*tdata$male[j])
-        rmat[2,6] <- rmat[2,6] *exp(q1b$init[3]*tdata$male[j])
-        diag(rmat) <- diag(rmat) - rowSums(rmat)
-        P <- expm(rmat * delta[j])
-        phat2[i,j] <- P[oldstate[j], newstate[j]]
-    }
-}
-p2 <- apply(phat2, 1, prod)
-aeq(sum(log(p2)), hfit1b$loglik[2]) # succeeds
 
-# Repeat, and let the routines know that 6=death is exact
-mfit2 <- msm(istate ~ age, data=test1, subject= id, 
-             qmatrix = qmat, fixedpar=TRUE, death=6)
-otype <- 1 + 1*(test1$istate==6)
-hfit2 <-   hmm(hbind(age, state) ~ 1, data=test1b, mc.cores=3,
-               id = id, qmatrix = qmat, rfun= hmm_noerror,
-               pfun=init4, mfun=hmmtest, mpar=list(fn="hmmloglik"),
-               otype= otype, death=6)
-aeq(-2*hfit2$loglik[2], mfit2$minus2loglik)
-
-# Repeat again, with misclassification probabilities
+# Repeat with misclassification probabilities
 # Here is a miss function for 6 states and fixed probs
 e1 <- .12  # an A- as A+ or vice versa
 e2 <- .2   # an N- as N+ or vice versa
@@ -173,9 +130,14 @@ missmat <- rbind(temp[c(1,2,3,4)], temp[c(2, 1, 4,3)],
 missmat <- cbind(missmat, 0, 0)
 missmat <- rbind(missmat, c(0,0,0,.1,.9,0), c(0,0,0,0,0,1))
 
-hmiss <- function(y, ...) {
-    missmat[,y] 
-}
+# Treat the entry state as known (and death of course), others
+#  hidde
+temp <- with(test1, ifelse(duplicated(id)& state!='death', 0, istate))
+test1$state3 <- factor(temp, 0:6, levels(test1$state))
+hfit3 <- hmm(list(Surv(age,state3) ~1, 
+                  1:3 ~ educ, 1:6+ 2:6 ~ male),
+             marker = 1:5 ~1/ multinomial + fixed=missmat),
+             data=test1, id=id, qmatrix=qmat, init=i2, iter=0)
 
 mfit3 <- msm(istate ~ age, data=test1, subject= id, 
              qmatrix = qmat, fixedpar=TRUE, death=6,

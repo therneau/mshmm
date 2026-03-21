@@ -325,8 +325,8 @@ hmm <- function(formula, data, subset, weights,
 
     if (!missing(fixed)) {
         if (is.matrix(fixed)) {
-            rmatch <- match(row.names(fixed), row.names(cmap))
-            cmatch <- match(col.names(fixed), col.names(cmap))
+            rmatch <- match(rownames(fixed), rownames(cmap))
+            cmatch <- match(colnames(fixed), colnames(cmap))
             if (any(is.na(rmatch))) 
                 stop("fixed has covariates not in the current model")
             if (any(is.na(cmatch)))
@@ -357,16 +357,23 @@ hmm <- function(formula, data, subset, weights,
 
     # Standardize the X matrix.  All linear preditors must include an intercept
     # To do otherwise, e.g., allow "~ group -1" as a formula, makes our formula
-    #   processing just too difficult
+    #   processing just too difficult.
     # Markers are not in the X matrix, so don't get scaled
     if (xassign[1]!=0 || any(cmap[1,] ==0)) 
         stop("-1 in formulas not allowed")
-    if (control$scale && ncol(X) >1) {
+    Xmean <-  rep(0, ncol(X)) # don't scale
+    Xscale <- rep(1, ncol(X))
+    if ((control$scale || control$center) && ncol(X) >1) {
+        if (control$scale & !control$center) {
+            warning("scale=TRUE implies center=TRUE")
+            doscale <- docenter <- TRUE
+            control$center <- TRUE
+        }
         rvar <- 2:ncol(X) # don't scale the intercept!
         Xmean <-  rep(0, ncol(X))
         Xscale <- rep(1, ncol(X))
-        Xmean[rvar] <- colMeans(X[,rvar])
-        Xscale[rvar] <- apply(X[,rvar], 2, sd)
+        if (control$center) Xmean[rvar] <- colMeans(X[,rvar])
+        if (control$scale)  Xscale[rvar] <- apply(X[,rvar], 2, sd)
         for (i in rvar) X[,i] <- (X[,i]- Xmean[i])/Xscale[i]
         # we have XB = (X T^{-1}) (T B) where T is a transformation matrix
         #  don't forget the markers were exempt, only rvar cols transformed
@@ -506,7 +513,7 @@ hmm <- function(formula, data, subset, weights,
     if (mc.cores > 1 & control$makecluster) stopCluster(hmm_cluster)
 
     # Undo any scaling and centering
-    if (control$scale) {
+    if (control$scale || control$center) {
         B <- coef.to.B(mfit$param, cmap, B)
         Bscale <- xtrans %*% B
         param <- B.to.coef(Bscale, cmap, fixed=TRUE)
@@ -517,7 +524,7 @@ hmm <- function(formula, data, subset, weights,
     names(param) <- pname[cmap!=0]
     compute.time <- rbind(setup= time1-time0,
                           compute= time2- time1)
-    
+
     final <- list(coefficients= param, 
                   loglik = mfit$loglik,
                   time = compute.time,
@@ -526,13 +533,16 @@ hmm <- function(formula, data, subset, weights,
                   n = c(observations =nrow(mf), id =nid)
                   )
     if (!is.null(removed)) final$removed <- removed
-    if (mfit$penalty >0)   
+    if (!is.null(mfit$penalty) && mfit$penalty >0)   
         final$penalty <- c(initial= penalty0, final= mfit$penalty)
     if (!is.null(mfit$fit)) final$fit <- mfit$fit
+    if (control$center && ncol(X) >1) final$xmean <- Xmean
+    if (control$scale  && ncol(X) >1) final$xscale <- Xscale
+    if (control$detail) final <- c(final, 
+                                   list(alpha=mfit$alpha, deriv=mfit$deriv))
     final <- c(final, list(call=Call,  xlevels=xlevels,
                   contrasts= attr(X, "contrasts"),
-                  terms = Terms
-                  ) )    
+                  terms = Terms))
     class(final) <- "hmm"
     final
 }

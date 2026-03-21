@@ -27,7 +27,7 @@ msh.fit <- function(id, ytime, ystate, X, iprob, B,
                       mc.cores, control, mfun, mfattr, mpar, iter,
                       iexact, conmat, penmat) {
 
-    rindex <- which(qmatrix > 0) # index to the non-zero rates
+    qmatrix[qmatrix>0] <- 1:nlp[1]  # which nlp for each transition
     nmarker <- length(ymarker)
     nstate <- nrow(qmatrix)
     dtime  <- diff(ytime)  #the time interval to the next visit
@@ -118,8 +118,15 @@ msh.fit <- function(id, ytime, ystate, X, iprob, B,
     environment(hmmgradx)   <- environment()
     environment(hmmbothx)   <- environment()
 
-    # get the initial loglik and penalty
     param <- B.to.coef(B, cmap)
+    if (control$detail) {
+        # special case-- return all the detail about a fit: per subject
+        # alpha and derivatives
+        # no iteration
+        dfit <- hmmbothx(param, logfun=hmm2x, detail=TRUE)
+        return(c(list(param=param), dfit))
+    }
+    # get the initial loglik and penalty
     initial.loglik <- hmmloglikx(param, logfun=hmm1x)
 
     if (length(initial.loglik) ==0) 
