@@ -163,7 +163,6 @@ hmm2 <- function(who,  B) {
     }
 
     # Walk through the observations one by one
-    P.d  <- matrix(0., nlp[1], nstate)
     offset <- 0  # watch out for underflow
     nc <- integer(nmarker)    #number otype==3, so far, per marker
     r2 <- length(rows)
@@ -246,7 +245,7 @@ hmm2 <- function(who,  B) {
 
         if (jj < r2) { # not the last row
             # state matrix transformation P
-            rmat[qmatrix>0] <- exp(eta[jj, e1])
+            rmat[qmatrix>0] <-  exp(eta[jj, e1])
             if (!all(is.finite(rmat))) {
                 # a horrible beta can overflow
                 if (control$debug > 1) 
@@ -255,7 +254,7 @@ hmm2 <- function(who,  B) {
             }
             
             diag(rmat) <- diag(rmat) -rowSums(rmat)
-            ptemp <- survexpm(rmat, dtime[j], deriv=TRUE)
+            ptemp <- survexpm(rmat, dtime[j], deriv=2)
             if (any(ptemp$P < -control$smallpos | ptemp$P >1)) {
                 if (control$debug>1) 
                     save(ptemp, beta, file=paste0("pfail", who, ".rda"))
@@ -263,9 +262,11 @@ hmm2 <- function(who,  B) {
             }
             if (nlp[3]) pi.d <- t(ptemp$P) %*% pi.d 
             if (nlp[2]) R.d <-  t(ptemp$P) %*% R.d 
+
             if (nlp[1]) {
-                if (control$debug>1) {cat("Ptrans2 "); browser()}
-                t1 <- tcrossprod(matrix(ptemp$deriv, nrow=nstate^2), eta.beta1(X[j,]))
+                # t1 = deriv of each of the nstate^2 elements of P (rows)
+                #   wrt each parameter (col)
+                t1 <- matrix(ptemp$deriv, nrow=nstate^2) %*% eta.beta1(X[j,])
                 t2 <- matrix(alpha %*% matrix(t1, nrow=nstate), 
                              ncol=nstate, byrow=TRUE)
                 P.d <-  P.d %*% ptemp$P + t2

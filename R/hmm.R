@@ -372,8 +372,8 @@ hmm <- function(formula, data, subset, weights,
         rvar <- 2:ncol(X) # don't scale the intercept!
         Xmean <-  rep(0, ncol(X))
         Xscale <- rep(1, ncol(X))
-        if (control$center) Xmean[rvar] <- colMeans(X[,rvar])
-        if (control$scale)  Xscale[rvar] <- apply(X[,rvar], 2, sd)
+        if (control$center) Xmean[rvar] <- colMeans(X[,rvar, drop=FALSE])
+        if (control$scale)  Xscale[rvar] <- apply(X[,rvar,drop=FALSE], 2, sd)
         for (i in rvar) X[,i] <- (X[,i]- Xmean[i])/Xscale[i]
         # we have XB = (X T^{-1}) (T B) where T is a transformation matrix
         #  don't forget the markers were exempt, only rvar cols transformed

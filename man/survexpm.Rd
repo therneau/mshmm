@@ -22,7 +22,7 @@ survexpm(R, time = 1, deriv = FALSE, tol=1e-8, method=c("eigen", "pade"))
   for transitions that cannot occur, >0 for those that can occur, and
   a diagonal such that all row sums are 0. Then P= exp(R*time), the matrix
   exponential, will be a transition probability matrix:
-  all elements of P are >=0 and all rows sum to 1. It estimates the
+  all elements of P are >=0 and all rows sum to 1. P estimates the
   transition probabilities over a time interval \code{time}.
 
   The derivative of P with respect to each non-zero off-diagonal element
@@ -31,9 +31,19 @@ survexpm(R, time = 1, deriv = FALSE, tol=1e-8, method=c("eigen", "pade"))
   P= exp(R). The derivatives are thus a set of matrices, each of the
   same shape as R, one per non-zero off diagonal element of R.
 
+  For two the special cases where all the non-zero elements of R fall in a
+  single row or in a single column there are simple closed form formulas
+  for the matrix exponential, which are used in said case.
+  These cases occur often in multi-state hazard (MSH) models fit by
+  survival::coxph, e.g., at any time point with only one event.
+  They are rare in the censored MSH dealt with in icmsh.
+  
   If the eigenvectors corresponding to the non-zero eigenvalues are of
   full rank, then an eigenvalue based decompostion method is used for
   the matrix exponential and its derivatives, see Kalbfleisch and Lawless.
+  The eigenvectors and eigenvalues are
+  computed using the lapack dgeev routine, the same function used by
+  the R \code{eigen} function.
   Otherwise a Pade approximation is used that is parallel to the Ward
   method found in \code{expm:expm}.
   See the code vignette for mathematical details.
@@ -41,9 +51,8 @@ survexpm(R, time = 1, deriv = FALSE, tol=1e-8, method=c("eigen", "pade"))
   The \code{Matrix::expm} and \code{expm:expm} functions compute the
   matrix exponential in the more general case, and if the fitting functions
   in this package did not require derivatives there would have been
-  little point in creating our own.  The eigenvectors and eigenvalues are
-  computed using the lapack dgeev routine, the same function used by
-  the R \code{eigen} function.
+  little point in creating our own.
+  
 
   The matrix exponential has the reputation of being a difficult
   computation due to multiple edge cases, but transition rate matrices
@@ -64,8 +73,8 @@ survexpm(R, time = 1, deriv = FALSE, tol=1e-8, method=c("eigen", "pade"))
   \item{P}{the matrix exponential exp(R)}
   \item{dmat}{an array with dimension(k, k, m) where k is the number of
     states and m the number of non-zero off diagonal elements in R.
-    The [,,j] slice of the array contains the derivatives of each
-    element of P with respect to the jth non-zero off diagonal.}
+    The [,,j] slice of the array contains the derivative 
+    of P with respect to the jth non-zero off diagonal.}
   \item{method}{the method used for the computation}
 }
 \references{

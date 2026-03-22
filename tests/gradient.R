@@ -4,8 +4,7 @@
 # source('../trial/loadall.R')
 # load("../data/test1.rda")
 library(hmm)
-
-sname <- levels(test1$state)
+sname <- levels(test1$state)[-1]
 qmat <- matrix(0, 6, 6, dimnames=list(from= sname, to=sname))
 qmat[1,2] <- qmat[1,3] <- .01
 qmat[2,4] <- .03
@@ -13,20 +12,14 @@ qmat[3,4] <- .04
 qmat[3,5] <- .03
 qmat[4,5] <- .1
 qmat[,6]  <- c(.02, .02, .02, .02, .06, 0)
+icoef <- log(c(.01, .01, .03, .04, .03, .1, .02, .02, .02, .02, .06))
 
-# first, a non HMM
-test1$istate <- as.numeric(test1$state)
-#
-# one can fool an HMM into doing non-HMM by starting with p0= 1 for
-#  all the possible starting states, and then making the
-#  response function  "perfection".
-#
-init4 <- function(nstate, ...) {
-    init <- rep(0, nstate)
-    init[1:4] <- 1
-    init
-}
-    
+# First, a non-hmm
+hfit1 <- hmm(Surv(age,state) ~1, 
+             data=test1, id=id, qmatrix=qmat, init=icoef, iter=0)
+hfit1b <- hmm(Surv(age,state) ~1, mc.cores=1,
+             data=test1, id=id, qmatrix=qmat, init=icoef, iter=0, detail=TRUE)
+   
 # Do a numeric derivative for all parameters, on a subset of the
 #  data
 eps <- 1e-8
@@ -34,21 +27,21 @@ pp <- which(qmat >0)
 dvec <- double(length(pp))
 lines <- 1:17   #all rows
 for (j in 1:length(pp)) {
-    qtemp <- qmat
-    qtemp[pp[j]] <- exp(log(qmat[pp[j]]) + eps)  # change beta
-    tfit <-  hmm(hbind(age, state) ~ 1, data=test1, mc.cores=1,
-                 id = id, qmatrix = qtemp, rfun= hmm_noerror, 
-                 pfun=init4, mfun=hmmtest,
-                 subset=lines)
-    dvec[j] <- tfit$loglik[2]
+    itemp <- icoef
+    itemp[j] <- itemp[j] + eps
+    tfit <-  hmm(Surv(age,state) ~1, 
+             data=test1, id=id, qmatrix=qmat, init=itemp, iter=0)
+    dvec[j] <- tfit$loglik
 }
-hfit <- hmm(hbind(age, state) ~ 1, data=test1, mc.cores=1,
-                 id = id, qmatrix = qmat, rfun= hmm_noerror, 
-                 pfun=init4, mfun=hmmtest, mpar=list(fn="hmmboth"),
-            subset=lines)
-d2 <- (dvec- hfit$loglik[2])/eps
-all.equal(d2, hfit$fit$deriv, tolerance=sqrt(eps))
-#rbind(d2, hfit$fit$deriv)
+d2 <- (dvec- hfit1$loglik)/eps
+
+# hfit1b$derv has the derivatives of alpha wrt parameters
+# The loglik is log(sum(alpha)) for each subject, summing over states
+t1 <- apply(hfit1b$deriv, c(1,3), sum)
+alpha <- colSums(hfit1b$alpha)
+t2 <- t1%*% diag(1/alpha)   # derivative of log, per subject
+aeq(rowSums(t2), d2, tolerance=sqrt(eps))
+
 
 
 # Round 2: let the routines know that 6=death is exact

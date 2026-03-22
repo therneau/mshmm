@@ -10,9 +10,9 @@ rmat <- q1
 rmat[rmat>0] <- exp(runif(7, -1, 1))
 diag(rmat) <- -rowSums(rmat)
 
-e1 <- survexpm(rmat, 2)  # use the decomposition method
-e2 <- survexpm(rmat, 2, method="pade")      # use my Pade
-e3 <- as.matrix(expm(2*rmat)) # use Matrix
+e1 <- survexpm(rmat, 2.1)  # use the decomposition method
+e2 <- survexpm(rmat, 2.1, method="pade")      # use my Pade
+e3 <- as.matrix(expm(2.1*rmat)) # use Matrix
 
 all.equal(e1, e2)
 all.equal(e1, e3)
@@ -20,10 +20,14 @@ all.equal(e1, e3)
 #
 # Compute derivatives
 #
-d1 <- survexpm(rmat, 2, deriv=TRUE)  # use the eigen decomp
-d2 <- survexpm(rmat, 2, deriv=TRUE, method="pade") # use the Pade approach
+d1 <- survexpm(rmat, 2.1, deriv=1)  # use the eigen decomp
+d2 <- survexpm(rmat, 2.1, deriv=1, method="pade") # use the Pade approach
 all.equal(d1$P, e1)
 all.equal(d1$deriv, d2$deriv)
+
+d3 <- survexpm(rmat, 2.1, deriv=2)
+d.eta <- rmat[rmat>0]  # deriv of each element wrt eta
+all.equal(d3$deriv, d1$deriv * rep(d.eta, each=25))
 
 # brute force derivatives
 eps <- 1e-6
@@ -33,7 +37,7 @@ for (i in 1:7) {
     # the rows of rmat have to sum to zero, which is what defines the
     #  diagonal. So we must perturb both
     rtemp[indx[i,1], indx[i,]] <- rtemp[indx[i,1], indx[i,]] + c(-eps, eps)
-    ptemp <- as.matrix(expm(2*rtemp))
+    ptemp <- as.matrix(expm(2.1*rtemp))
     delta <- (ptemp- e1)/eps
     print(all.equal(d1$deriv[,,i], delta, tol=eps))
 }

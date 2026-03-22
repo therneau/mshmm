@@ -5,11 +5,13 @@
 # R:   a square transition matrix, row sums will be 0, each non-zero element 
 #   R[i,j] is assumed to be exp(eta[i,j]), i.e., positive
 # time: width of the time interval
-# deriv: compute the derivatives wrt each eta, for each non-zero element
+# deriv: 0= no derive, 1=compute the derivatives wrt each theta, for theta =
+#   each non-zero element in turn, 2 assume theta= exp(eta) and return 
+#   derivatives wrt eta
 # tol:  if the inverse condition number of the eigenmatrix is < tol, use the
 #  pade method
 #
-survexpm <- function(R, time=1.0, deriv=FALSE, tol=1e-10, 
+survexpm <- function(R, time=1.0, deriv=0, tol=1e-10, 
                      method=c("eigen", "pade")) {
     method <- match.arg(method)
 
@@ -51,7 +53,7 @@ survexpm <- function(R, time=1.0, deriv=FALSE, tol=1e-10,
         if (1/cond < tol) method <- "pade" 
     }
 
-    if (deriv) { # the common case
+    if (deriv>0 ) { # the common case
         npos <- sum(R>0) # number of positive elments in R
         nstate <- nrow(R)
         # create the target array for the derivatives, for each eta that we
@@ -59,8 +61,9 @@ survexpm <- function(R, time=1.0, deriv=FALSE, tol=1e-10,
         #  see 'matrix exponential, eigenvector formula' in the code vignette
         dR <- array(0, dim=c(nstate, nstate, npos))
         indx <- cbind(row(R)[R>0], col(R)[R>0])
-        rpos <- which(R>0)
-        for (i in 1:npos) dR[indx[i,1], indx[i,], i] <- c(-1,1)
+        if (deriv==2) temp <- R[which(R>0)]
+        else temp <- rep(1, npos)
+        for (i in 1:npos) dR[indx[i,1], indx[i,], i] <- c(- temp[i], temp[i])
     }
 
     if (method == "eigen") {

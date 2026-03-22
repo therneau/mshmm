@@ -897,13 +897,15 @@ For each new data row we have a new $X$, but it is the same elements of
 $Z$ which are replaced, which allows for the following fragment of code.
 <<eta.beta, eval=FALSE, echo=TRUE>>=
 deta.dbeta <- function(x, cmap) {
+    # x= a row of X, multipliers for this row of data
+    # scale = derivative of theta= exp(eta) wrt eta
     nz <- (cmap >0) # positive elements
     index1 <- (row(cmap))[nz]
     index2 <- (col(cmap))[nz]
     index3 <- match(cmap[nz], unique(cmap[nz]))
     Z <- matrix(0, nrow=nrow(cmap), ncol=max(index3))
     Z[cbind(indx2, indx3)] = x[indx1]
-    Z
+    Z  # transforms from deriv wrt eta to deriv wrt beta
 }
 @ 
 This function is opaque even to its author, but testing shows that the 
@@ -928,7 +930,8 @@ For even more efficiency, the functions \code{eta.beta1}, \code{eta.beta2}
 and \code{eta.beta3} are created in the msh.fit routine, for the transition,
 marker, and initial state linear predictors, respectively. 
 Each of these functions is created by \code{derivfun}, essentially the code
-shown above, but with the indices encoded as default values for the function.
+shown above, but with nrow(cmap), index1, index2, and index3 encoded as
+default values for the function.
 
 \subsection{Transition matrix}
 \index{derivative!transition matrix}
@@ -954,6 +957,7 @@ Consider the product
 The first equation is the standard formula for the derivative of a matrix
 product.  (Write out the the matrix product as a sum of terms, apply the product
 rule for derivatives to each term, and reassemble the result.)
+The second term is a bit harder.
 In the math vignette we lay out the formula for the derivative of the
 matrix exponential $\exp(R)$ with respect to each of its non-zero off diagonal
 elements, denoted there by $\theta_k = \exp(\eta_k)$.
@@ -961,7 +965,8 @@ Each of those derivatives is a nstate by nstate matrix, as changing one element
 of $R$ can change all the elements of $\exp(R)$.
 Our matrix exponential routines return $\exp(R)$ and an array
 containing this set of derivative matrices of dimension $(s,s k)$ where
-$s$= number of states and $k$ the number of linear predictors.
+$s$= number of states and $k$ the number of linear predictors (\code{dervi=1})
+\emph{or} the the derivatives wrt $\eta$ (\code{deriv=2}).
 In the very rare case of a transition probability with only fixed coefficients,
 the matrix exponential will still return a matrix for that particular
 transition, but that column of the $(\partial \eta)/(\partial \beta)$
@@ -973,15 +978,16 @@ coefficients is kept as a matrix with one row per coefficient and one column
 per state; multiply it by the $s,s$ matrix $P(s,t)$.
 
 For the second term, we first have to transform the matrix of derivatives
-\code{temp\$dmat} from dimension (nstate, nstate, ncol(cmap)) to 
+\code{temp\$dmat} from dimension (nstate, nstate, nlp) to 
 (nstate, nstate, nrow(cmap)), transforming from derivatives wrt $\eta$ to
-those wrt $\beta$.  The straightforward way to do this is a pair of
+those wrt $\beta$; nlp the number of linear predictors for the $P$ matrix.
+The straightforward way to do this is a pair of
 1:nstate nested loops, followed by creation of each row of the second term
-of formula \ref{pderiv1}
+of formula \ref{pderiv1}.
 <<echo=TRUE, eval=FALSE>>=
 for (j in 1:nstate) {
     for (k in 1:nstate) 
-        newd[j,k, ] <- deriv[j,k,] %*% Z
+        newd[j,k, ] <- (exp(eta[1:deriv[j,k,] %*% Z
 }
 for (k in 1: dim(newd)[3]) { # for each element of $\beta
     secondterm[k,] <- alpha %*% newd[,,k]
@@ -990,15 +996,17 @@ for (k in 1: dim(newd)[3]) { # for each element of $\beta
 
 Faster is to use matrix manipulations.
 We can do all of the multiplications of the first pair of loops, at once,
-by recasting the deriv array as an $(s^2, k)$ matrix, then using
-crossprod.
+by recasting the deriv array as an $(s^2, k)$ matrix and multiplying by
+$Z$.
 The matrix t1 will have $s^2$ rows, one per element of $P$ and one colum per
 coefficient. 
 By resetting the dimension of t1 to $(s, sp)$ a single matrix multiplication
+with alpha
 gives the nstate values for $\beta_1$, then for $\beta_2$, ... as a single
-long vector which can be reshaped.
+long vector that contains the first row of secondterm above, then the
+second row of secondterm, etc.
 <<echo=TRUE, eval=FALSE>>=
-t1 <- tcrossprod(matrix(deriv, ncol=k), eta.beta1(X[i,]))
+t1 <- matrix(deriv, ncol=k) \%*\% eta.beta1(X[i,]))
 t2 <- matrix(alpha %*% matrix(t1, nrow=nstate), ncol=nstate, byrow=TRUE)
 @ 
 

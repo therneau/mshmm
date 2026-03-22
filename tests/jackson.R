@@ -8,21 +8,19 @@ aeq <- function(x, y, ...) all.equal(as.vector(x), as.vector(y), ...)
 # test1 has 4 subjects, 17 rows
 # The age intervals are about a year, so make transitions around 5-15% per
 # year.  This makes the loglik far from 1.
-sname <- levels(test1$state)
+sname <- levels(test1$state)[-1]   #censor is not a state
 qmat <- matrix(0, 6, 6, dimnames=list(from= sname, to=sname))
 qmat[1,2:3] <- 1
 qmat[2:3, 4] <- 1
 qmat[3:4, 5] <- 1
 qmat[-6,6] <- 1
 # statefig(c(1,2,2,1), qmat)
-icoef <- log(c(.05, .05, .06, .07, .05, .15, rep(c(.05,.07, .15), c(3,1,1))))
+icoef <- log(c(.05, .05, .06, .07, .05, .15, rep(c(.05,.07, .15), c(3,1,1)),
+              1:5/10))
 
-# make it a survival endpoint
-test1$state <- factor(test1$istate, 0:6, c("censor", sname))
-
-# The simplest model
-hfit1 <- hmm(Surv(age,state) ~1, data=test1, id=id, qmatrix=qmat,
-             init=icoef, iter=0)
+# A simple model, but not the simplest
+hfit1 <- hmm(list(Surv(age,state) ~1, 0:6 ~ male), center=FALSE, 
+             data=test1, id=id, qmatrix=qmat, init=icoef, iter=0)
 
 # do the computation by hand
 byhand <- function(data, eta, q=qmat, missmat) {
@@ -54,24 +52,28 @@ byhand <- function(data, eta, q=qmat, missmat) {
     }       
     phat
 }
-eta1 <- outer(rep(1, nrow(test1)), icoef)
+
+eta1 <- model.matrix(hfit1) %*% coef(hfit1, matrix=TRUE)
 true1 <- byhand(test1, eta1)
 truelog <- sum(log(rowSums(true1)))
 aeq(hfit1$loglik, truelog)
 
-hfit1b <- hmm(Surv(age,state) ~1, data=test1, id=id, qmatrix=qmat,
-             init=icoef, detail=TRUE, mc.cores=1)
-aeq(hfit1b$loglik, truelog)
+# detail=TRUE forces no iteration
+hfit1b <- hmm(list(Surv(age,state) ~1, 0:6 ~ male), center=FALSE, mc.cores=1,
+              data=test1, id=id, qmatrix=qmat, init=icoef, detail=TRUE)
+
 # derivatives
 eps <- 1e-7
-deriv <- double(11)
-for (i in 1:11) {
+nbeta <- sum(hfit1$cmap >0)
+deriv <- double(nbeta)
+for (i in 1:nbeta) {
     i2 <- icoef
     i2[i] <- i2[i]+ eps
-    tfit <- hmm(Surv(age,state) ~1, data=test1, id=id, qmatrix=qmat,
-             init=i2, iter=0)
+    tfit <- hmm(list(Surv(age,state) ~1, 0:6 ~ male),
+                data=test1, id=id, qmatrix=qmat, init=i2, iter=0)
     deriv[i] <- (tfit$loglik - hfit1$loglik)/eps
 }
+
 aeq(deriv, apply(hfit1b$deriv,1,sum))
 
 

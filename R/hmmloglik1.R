@@ -88,7 +88,7 @@ hmmboth <- function(param, logfun, detail = FALSE){
         uid <- unique(id)
         sname <- colnames(qmat) # the state names
         dimnames(alpha) <- list(state=sname, id=uid)
-        deriv <-  sapply(mcfit, function(x) x$deriv)
+        deriv <-  sapply(mcfit, function(x) x$deriv, simplify="array")
         deriv <- array(deriv, dim=c(length(pname), nstate, length(uid)),
                        dimnames=list(param=pname, state=sname, id=uid))
         offset <- sapply(mcfit, function(x) x$offset)

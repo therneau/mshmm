@@ -11,7 +11,7 @@ importFrom(stats, model.extract, model.response, model.matrix, model.weights,
 export(hmm)
 export(mcmc0, mcmc1, pade, hmmscore)
 export(ptplot, qplus, noworse)
-export(survexpm)
+export(survexpm, hmmeigen)
 S3method(print, hmm)
 # S3method('plot',  'hmm')
 S3method(coef,  hmm)

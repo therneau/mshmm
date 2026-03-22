@@ -265,6 +265,15 @@ crude <-  c(.7, .1, 4)/8
 cfit0 <- hmm(Surv(year, status) ~ 1, id=id,  init=log(crude),
              qmatrix= ctrans, exact="death", data= cdata,
              mc.cores=2)
+# How does this compare with the AJ estimate? 
+rmat <- ctrans
+rmat[ctrans>0] <- exp(coef(cfit0))
+diag(rmat) <- -rowSums(rmat)
+P <- expm(rmat * 8/100)
+phat <- matrix(0, 100, 3)
+tmat <- 
+phat[1,] <- c(1,0,0)
+for (i in 1:99) phat[i+1,] <- phat[
 cfit1 <- hmm(Surv(year, status) ~ rx + node4 + extent, id=id,
              qmatrix= ctrans, exact="death", data= cdata, mc.cores=1, 
              init= cfit0)

@@ -12,6 +12,7 @@
 #  matrices
 derivfun <- function(cmap) {
     # here is the function
+    # x is a row of the X matrix (given patient and time)
     tfun <- function(x, neta, nbeta, index1, index2) {
         dmat <- matrix(0, neta, nbeta)
         dmat[index1] <- x[index2]

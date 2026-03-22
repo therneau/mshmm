@@ -874,8 +874,8 @@ departures, then
 \begin{equation*}
   \left(e^{Rt}\right)_{ij} = \left\{
   \begin{array}{cc}
-    \exp(R_{kk}t) & i=j=k \\
-    (1- \exp(R_{kk}t) \frac{R_{kj}}{\sum_{i\ne k} R_{ki}} & i=k, j\ne k \\
+    e^{R_{kk}t} & i=j=k \\
+    \left(1- e^{R_{kk}t}\right) \frac{R_{kj}}{\sum_{i\ne k} R_{ki}} & i=k, j\ne k \\
     1 & i=j, i \ne k \\
     0 & {\rm otherwise} \end{array} \right.
 \end{equation*}
@@ -888,8 +888,8 @@ If only a single column $k$ of $R$ has positive values then
 \begin{equation*}
   \left(e^{Rt}\right)_{ij} = \left\{
   \begin{array}{cc}
-    \exp(R_{ii}t) & i\ne k, i=j \\
-    (1- \exp(R_{ii}t) & i\ne k, j=k \\
+    e^{R_{ii}t} & i\ne k, i=j \\
+    \left(1- e^{R_{ii}t}\right) & i\ne k, j=k \\
     1 & i=j=k \\
     0 & {\rm otherwise} \end{array} \right.
 \end{equation*}
@@ -915,7 +915,7 @@ since $A^k = U \Lambda^k U^{-1}$ (write it out).
 A (right) eigenvector $u$ satisfies $Au= \lambda u$, or 
 $AU = U\Lambda$ where $U$ is the matrix of eigenvectors, one per column.
 A left eigenvector matrix $V$ satisfies $VA =  \Lambda V$, where each row
-of $V$ contains a right eigenvector. Right and left eigenvalues $lambda$ are
+of $V$ contains a right eigenvector. Right and left eigenvalues $\lambda$ are
 identical.
 If ``eigenvector'' is used without a modifier the right eigenvector is
 assumed.
@@ -934,22 +934,23 @@ the right eigenvectors of $A^{T}$.
 Equation \eqref{e2x} implies that $V^T$ is the inverse of $U$.
 (I found this last identity listening to a lecture, but have not found it 
 mentioned in any of the texts I have looked at.)
-A quick check shows that the left and right eigenvector matrices returned by
-Lapack routine dgeev do not have this relationship; the reason is due to 
-scaling.
+A quick check shows that the left eigenvector matrix returned by
+Lapack routine dgeev is not the inverse of the right eigenmatrix;
+the reason is due to scaling.
 
 If $u$ is an eigenvector of matrix $A$, then $2u$ is also an eigenvector, and
 ditto for any constant.  
-For any invertible diagonal matrix $D$, $U$ and $UD$ are both eigenvalue
-matrices; by default the version is returned such that each column of $U$
-has length 1. Since diagonal matrices commute equation \eqref{eigen1}
+For any diagonal matrix $D$, $U$ and $UD$ are both eigenvalue
+matrices; the version returned by lapack has each column of $U$ scaled to
+length 1. Since diagonal matrices commute equation \eqref{eigen1}
 still holds.
 \begin{align*}
   (UD)\Lambda(UD)^{-1} &= (UD)\Lambda(D^{-1} U^{-1}) \\
                       &= U \Lambda U^{-1})
 \end{align*}
 The left eigenvectors returned by dgeev are scaled to have a row length
-of 1. Converting from left eigenvectors to the inverse or right is just
+of 1. We can convert from the dgeev left eigenvectors to the inverse of 
+dgeev right eigenvectors by proper scaling.  This is just
 a bit subtle for complex values.  First, the length of a complex
 vector x is \code{sqrt(sum(x * Conj(x)))}.
 We also need to use the conjugate of $V$.
@@ -959,12 +960,12 @@ turns out to be \code{scale = colSums(Conj(V)* U)}, and
 {Uinverse = (1/scale) t(Conj(V))}.
 The lapack eigen routines will return both left and right eigenmatrices if
 requested; there is no need for our routine to compute $U$-inverse itself.
-(The is an assumption here that dgeev can compute left and right as fast, or
-faster, than right followed by computing an inverse.)
+(The assumption here that dgeev can add left eigenvectors to the result faster
+than for us to compute an explicit inverse.)
 
 Misc notes:
 \begin{itemize}
-  \item The rank($U \ge$ the number of unique eigenvalues. If all eigenvalues
+  \item rank$(U) \ge$ the number of unique eigenvalues. If all eigenvalues
     are unique then $U$ is full rank; if there are tied eigenvales it may or may
     not be full rank (but I think not if it is also upper triangular).
   \item Complex eigenvalues come in pairs, a value and its complex conjugate.
@@ -982,7 +983,7 @@ Misc notes:
     machine precision. When $U$ is exactly singular, computation of the
     Jordan form is very difficult; small round off errors cause the problem to
     flip back and forth between \emph{exactly} singular and \emph{almost}
-    singular.  
+    singular. 
   \item The better approach, exemplified in the expm-eigen.c function in the
     expm package, is avoid Jordan form. 
     Pay attention to the condition number, and switch to a Pade approach
@@ -1042,10 +1043,10 @@ for many of the solution methods. Per Kalbfleisch and Lawless
 \cite{Kalbfleisch85}
 
 \begin{align}
- \frac{\partial e^A}{\partial \theta} &= UVU^{-1}  \label{deigen1}\\
- V_{jk} &= \left\{ \begin{array}{cc} G_{jk}\frac{e^{\lambda_j} - e^{\lambda_k}}
+ \frac{\partial e^{At}}{\partial \theta} &= UVU^{-1}  \label{deigen1}\\
+ V_{jk} &= \left\{ \begin{array}{cc} G_{jk}\frac{e^{\lambda_jt} - e^{\lambda_kt}}
      {\lambda_j- \lambda_k} & \lambda_j \ne \lambda_k  \nonumber\\
-      G_{jk}e^{\lambda_j} & \lambda_j= \lambda_k \end{array} \right.  \nonumber \\
+      G_{jk}te^{\lambda_jt} & \lambda_j= \lambda_k \end{array} \right.  \nonumber \\
  G &=  U^{-1} \frac{\partial A}{\partial \theta} U \label{deigen2}
 \end{align}
 
@@ -1099,10 +1100,11 @@ and compute the derivative by brute force.
 This is based on the unproven assertion that transition matrices are ``nice''
 and we can skip these preconditioning steps, as working out the impact 
 of these steps on the derivative is well beyond my skill set.
+Let $\theta_k$ be a nonzero element of $A$
 
 \begin{itemize}
-  \item Start with $dA/\theta_k$ as above, the derivative with respect to a
-    change in the $k$th rate.
+  \item $dA/\theta_k$ is a matrix with a single off diagonal 1 and -1 on the
+    matching diagonal.
   \item Then $dA^2/\theta_k = A(dA/\theta_k) + (dA/\theta_k)A$
   \item $dA^3/\theta_k = A^2(dA/\theta_k) + (dA^2/\theta_k) A$
   \item etc
@@ -1111,9 +1113,10 @@ This allows accumulation of the derivatives of $p(A)$ (one per element, each
 a matrix), and similarly for $q(A)$.
 Then use the identity that
 $$
-\frac{\partial A^{-1}}/{\partial \theta} = A^{-1}
-  \frac{\partial A}/{\partial \theta} A^{-1}
+\frac{\partial A^{-1}}{\partial \theta} = A^{-1}
+  \frac{\partial A}{\partial \theta} A^{-1}
 $$
+to get the derivatives of $p(A)/q(A)$
 And finally, update the derivatives yet again throughout the squaring steps.
 
 We should mention that the \code{expm} function implements multiple algorithms,
@@ -1128,34 +1131,23 @@ The BLAS (basic linear algebra subprograms) are carfully tuned to each
 particular computer achitecture and hardware. Using them can result
 in surprising speedups: 50 to 100 fold for larger matrices. 
 
+When we do a matrix mulitplication in R, R also uses the BLAS code behind
+the scenes.  This leads to the at first counter-intuitive result that moving
+a computation from R into ``more efficient'' C code can result in slower
+execution.  
+
 There are multiple routines for eigenvalues in LAPACK, the R eigen routine
 uses dgeev (function La\_rs in src/modules/lapack/Lapack.c).
 They make a first call to determine the optimal size of a work array, 
 allocate the array, then call the routine. 
 The expm-eigen code in the expm package uses dgeev in the same way.
 
-An alternate route is to use dgees, which utilizes a Schur decomposition.
-This satisfies $A= QSQ'$ where $Q$ is orthagonal and the Schur matrix $S$ is 
-quasi-triangular. That is, the block diagonal of $S$ is made up of 1x1 elements
-containing the real eigenvalues, and 2x2 elements for each complex pair of
-eigenvalues $a \pm \sqrt{bc}$
-$$
-\left( \begin{array}{cc} a& b\\ c&d \end{array} \right)
-$$
-The eigenvalues of an upper triangular matrix are real and on the diagonal.
-When we have an upper triangular matrix, we can use the dtrevc routine directly,
-which expects a Schur matrix as input.
 Many of our multistate problems have involved irreverible processes,
 in which case the transition matrix can be arranged so as to be upper
-triangular.
-Note that since the row sums of a transition matrix are 0, the rows for
-any absorbing state, e.g. death, will be zero.
-
-When we do a matrix mulitplication in R, this also uses the BLAS code behind
-the scenes.  This leads to the at first counter-intuitive result that moving
-a computation from R into ``more efficient'' C code will result in slower
-execution.  
-
+triangular.   A further refinement, not yet explored, would be to use
+lapack routine dgees, which expects an upper triangular matrix, along 
+with sparse computations based on the Matrix package for the derivatives.
+(The eigenvalues of an upper triangular matrix are real and on the diagonal.)
 
 \section{Fisher scoring}
 The hmm function allows ``Fisher scoring'' as a choice of algorithm for finding
