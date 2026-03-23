@@ -2,11 +2,11 @@
 # Test the subroutines for parsing set of states
 #  The parsecovar and parsemarker set are two of the more subtle routines
 # The functions are not exported, hence the need for :::
-library(mshmm)
-parsecovar1 <- mshmm:::parsecovar1
-parsecovar2 <- mshmm:::parsecovar2
-parsemarker1 <- mshmm:::parsemarker1
-parsemarker2 <- mshmm:::parsemerker2
+library(icmsh)
+parsecovar1 <- icmsh:::parsecovar1
+parsecovar2 <- icmsh:::parsecovar2
+parsemarker1 <- icmsh:::parsemarker1
+parsemarker2 <- icmsh:::parsemerker2
 
 states <- c("A0N0", "A1N0", "A0N1", "A1N1", "A0N2","A1N2", "death")
 qmat <- matrix(0, 7,7, dimnames=list(states, states))
@@ -16,10 +16,11 @@ qmat[3,5] <- qmat[4,6] <- 1 # N1 to N2
 qmat[1:6,7] <- 1
 # statefig(cbind(2,2,2,1), qmat, alty= rep(1:2, c(7,6)))
 
-statedata <- data.frame(state= states,
-                        A=c(0,1,0,1,0,1,2),
-                        N=c(0,0,1,1,2,2,NA),
-                        D=c(0,0,0,0,0,0,1))
+alias <- data.frame(state= states,
+                    A =c(0,1,0,1,0,1,2),
+                    N =c(0,0,1,1,2,2,NA),
+                    D =c(0,0,0,0,0,0,1),
+                    AN=c(1,2,3,4,3,4,0))  # A-N-, A+N-, A-N+, A+N+
 
 # a formula with lots of bits
 tform <- list(Surv(time, status) ~ age,
@@ -46,7 +47,7 @@ Xname <- c("(Intercept)", "age", "sex", "x1B", "x1C", "x1D", "x2", "x3", "x4",
            "icvol")
 Xassign <- c(0,1,2,3,3,3,4,5,6,7)
 
-test2 <- parsecovar2(test1, statedata, dform, terms(newform), qmat,
+test2 <- parsecovar2(test1, alias, dform, terms(newform), qmat,
                      Xname, Xassign)
 
 vars <-  c("(Intercept)", "age", "sex", "x1", "x2", "x3", "x4", "icvol")
@@ -74,7 +75,7 @@ mlist <- list(A(0:1):log(pib) + A(0:1):log(tau) ~ 1/ gaussian,
               N:log(wmh) ~ 1/ logistic,
               N:log(wmh) ~ icvol/ logistic(param= "mean") + common)
 
-test1 <- parsemarker1(mlist, statedata)
+test1 <- parsemarker1(mlist, alias)
 
 all.equal(test1$nmarker, c(2,1,1,1)) # markers per formula
 # the markers for formula1, then formula 2, then 3, then 4
@@ -100,7 +101,7 @@ all.equal(test1$options, list(as.name("gaussian"), as.name("gaussian"),
 all.equal(test1$mterm, list(~1, ~1, ~1, ~icvol))
 
 
-test2 <- parsemarker2(test1, statedata, terms(newform), Xname, Xassign,
+test2 <- parsemarker2(test1, alias, terms(newform), Xname, Xassign,
                       markerlevel =NULL)
 # linear predictors for each: 2 peaks * mean/std =4  for pib, tau, and ptau
 all.equal(test2$rindex, list('log(pib)'=1:4, 'log(tau)'=5:8, 
@@ -129,3 +130,13 @@ all(rownames(test2$cmap) == c("(Intercept)", "age", "sex", "x1B", "x1C", "x1D",
                               "x2", "x3", "x4", "icvol"))
 # x1 has been coded as an intercept + 3 contrasts, the same as if -1 were not
 #  there
+
+# look at a formula with no covariates, fixed error matrix
+errmat <- matrix(1:12/20,6,4, dimnames=list(true=states[1:6], marker= 1:4))
+
+m2 <- list(A(0:1):log(pib) + A(0:1):log(tau) ~ 1/ gaussian,
+           AN(1:4):mark1 ~0 / multinomial(init=errmat))
+
+mp1 <- parsemarker1(m2, alias)
+mp2 <- parsemarker2(mp1, alias, terms(newform), Xname, Xassign,
+                      markerlevel = list(NULL, 1:4))

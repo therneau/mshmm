@@ -142,7 +142,6 @@ alpha5 <- (alpha4 %*% P7)*density
 
 # Now hmm
 efun <- function(y, ..., emap=emat){
-#    browser()
     emap[,y]
 }
 
