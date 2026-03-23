@@ -1,17 +1,18 @@
 Title: Interval censored multistate hazard models 
-Description: Fit multi-state hazard (MSH) for data that is interval censored.
-This includes both simple interval censoring as well as multi-state hidden
-Markov models (HMM).
-These methods are complimentary to the parallel method for MSH found in the
-survival package, e.g., non-parametric Aalen-Johansen curves and MSH models 
-fit with coxph.  The user interface in particular has been made similar.
 Package: icmsh
 Version: 2.0-1
+Date: 2026-03-25
 Depends: survival, Matrix, R (>= 3.5.0)
 Imports:  parallel, mvtnorm, quadprog
 Suggests: msm, knitr
 Lazyload: Yes
 LazyData: Yes
+Description: Fit multi-state hazard (MSH) for data that is interval censored.
+ This includes both simple interval censoring as well as multi-state hidden 
+ Markov models (HMM). These methods are complimentary to the parallel method 
+ for MSH found in the survival package, e.g., non-parametric Aalen-Johansen
+ curves and MSH models fit with coxph.  The user interface in particular has 
+ been made similar.
 VignetteBuilder: knitr
 Authors@R: c(person(c("Terry", "M"), "Therneau", 
                     email="therneau.terry@mayo.edu",

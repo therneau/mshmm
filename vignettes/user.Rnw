@@ -418,7 +418,7 @@ See there for creating the counting process data using \code{tmerge}.
 The states are the count of three metabolic comorbities (MC) for each
 subject at a given visit: diabetes, dislipidemia, and hypertension.
 
-<<nafld1>>=
+<<nafld1b>>=
 states <- c("0MC", "1MC", "2MC", "3MC", "death")
 nmat <- matrix(0, 5, 5, dimnames=list(states, states))
 nmat[1,2] <- nmat[2,3] <- nmat[4,5] <- 1
@@ -1098,7 +1098,7 @@ contrast <- function(fit, data, global=FALSE, weight, transition=1,
 @ 
 
 \begin{figure}
-<<mshplot, figure=FALSE, height=6in>>=
+<<mshplot>>=
 dummy <- expand.grid(apoepos=0:1, 
                      clgp=c("low", "med", "high"), 
                      male=0:1, cmc=2, edu4= 3, yearc="4+")
@@ -1413,30 +1413,6 @@ with initial values for the transitions found in the \code{qcoef} argument.
 Alternately, the elements of \code{qmat} can contain initial values for the
 log of the transition rates.  Any initial values in \code{qcoef} will 
 override the values in \code{qmat}.
-
-Covariates are controlled by the \code{qcoef} argument, which is
-a data frame containing variables \code{state1, state2, term, coef}
-and optionally \code{init}.
-Normally, this data frame is created usint the \code{qcoef} function,
-which was itself a prototype for the list of formulas approach used in
-coxph. (That approach will soon be ported back to hmm, and this section
-of the vignette replaced.) 
-The first two arguments to \code{qcoef} are the transition matrix $Q$
-and a data frame used to define convenient aliases.
-
-<<qcexample>>=
-smap <- data.frame(states= rownames(qmat),
-                   A= c(0,1,0,1, 10,11),
-                   N= c(0,1,0,1, 10,11))
-q1 <- qcoef(qmat, smap,
-            A(0)/A(1) ~ 1/ init(-2.3),
-            A(0)/A(1) ~ ns(iage, 3) + apoepos,
-            N(0)/N(1) ~ 1/ init(-3),
-            N(0)/N(1) ~ ns(age,3),
-            
-            
-                   
-@ 
 
 
 

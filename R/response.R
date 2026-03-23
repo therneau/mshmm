@@ -11,15 +11,15 @@ hmm.dist <- c("gaussian", "logistic", "beta", "multinomial", "noerror")
 
 # The stateinfo has name and level information that is use to create labels
 #  for the linear predictors, plus an index matching gaussian densities to
-#  states, 
-#  the markerlevel argument is used by categorical methods, pattern by 
+#  states, the static argument is used to indicate no linear predictors.
+#  the markerlevel argument is used by categorical methods, init by 
 #   the multinomial dist, and the param option for return information.
 #
 # return a list with 
 #   rfun: the response function
 #   pname: labels for the parameters
 #   subset: which subset are referred to by the param argument
-gaussian <- function(stateinfo, markerlevel, param) {
+gaussian <- function(stateinfo, markerlevel, param, ...) {
     npeak <- length(stateinfo$levels)
     pname <- makedistlabels(stateinfo, c("mean", "std"))
     if (missing(param)) subset= 1:ncol(pname)
@@ -249,12 +249,23 @@ mlogit <- function(eta, gradient=FALSE) {
 #  non-zero value in a row identifies the reference category, the order of the
 #  remaining matrix values determine the mapping of eta to state/prob. 
 ##  
-multinomial <- function(stateinfo, nlevel, pattern) {
+multinomial <- function(stateinfo, levels, init, static) {
     nstate <- length(stateinfo$index)
-    if (nlevel ==0) stop("marker must be a factor for multinomial distribution")
+    if (is.null(levels)) 
+        stop("marker must be a factor for multinomial distribution")
+    nlevel <- length(levels)
     ngroup <- max(stateinfo$index)  #number of predicted phat vectors
+    nstate <- length(stateinfo$index)
 
-    if (missing(pattern)) {
+    errmat <- matrix(0, nrow=nstate, ncol= 
+    if (static) {
+        # Call with a fixed matrix, no parameters
+        if (missing(init)) 
+            stop("a formula of ~0 requires an missclass matrix as `init`")
+        
+
+    if (missing(init)) {
+        if (static) error("a formula of ~0 requires an error matrix as init")
         # the compute function gets two lists with one elment per state
         #  eindex = which columns of eta for this state
         #    our default is to use 1,2,..., k-1 for state 1, k, ... for 
@@ -264,25 +275,41 @@ multinomial <- function(stateinfo, nlevel, pattern) {
         eindex <- split(1:n.eta, rep(1:nstate, each=nlevel-1))
         mindex <- lapply(1:nstate, function(x) 1:nlevel)
         nparm <- nstate
+        
     }
     else {
-        if (!is.matrix(pattern) || nrow(pattern) != ngroup ||
-            ncol(pattern) != nlevel)
-        stop("pattern must be a matrix with one row per group of states",
+        if (!is.matrix(init) || nrow(init) != ngroup ||
+            ncol(init) != nlevel)
+        stop("init must be a matrix with one row per group of states",
              " and one column per level of the marker")
-        if (any(is.na(pattern))) stop("missing value in pattern matrix")
+        if (any(is.na(init))) stop("missing value in init matrix")
 
-        
-        nphat <- apply(pattern!=0, 1, sum)  # number of probabilities per row
-        if (any(nphat ==0)) stop("pattern matrix has a zero row")
+        nphat <- apply(init!=0, 1, sum)  # number of probabilities per row
+        if (any(nphat ==0)) stop("init matrix has a zero row")
         n.eta  <- sum(nphat -1) # total number of linear predictors
     }
-    p2 <- pattern # modify this into "standard" form
-    ref <- apply(pattern, 1, function(x) min(which(x!=0)))
+
+    p2 <- init # modify this into "standard" form
+    ref <- apply(init, 1, function(x) min(which(x!=0)))
     p2[cbind(1:ngroup, ref)] <- -1
     index <- which(p2>0)
     p2[index] <- rank(p2[index], ties="first")
     # make pname
+
+    if (static) {
+        # there are no linear predictors, eta will be null, no gradient
+        if (any(init <0 | init>1)) 
+            stop("misclassification matrix elements must be between 0 and 1")
+        isum <- rowSums(init) # make rows sum to 1
+        if (any(isum==0)) 
+            stop("rows of an misclassification matrix must sum to 1")
+        init <- init %*% diag(1/isum)
+        rfun <- function(y, missclass= init) missclass[,y]
+        checkfun <- function(y) all(y== floor(y) & y>0 & y<ncol(init))
+        rval <- list(name="multinomial", rfun=rfun, pname=NULL,
+                     subset=NULL, check = checkfun)
+        return(rval)
+    }
     
     rfun <- function(y, eta, gradient=FALSE,  npeak, map) {
         # y a vector of m values, m= number of measurements of this biomarker
@@ -324,10 +351,10 @@ multinomial <- function(stateinfo, nlevel, pattern) {
     temp$map <- stateinfo$index
     formals(rfun) <- temp
 
-    checkfun <- function(y, nc=ncol(pattern)) {
+    checkfun <- function(y, nc=ncol(init)) {
         if (!is.factor(y) || length(levels(y))!= nc)
             stop("marker must be a factor with ", nc, 
-                 " levels, to match the pattern matrix")
+                 " levels, to match the init matrix")
     }
             
     list(name="multinomial", rfun=rfun, pname=pname, subset=subset, 

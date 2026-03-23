@@ -93,15 +93,15 @@ markerpair <- function(x, statemap) {
                     temp <- rep(0L, nstate)
                     temp[index] <- seq(along=length(index))
                     stateinfo <- list(sname="state", 
-                                      levels= statedata[1,index],
+                                      levels= statemap[1,index],
                                       index= temp)
                 } else stop("unrecognized state vector: ", deparse(state))
             } else {
                 state[[1]] <- as.name("c")
                 temp <- eval(state)  # A(1:3) becomes the vector 1,2,3
                 temp <- unique(temp[!is.na(temp)]) # users do weird things....
-                stateinfo <- list(sname= names(statedata)[jcol], levels=temp,
-                               index=match(statedata[,jcol], temp, nomatch=0))
+                stateinfo <- list(sname= names(statemap)[jcol], levels=temp,
+                               index=match(statemap[,jcol], temp, nomatch=0))
             }
         } else {
             if (is.name(state)) jcol <- match(as.character(state), sname)    
@@ -109,10 +109,10 @@ markerpair <- function(x, statemap) {
             else stop("unrecognized state vector: ", deparse(state))
 
             if (is.na(jcol)) stop("unrecognized state vector: ", deparse(state))
-            temp <- statedata[,jcol]
+            temp <- statemap[,jcol]
             temp <- unique(temp[!is.na(temp)]) # an NA matches nothing
-            stateinfo <-list(sname= names(statedata)[jcol], levels=temp,  
-                              index=match(statedata[,jcol], temp, nomatch=0))
+            stateinfo <-list(sname= names(statemap)[jcol], levels=temp,  
+                              index=match(statemap[,jcol], temp, nomatch=0))
         }
 
         # The right hand side must be a single marker variable
@@ -143,7 +143,7 @@ parsemarker2 <- function(parse1, statedata, Terms, Xname, Xassign,
     nmarker <- length(umarker)
     # findex is a list, first element = which elements of markers were added
     #  by the first formula, second formula, etc.
-    findex <- split(seq(along=marker), rep(1:nmarker, parse1$nmarker))
+    findex <- split(seq(along=marker), rep(seq(along.with=parse1$nmarker), parse1$nmarker))
 
     # separate out the three parts of an options list
     # the hmm.dist vector has the list of legal distributions, see response.R
@@ -217,7 +217,8 @@ parsemarker2 <- function(parse1, statedata, Terms, Xname, Xassign,
     mindex <- match(marker, umarker)  # markerlevel will be in umarker order
     rlist <- lapply(seq(along=mindex), function(i) {
         arglist <- list(stateinfo= parse1$stateinfo[[i]],
-                        markerlevel = markerlevel[[mindex[i]]])
+                        levels =   markerlevel[[oindex[i]]])
+        arglist$static <- (parse1$mterm[[oindex[i]]] == ~0) 
         tdist <- odist[[oindex[i]]] #options for this marker
         if (!is.null(tdist$call)) {
             # add on user arguments
@@ -232,10 +233,17 @@ parsemarker2 <- function(parse1, statedata, Terms, Xname, Xassign,
     #  And the mapping from linear predictor to response function
     # If a marker appears in more than one formula, it is in rlist twice,
     #  for this use we only want one of them
+    # Exception: a marker with ~0 as a formula has no linear predictor
+    # it gets created in cmap below, then taken away
+    zeroform <- sapply(parse1$term, function(x) x == ~0)
     tlabel <- lapply(match(umarker, marker), function(i) {
-        tlab <- rlist[[i]]$pname
-        paste0(tlab[1,],':', marker[i],'.', tlab[2,])
+        if (is.null(rlist[[i]]$pname)) NULL
+        else {
+            tlab <- rlist[[i]]$pname
+            paste0(tlab[1,],':', marker[i],'.', tlab[2,])
+        }
     })
+    browser()
     n.eta <- sapply(tlabel, length)  # number of LP for each marker (umarker)
     lpname <- unlist(tlabel)
     numlp <- length(lpname)
@@ -258,7 +266,7 @@ parsemarker2 <- function(parse1, statedata, Terms, Xname, Xassign,
         if (hascommon(parse1$options[[i]])) dtemp <- dtemp[,1, drop=FALSE]
 
         # which rows of cmap?
-        if (parse1$mterm[[i]] == ~1) irow <- 1  # only an intercept
+        if (zeroform[i] ||parse1$mterm[[i]] == ~1) irow <- 1 # intercept or NULL
         else { # more complex formula
             temp <- attr(terms(parse1$mterm[[i]]), "term.labels")
             iterm <- match(temp, attr(Terms, "term.labels"))
@@ -268,10 +276,13 @@ parsemarker2 <- function(parse1, statedata, Terms, Xname, Xassign,
         cmap[irow, k] <- dtemp[irow,]
     }
         
+    # ditch the zero
+    cmap <- cmap[,!zeroform]
+    response <- (rlist[match(umarker, marker)])[!zeroform]
     # map the elements of cmap to 0, 1, ...
     cmap[,] <- match(cmap, unique(c(0L, cmap))) - 1L
-    list(cmap=cmap, response = rlist[match(umarker, marker)], 
-         rindex= eindex)
+    list(cmap=cmap, response = rlist[match(umarker, marker)],
+         rindex= ifelse(zeroform,0, eindex)) 
 }
                                                            
 # Run down the formula parse tree and see if there is an explicit

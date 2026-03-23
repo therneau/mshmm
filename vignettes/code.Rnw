@@ -95,9 +95,9 @@ mfit <- hmm(list(Surv(time, death) ~ male,
                  0:death ~ iage,
                  A(0):A(1) ~ apoe + ns(iage,4)/ common,
                  N(0):N1(1) + N(1):N(2) ~ iage + cmc),
-            marker = list(dx ~ N/ multinomial(pattern= pmat),
-                           memory~ N + practice/ gaussian,
-                           centiloid + sqrt(p.tau181) ~ A(1:2) /gaussian),
+            marker = list(N:dx ~1 / multinomial(init= pmat),
+                          N:memory~ 1 + practice/ gaussian,
+                          A:(centiloid + sqrt(p.tau181)) ~ 1/gaussian),
             data= dementia, id=ptnum, qmatrix = qmat, 
             statedata = statedata)
 @ 
@@ -120,14 +120,14 @@ After dealing with missing values, the code will
 use model.reponse() to obtain y and create a second master formula,
 without the markers, as the argument to model.matrix.
 
-Given the X matrix and it terms and assign attributes, we can the tackle the
+Given the X matrix and it terms and assign attributes, we can then tackle the
 second stage of parsing, and create the tmap and cmap matrices.
 The tmap matrix has a row per term, so we need the terms first.
 
 \subsection{First pass}
 Step 1 is to break the formula into parts, using \code{parsecovar1} for
 the formula and \code{parsemarker1} for the marker list.
-  The first formula is
+The first formula is
 the default formula \code{dformula}, the rest become a 3 component list
 containing the left sides, the right sides and the options.
 The marker argument becomes a list with 4 components of state, marker,
@@ -986,7 +986,7 @@ of formula \ref{pderiv1}.
 <<echo=TRUE, eval=FALSE>>=
 for (j in 1:nstate) {
     for (k in 1:nstate) 
-        newd[j,k, ] <- (exp(eta[1:deriv[j,k,] %*% Z
+        newd[j,k, ] <- exp(eta[1:deriv[j,k,]] %*% Z)
 }
 for (k in 1: dim(newd)[3]) { # for each element of $\beta
     secondterm[k,] <- alpha %*% newd[,,k]
@@ -1005,7 +1005,7 @@ gives the nstate values for $\beta_1$, then for $\beta_2$, ... as a single
 long vector that contains the first row of secondterm above, then the
 second row of secondterm, etc.
 <<echo=TRUE, eval=FALSE>>=
-t1 <- matrix(deriv, ncol=k) \%*\% eta.beta1(X[i,]))
+t1 <- matrix(deriv, ncol=k) %*% eta.beta1(X[i,])
 t2 <- matrix(alpha %*% matrix(t1, nrow=nstate), ncol=nstate, byrow=TRUE)
 @ 
 
@@ -1018,7 +1018,7 @@ t2 <- matrix(alpha %*% matrix(t1, nrow=nstate), ncol=nstate, byrow=TRUE)
 \frac{\partial \alpha(t)}{\partial \beta_j} &=
     \frac{\partial \alpha^*(t)}{\partial \beta_j}D(t) + 
            \alpha^*(t) \left[\sum_k \frac{\partial D(t)}{\partial \eta_k} 
-             \frac{\partial \eta_k}{\partial \beta_j} \label{dderiv1}
+             \frac{\partial \eta_k}{\partial \beta_j} \right] \label{dderiv1}
 \end{align}
 
 If this time point corresponds to entry into a known state, 

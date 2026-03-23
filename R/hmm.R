@@ -84,7 +84,7 @@ hmm <- function(formula, data, subset, weights,
             stop("statedata must be a data frame")
         if (names(statedata)[1] != "state" || !is.character(statedata$state))
             stop("first variable in statedata must be a character variable named 'state'")
-        indx <- match(statename, statedata$state, nomatch=0)
+        indx <- match(statenames, statedata$state, nomatch=0)
         if (any(indx==0))
             stop("statedata$state does not contain all the states")
         statedata <- statedata[indx,]  # same row order as the states
@@ -192,11 +192,11 @@ hmm <- function(formula, data, subset, weights,
     #  in further below in the initial state section.
     # For categorical markers we will also want to know the number of 
     #   categories (used to set up response functions)
-    # We
+    # 
     if (nmarker >0) {
         markerlevels <- sapply(marker1$marker, function(x) 
-            length(levels(mf[[x]])))
-        marker2 <- parsemarker2(marker1, stateddata, Terms, colnames(X), 
+            levels(mf[[x]]))
+        marker2 <- parsemarker2(marker1, statedata, Terms, colnames(X), 
                                 xassign, markerlevels)
         nlp[2] <- ncol(marker2$cmap)
         cmap <- cbind(cmap,
@@ -465,7 +465,7 @@ hmm <- function(formula, data, subset, weights,
 
     # Set up response functions
     if (nmarker > 0) {
-        ymarker <- mf[, unique(marker1$marker)]
+        ymarker <- mf[, unique(marker1$marker)]  # a data frame
         nmarker <- length(ymarker)
         rlist <- marker2$response
         eta <- X%*% B[,b2]

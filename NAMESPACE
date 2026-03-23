@@ -1,4 +1,4 @@
-useDynLib(mshmm)
+useDynLib(icmsh)
 import(survival, parallel)
 importFrom(expm, expm)
 importFrom(mvtnorm, dmvnorm)
