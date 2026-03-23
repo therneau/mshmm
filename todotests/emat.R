@@ -1,4 +1,4 @@
-library(hmm)
+library(icmsh)
 
 # test the error matrix
 # 

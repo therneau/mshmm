@@ -1,9 +1,7 @@
 #
-# The same fits as jackson.r, but now check gradients
+# Not yet finished
 #
-# source('../trial/loadall.R')
-# load("../data/test1.rda")
-library(hmm)
+library(icmsh)
 sname <- levels(test1$state)[-1]
 qmat <- matrix(0, 6, 6, dimnames=list(from= sname, to=sname))
 qmat[1,2] <- qmat[1,3] <- .01

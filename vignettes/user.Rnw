@@ -14,7 +14,7 @@
 
 <<setup, echo=FALSE>>=
 library(survival)
-library(mshmm)
+library(icmsh)
 library(msm)
 library(knitr)
 opts_chunk$set(tidy=FALSE, fig.keep='none',
@@ -190,7 +190,7 @@ temp2$status <- temp2$status + 2
 temp3 <- merge(baseline, temp1, all=TRUE)
 cdata <- merge(temp3, temp2, all=TRUE)
 cdata$status <- factor(cdata$status, c(2,0,1,3), 
-                       c("censor", "entry", "progression", "death"))
+                       c("censor", "stable", "progression", "death"))
 subset(cdata, id<4)
 @
 
@@ -246,7 +246,7 @@ Using years as the time scale will give more interpretable coefficients.
 
 <<colon2>>=
 # create the transition matrix
-cstate <- c("entry", "progression", "death")
+cstate <- c("stable", "progression", "death")
 ctrans <- matrix(c(0,0,0,1,0,0,1,1,0), nrow=3,
                  dimnames= list(from= cstate, to= cstate))
 ctrans
@@ -265,20 +265,24 @@ crude <-  c(.7, .1, 4)/8
 cfit0 <- hmm(Surv(year, status) ~ 1, id=id,  init=log(crude),
              qmatrix= ctrans, exact="death", data= cdata,
              mc.cores=2)
-# How does this compare with the AJ estimate? 
-rmat <- ctrans
-rmat[ctrans>0] <- exp(coef(cfit0))
-diag(rmat) <- -rowSums(rmat)
-P <- expm(rmat * 8/100)
-phat <- matrix(0, 100, 3)
-tmat <- 
-phat[1,] <- c(1,0,0)
-for (i in 1:99) phat[i+1,] <- phat[
-cfit1 <- hmm(Surv(year, status) ~ rx + node4 + extent, id=id,
-             qmatrix= ctrans, exact="death", data= cdata, mc.cores=1, 
-             init= cfit0)
-@ 
+cfit0
+@
 
+The solution is not at all what we expected: it shows a transition rate from
+entry to progression of exp(3.97) = 53, a median time to progression of
+about log(2)/53 years or 5 days. 
+The issue is that we have no intermediate values in the data: there are no
+obserations of ``stable'' after entry, and so the best MLE estimate is to assume
+that subjects switch immediately to the progression state, we just don't 
+notice it for a while. 
+Per reference 1 in the help file for the data, patients were
+assessed for progression every 8 weeks for the first year, every 4 months for
+the second year, and every 6 months for years 3 to 5.  To properly analyse
+this data using interval censored methods we need to add these intermediate 
+visits to the study data.
+
+An interesting exercise is to add psuedo observations that more or less match
+the visit schedule, and observe how the estimate behaves.
 
 \subsection{CAV example}
 Data from a study that monitors the progression of coronary allograft
@@ -348,37 +352,39 @@ levels in the Surv object need to match these.
 <<cavstates>>=
 cqmat
 
-cfit1 <- icmsh(Surv(years, cstate) ~ 1, data= cav2, id= ptnum,
+cfit0 <- hmm(Surv(years, cstate) ~ 1, data= cav2, id= ptnum,
                qmatrix= cqmat, exact="death")
-hfit0  #msm vignette, 2.5, model 1
+cfit0  #msm vignette, 2.5, model 1
 @
 
-For \code{icmsh} states are of two types: interval censored states where the
+For the interval censored model states are of two types: interval censored 
+states where the
 state is known at the measurment time, but not when that state was entered,
 and exact states, where the entry time to the state is known. These latter
 are enumerated in the \code{exact} argument.
 Death is the most common exact state.   
 (One can also have multiple exact states, one of the more common examples 
-is cause of death, e.g., states of `death due to cancer' and `other death'.) 
+is cause of death, e.g., states of `death due to cancer' and `other death'
+have been separated by the user.)
 The status variable in the Surv call will be a factor with censored as the
 first level, followed by the states, in the same order as the $Q$ matrix.
 Now add covariates.
 
 <<cav2>>= 
-hfit1 <- icmsh(list(Surv(years, cstate) ~ 1, 
+cfit1 <- hmm(list(Surv(years, cstate) ~ 1, 
                   1:2 + 1:4 ~ sex),
-             data=cav2, id= ptnum,
-             qmatrix= cmat, exact="death", irate= exp(init))
-hfit1  # msm vignette, 2.7, model 2a
+             data=cav2, id= ptnum, init= cfit0,
+             qmatrix= cqmat)
+cfit1  # msm vignette, 2.7, model 2a
 
-hfit2 <- icmsh(list(Surv(years, cstate) ~ dage, 
+cfit2 <- hmm(list(Surv(years, cstate) ~ dage, 
                   1:2 + 2:3 ~ sex / common,
                   2:1 + 3:2 ~ sex / common,
                   0:death   ~ sex / common),  data=cav2, id= ptnum,
-             qmatrix= cmat, exact="death", irate= exp(init))
-hfit2  
+             qmatrix= cqmat, exact="death", init=cfit0)
+cfit2  
 
-hfit2$cmap
+cfit2$cmap
 @ 
 
 More complex models are specified using a list for the formula argument.
@@ -386,15 +392,15 @@ The first formula in the list specifies the response and a default set of
 covariates which is used as the starting point for all transtitions. 
 Later formulas update the formula(s) for specified transtions
 \begin{itemize}
-  \item line 2 of hfit1 adds sex to the formulas for none to mild (1:2) and
+  \item line 2 of cfit1 adds sex to the formulas for none to mild (1:2) and
     none to death (1:4), but not to other transitions
-  \item line 2 of hfit2 forces the the 1:2 progression
+  \item line 2 of cfit2 forces the the 1:2 progression
     (no CAV to mild/moderate) and 2:3 (mild/moderate to severe) to share a
     common sex coefficient
-  \item line 3 of hfit2 makes the sex coefficients for the two reverse 
+  \item line 3 of cfit2 makes the sex coefficients for the two reverse 
     transitions identical
-  \item 0:death stands for any state to death. Invalid transitions not found in
-    qmatrix are ignored, i.e., the implied  death:death transtion
+  \item 0:death stands for any state to death. Transitions marked as 0 in
+    qmatrix are ignored, i.e., the death:death transtion
 \end{itemize}
 
 \subsection{NAFLD example}
@@ -421,14 +427,15 @@ nmat[1,3] <- nmat[1,4] <- nmat[2,4] <- 0.7
 statefig(rbind(4,1), nmat, alty=c(1,2,1, 2,2,1,1,1,1))
 @
 
-
 Now create the timeline data set.
 For illustration we have done this using only the functions in base R, 
-but many other tools can be used which might be simpler or better.
+but many other, more sophisticated tools can be used.
 
 <<naflddata>>=
-temp1 <- subset(nafld1, select=c(id, age, male))  #baseline
+temp1 <- subset(nafld1, select=c(id, age, male, case.id))  #baseline
 temp1$days <- 0
+temp1$nafld <- 1*(temp1$id== temp1$case.id)  # marker of nafld at baseline
+temp1$case.id <- NULL  # no longer needed
 temp2 <- subset(nafld3, event== "diabetes") # first diabetes
 temp2$days <- pmax(0, temp2$days)  # diabetes which began before enrollment 
 temp3 <- subset(nafld3, event== "dyslipidemia")
@@ -445,19 +452,16 @@ temp5 <- temp5[!duplicated(temp5[,1:2], fromLast=TRUE),]
 
 lfu <- subset(nafld1, select= c(id, futime, status)) # death
 names(lfu)[2] <- "days"
-nafld <- subset(nafld3, event=="nafld")
 
 ndata <- merge(temp1, temp5, by=c("id", "days"), all=TRUE) 
 ndata <- merge(ndata, lfu,   by=c("id", "days"), all=TRUE) 
 ndata <- merge(ndata, nafld, by=c("id", "days"), all=TRUE) 
-ndata$nafld <- 1*(ndata$event=="nafld")
-ndata$event <- NULL  # no longer needed
 
 # 3 cases: death, fu after last visit, clinic visit
 tstate <- with(ndata, ifelse(!is.na(status) & status==1, 5,
                            ifelse(!is.na(count), count, 4)))
 ndata$state <- factor(tstate, c(4,0:3, 5),
-                      c("censor", "OMC", "1MC", "2MC", "3MC", "death"))
+                      c("censor", "0MC", "1MC", "2MC", "3MC", "death"))
 
 with(ndata, table(state[!duplicated(id)]))
 with(ndata, table(from= state[duplicated(id, fromLast=TRUE)],
@@ -484,17 +488,28 @@ of 0MC:1MC and 1MC:2MC, but at unknown times.
 <<nafld2>>=
 states <- c("0MC", "1MC", "2MC", "3MC", "death")
 qmat <- matrix(0, 5, 5, dimnames=list(from= states, to =states))
-qmat[1,2] <- qmat[2,3] <- qmat[4,5] <- 1
+qmat[1,2] <- qmat[2,3] <- qmat[3,4] <- 1
 qmat[1:4,5] <- 1
-
+qmat
+if (FALSE) { #there is a bug 
 nfit <- hmm(Surv(days, state) ~ age + male + nafld, data= ndata,
-            id = id, qmatrix= qmat, death="death")
+            id = id, qmatrix= qmat)
+}
 @ 
 
 
 \subsection{Theory}
+A big difference in the two models is how the likelihood is constructed.
+The semiparametric MSH (coxph) is a model for the transitions from state to
+state which the interval censored (hmm) approach is a model for a subject's
+current state.
+The semiparametric model assumes that we see all of the transitions, uses the
+transitions and their timings, via risk sets, to construct estimated rates.
+These can then be used, at the very end, to
+
+
 Two primary differences between the MSH partial likelihood of \code{coxph} and
-the full likelihood of \code{icmsh} is that first, the baseline hazard for 
+the full likelihood of \code{hmm} is that first, the baseline hazard for 
 the latter is parametric, often a spline function of time. 
 The above models assumed a constant hazard and the fits include an intercept.
 A second difference is that the
@@ -595,7 +610,7 @@ the transition matrix \code{qmat}.  It's first column must be a variable
 named ``state'', the other columns provide aliases.
 
 The specification for the 13 transitions rates has the same form as in the
-coxph and icmsh functions.  Each of the rates is
+coxph function.  Each of the rates is
  modeled as $\exp(\beta X)$, in the
 same manor as a Cox model, each transition has it's own equation.
 The formula argument, the first argument of the hmm function, is a list

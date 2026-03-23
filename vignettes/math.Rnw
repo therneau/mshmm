@@ -14,7 +14,7 @@
 \maketitle
 
 <<setup, echo=FALSE>>=
-library(hmm)
+library(icmsh)
 library(survival)
 library(knitr)
 

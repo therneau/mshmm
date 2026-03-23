@@ -16,8 +16,7 @@
 
 <<setup, echo=FALSE>>=
 library(survival)
-library(hmm)
-#library(mshmm)
+library(icmsh)
 
 library(knitr)
 opts_chunk$set(tidy=FALSE, fig.keep='none', highlight=FALSE

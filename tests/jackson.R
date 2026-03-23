@@ -2,7 +2,7 @@
 # Fit the same model with msm and hmm, to verify that I have the
 #  right likelihood.
 library(msm)
-library(hmm)
+library(icmsh)
 aeq <- function(x, y, ...) all.equal(as.vector(x), as.vector(y), ...)
 
 # test1 has 4 subjects, 17 rows
@@ -58,24 +58,28 @@ true1 <- byhand(test1, eta1)
 truelog <- sum(log(rowSums(true1)))
 aeq(hfit1$loglik, truelog)
 
-# detail=TRUE forces no iteration
+# detail=TRUE forces no iteration, and returns extra info
 hfit1b <- hmm(list(Surv(age,state) ~1, 0:6 ~ male), center=FALSE, mc.cores=1,
               data=test1, id=id, qmatrix=qmat, init=icoef, detail=TRUE)
 
 # derivatives
-eps <- 1e-7
+eps <- 1e-8
 nbeta <- sum(hfit1$cmap >0)
 deriv <- double(nbeta)
 for (i in 1:nbeta) {
     i2 <- icoef
     i2[i] <- i2[i]+ eps
-    tfit <- hmm(list(Surv(age,state) ~1, 0:6 ~ male),
+    tfit <- hmm(list(Surv(age,state) ~1, 0:6 ~ male), center=FALSE,
                 data=test1, id=id, qmatrix=qmat, init=i2, iter=0)
     deriv[i] <- (tfit$loglik - hfit1$loglik)/eps
 }
 
-aeq(deriv, apply(hfit1b$deriv,1,sum))
-
+# detail returns derivatives of alpha wrt the parameters, hmm maximizes
+#  sum(log(alpha)), one alpha per subject
+alpha <- colSums(hfit1b$alpha)  # sum over states
+tder  <- apply(hfit1b$deriv, c(1,3), sum) # ditto
+logder <- unname(rowSums(tder %*% diag(1/alpha)))
+aeq(deriv, logder, tol= sqrt(eps))
 
 # msm wants the intital rates in qmat, hmm only uses 0 vs >0
 qmat[qmat>0] <- exp(icoef)
@@ -85,7 +89,7 @@ mfit1 <- msm(istate ~ age, data=test1, subject=id, death=6,
 aeq(mfit1$minus2loglik, -2*truelog)  
 
 # Add select covariates
-i2 <- rbind(icoef,0,0)
+i2 <- rbind("(Intercept)" = icoef[1:11], educ=0, male=0)
 dimnames(i2) <- list(c("(Intercept)", "educ", "male"), colnames(hfit1$cmap))
 i2["educ", "1:3"] <- .1
 i2["male", c("1:6", "2:6")] <- c(.2, .3)
@@ -101,7 +105,7 @@ aeq(hfit2$log, sum(log(rowSums(true2))))
 
 # hmm centered the covariates internally *and* also transformed the 
 #  coefficients, i.e., the user never sees the change.  msm on the
-#  other hand presents coefs wrt recentered data
+#  other hand returns coefs wrt recentered data
 mfit2 <- msm(istate ~ age, data=test1, subject=id, 
               qmatrix = qmat, fixedpar=TRUE, death=6, 
               covariates= list("1-3"= ~educ,  "1-6"= ~male, "2-6"= ~male),
@@ -115,7 +119,7 @@ test1b$educ <- test1b$educ - center["educ"]
 test1b$male <- test1b$male - center["male"]
 
 hfit2b <- hmm(list(Surv(age,state) ~1, 
-                  1:3 ~ educ, 1:6+ 2:6 ~ male),
+                  1:3 ~ educ, 1:6+ 2:6 ~ male), center=FALSE,
              data=test1b, id=id, qmatrix=qmat, init=i2, iter=0)
 aeq(-2*hfit2b$loglik[2], mfit2$minus2loglik)  
 

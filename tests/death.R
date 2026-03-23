@@ -2,7 +2,7 @@
 # Check the loglik for a final censoring, i.e., that they are counted as
 #  "not dead", not as likelihood of 1
 #
-library(mshmm)
+library(icmsh)
 
 # semi-competing risks data
 ddata <- data.frame(id=c(1,1,2,2,3,3), 
