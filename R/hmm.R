@@ -271,12 +271,14 @@ hmm <- function(formula, data, subset, weights,
         Y <- Y[keep,, drop=FALSE]
         X    <- X[keep,, drop=FALSE]
         id   <- id[keep]
+        id   <- match(id, unique(id)) # renumber them as 1,2 3...
         ytime <- ytime[keep]
         ystate <- ystate[keep]
         weights <- weights[keep]
         mf <- mf[keep,]  # the markers have not yet been pulled out
         # message for printout
-        removed <- c(subjects= length(tossid), y= sum(ymiss), rate=sum(xmiss),
+        removed <- c(subjects= length(tossid), y= sum(ymiss),
+                     rate=sum(xfirstmiss),
                      id= sum(idmiss))
     }
     else {
@@ -521,7 +523,7 @@ hmm <- function(formula, data, subset, weights,
 
     # Add names
     pname <- outer(rownames(cmap), colnames(cmap), paste, sep='_')
-    names(param) <- pname[cmap!=0]
+    names(param) <- pname[match(unique(cmap[cmap>0]), cmap)]
     compute.time <- rbind(setup= time1-time0,
                           compute= time2- time1)
 

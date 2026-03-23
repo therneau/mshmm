@@ -167,7 +167,6 @@ hmm2 <- function(who,  B) {
     nc <- integer(nmarker)    #number otype==3, so far, per marker
     r2 <- length(rows)
     rmat <- matrix(0., nstate, nstate)
-
     for (jj in seq_along(rows)) {
         j <- rows[jj]
         if (otype[j] ==1) { # interval censored
@@ -199,7 +198,6 @@ hmm2 <- function(who,  B) {
             }
             alpha[k] <- sum(alpha * dtemp)
             alpha[-k] <- 0
-
             if (control$debug > 2) {
                 cat("\n death: alpha=", format(alpha), "\n")
                 # if (nlp[3]) print(pi.d)

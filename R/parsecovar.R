@@ -115,7 +115,7 @@ statepair <- function(lhs, statemap) {
     statewalk <- function(x, nstate) {
         # simple ones first
         if (is.character(x) || (length(x)==1 & is.name(x))) {
-            z <- match(as.character(x), statedata$state)
+            z <- match(as.character(x), statemap$state)
             if (any(is.na(z))) stop("invalid state: ", 
                                     (as.character(x))[is.na(z)])
             else return(z)
