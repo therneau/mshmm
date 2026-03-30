@@ -1,17 +1,17 @@
 # These two functions compute the loglik distribution for a single subject,
-#  hmm1 = without derivatives, hmm2 = with derivative
+#  hmm1 = without derivatives, hmm2 = with derivatives
 # They are called via a chain of hmmfit -> maximizer -> (hmmloglik, hmmgrad, or
 #  hmmboth) ->  (hmm1 or hmm2). The original hmm code defined all the routines
 #  within the hmm function, which allows all the variables to be found by
 #  inheritance (lexical scope), but the final .R file was just too unwieldy.
 #
-# A local copy of this is now made within hmm, which accomplishes the same
-#  thing.  See 'scope' in the code vignette.
+# A local copy of these functions is now made within hmmfit, which accomplishes
+#  the same thing.  See 'scope' in the code vignette.
 #
 # Remember that B is a matrix of coefficients, of the same shape as cmap,
-#  while the vector of coefficients is "param": that's what the maximizer
+#  while the vector of coefficients is "param": the latter is what the maximizer
 #  functions use.  
-# But in my mathematics, the vector of coefs is a Greek beta, so you will see
+# In the math vignette, the vector of coefs is a Greek beta, so you will see
 #  'beta' used a lot in the comments and description.
 #
 hmm1 <- function(who, B) {
@@ -42,7 +42,7 @@ hmm1 <- function(who, B) {
     }
 
     # Compute the collection of matrix exponentials for the subject
-    #  (eventually add a check for upper triangular, all at once)
+    #  Perhaps eventually add a check for upper triangular and pass to survexpm
     r2 <- length(rows)  # there should always be at least 2 rows per id
     if (r2 >1) { # failsafe
         Pmat <- array(0, dim=c(nstate, nstate, r2-1))
@@ -87,12 +87,12 @@ hmm1 <- function(who, B) {
             if (control$debug > 2) cat("A2: j=", j, "alpha=", alpha, "\n")
         }
         else if (otype[j]==3) {  # one or more markers observed
-            temp <- rep(1, nstate)
+            #temp <- rep(1, nstate)
             for (k in 1:nmarker) {
                 if (!is.na(yobs[j,k])) {
                     nc[k] <- nc[k] +1
                     alpha <- alpha* rlist[[k]][,nc[k]]
-                    temp <- temp * rlist[[k]][,nc[k]]
+            #        temp  <- temp * rlist[[k]][,nc[k]]
                 }
             }
             if (!all(is.finite(alpha)) || sum(alpha) <=0) {

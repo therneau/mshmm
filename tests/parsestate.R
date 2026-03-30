@@ -124,7 +124,7 @@ tform <- list(Surv(time, status) ~ age + x1 -1,
               N(0):N(1,2) + N(1):N(2) ~ x3/ init(2),
               A0N0: c('A0N1', "A1N0") ~ x4)
 test1 <- parsecovar1(tform[-1])
-test2 <- parsecovar2(test1, statedata, dform, terms(newform), qmat,
+test2 <- parsecovar2(test1, alias, dform, terms(newform), qmat,
                      Xname, Xassign)
 all(rownames(test2$cmap) == c("(Intercept)", "age", "sex", "x1B", "x1C", "x1D",
                               "x2", "x3", "x4", "icvol"))
@@ -135,7 +135,7 @@ all(rownames(test2$cmap) == c("(Intercept)", "age", "sex", "x1B", "x1C", "x1D",
 errmat <- matrix(1:12/20,6,4, dimnames=list(true=states[1:6], marker= 1:4))
 
 m2 <- list(A(0:1):log(pib) + A(0:1):log(tau) ~ 1/ gaussian,
-           AN(1:4):mark1 ~0 / multinomial(init=errmat))
+           AN(1:4):mark1 ~0 / discrete(init=errmat))
 
 mp1 <- parsemarker1(m2, alias)
 mp2 <- parsemarker2(mp1, alias, terms(newform), Xname, Xassign,

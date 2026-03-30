@@ -530,7 +530,7 @@ hmm <- function(formula, data, subset, weights,
     final <- list(coefficients= param, 
                   loglik = mfit$loglik,
                   time = compute.time,
-                  cmap= cmap, 
+                  cmap= cmap, nlp= nlp,
                   qmatrix = qmatrix,   # the structure and state names
                   n = c(observations =nrow(mf), id =nid)
                   )

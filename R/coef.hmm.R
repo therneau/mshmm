@@ -1,14 +1,18 @@
 # The coefficients/coef and print methods
 
-coef.hmm <- function(object, matrix=FALSE, fixed=TRUE, ...) {
+coef.hmm <- function(object, matrix=FALSE, 
+                     fixed=TRUE, matrix1= matrix, matrix2= matrix, 
+                     matrix3= matrix, ...) {
     cmap <- object$cmap
+    if (missing(matrix)) matrix <- (matrix1 | matrix2 | matrix3)
     if (matrix) {
         B <- coef.to.B(object$coefficients, cmap, fixed=fixed)
         dimnames(B) <- dimnames(cmap)
-        B
+        keep <- rep(c(matrix1, matrix2, matrix3), object$nlp)
+        B[,keep]
     }
     else if (fixed) object$coefficients
-    else object$coefficients[cmap[cmap>0]]
+    else object$coefficients[sort(unique(cmap[cmap>0]))]
 }
 
 # functions to go from B to coef, and coef to B

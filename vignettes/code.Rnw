@@ -259,16 +259,16 @@ The markers formulas can be a bit more complex.
 Here are some valid ones
 \begin{itemize}
   \item \code{A(0:1):log(amyloid) + A(0:1):log(tau) ~1 / gaussian}
-  \item \code{N:pzmemory ~ 1 / gaussian}
-  \item \code{N:pzmemory ~ practice / gaussian(param='mean')/ common}
-  \item \code{state:dx ~1   / multinomial(pattern = pmat)}
+  \item \code{N(0:2):pzmemory ~ 1 / gaussian}
+  \item \code{N(0:2):pzmemory ~ practice / gaussian(param='mean')/ common}
+  \item \code{N(0:2):dx ~1   / multinomial(pattern = pmat)}
 \end{itemize}
 
 I would not recommend putting two markers on one line, but it is allowed
 should someone want to force common paramenters.  I can't think of a use
 case for this, and will likely not mention it in the documentation.
 Having two lines for a marker is necessary for the case above, where we
-want to force the practice effect to be common, but not the means.
+want to force the practice effect to be common, but not the intercept or scale.
 
 The parsemarker1 routine separates out the options (a list with one
 element per formula), the right hand side less the options (most of which
@@ -407,8 +407,9 @@ for any given subject can be written as
 \pi \left[D_a(y_{1a}, t_1)D_b(y_{1b}t_1) D_c(y_{1c}, t_1)\right] \\
  \quad P(t_1,t_2) 
 \left[D_a(y_{2a},t_2) D_b(y_{2b},t_2) D_c(y_{2c},t_2)) \right] \\
-\quad P(t_2,t_3)  \ldots, 
-\left[D_a(y_{na},t_n) D_b(y_{nb},t_n) D_c(y_{nc}, t_n) \right]
+\quad P(t_2,t_3)   
+\left[D_a(y_{na},t_n) D_b(y_{nb},t_n) D_c(y_{nc}, t_n) \right]\\
+\ldots
 \end{align*}
 with $\pi$ the initial distribution over states,
 $P$ an nstate by nstate transition matrix, and $D$ a diagonal response matrix
@@ -427,7 +428,7 @@ For the markers it is useful to think about the compuation piecewise.
     subject. 
   \item The $D$ matrix for a given subject $i$, time $j$ and marker $m$
     has diagonal element
-    $D_{kk} = f(y_{ijm}; \eta_{ijk1}, \eta_{ijk2}, \ldots)$ where $k$ is the state,
+    $D_{kk} = f(y_{ijm}; \eta_{ijk1}, \eta_{ijk2})$ where $k$ is the state,
     $y$ is the observed response for the marker
     and 1, 2, etc are the parameters of the distribution, e.g., mean and std.
   \item Diagonal element $k$ of $D$ is the likelihood of seeing this particular
@@ -447,20 +448,22 @@ matrix map into each, along with cmap.
 Look again at the marker equations:
 \begin{itemize}
   \item \code{A(0:1):log(amyloid) + A(0:1):log(tau) ~ 1 / gaussian}
-  \item \code{N:pzmemory ~ 1/ logisitic}
+  \item \code{N(0:2):pzmemory ~ 1/ logisitic}
   \item \code{N:pzmemory ~ practice / gaussian(param='mean')}
-  \item \code{state:dx ~ 1 / multinomial(pattern = pmat)}
+  \item \code{N(0:2):dx ~ 1 / multinomial(pattern = pmat)}
 \end{itemize}
 
 \begin{itemize}
  \item The first thing is that in an HMM the value of a marker is
    predicted from the state, not vice versa, the ordering N:pzmemory is
-   intentional. Having the mean as the only predictor is common.
+   intentional. Having the intercept as the only predictor is common.
    A(0:1) above says to use the ``A'' column of the statedata data set.
    Subjects in the A0N0, A0N1 and A0N2 states are assumed to share the same 
    mean and std for their amyloid values. 
-   The A=3 row of statedata is the death state; there is no mean or std since
+   The A=2 row of statedata is the death state; there is no mean or std since
    amyloid PET is not performed on a corpse.
+   When we say A(0:1) this is a declaration that amyloid is not relevant for
+   the death state.
  \item The specified distribution will have multiple parameters, the mean
    and std for a Gaussian for example. As in lines 2 and 3 we can specify
    different formulae for the mean and std, mean memory scores are influenced 
@@ -480,9 +483,9 @@ will be 4, with names of ``A0:log(amyoid).mean'', ``A0:log(amyloid).log(std)'',
 The response function will be passed an $m$ by 4 matrix of linear predictors,
 where $m$ is the number of non-missing values of log(amyloid),
 It will return a nstate=7 by $m$ matrix of probabilities, the last (death)
-row of which is 0.  
+row of which is 1.  
 The associated cmap will have 4 columns with nonzero elements in the rows
-rows for the intercept (4 columns) an and practice (2 columns).
+for the intercept (4 columns) and for practice (2 columns).
 
 A multinomial outcome will have labels that are not quite as obvious. Say that
 we have the following pattern matrix.

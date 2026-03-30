@@ -4,10 +4,11 @@
 # Separate out the states, markers, and options.
 #
 # Common formula:  A:log(pib) ~ 1 / gaussian
+# Moderate:     :  A(1:3):log(pib) ~ 1 /gaussian(pattern= cbind(
+#                          mean=1:3, std=c(4,4,4))
 # Harder case: 
-#    N(1:3):pzmemory + N(1:3):pzglobal ~ 1 / gaussian,
-#    N(1:3):pzmemory + N(1:3):pzglobal ~ practice /
-#                     gaussian(param="mean") + common
+#    N(1:3):pzmemory ~ 1 / gaussian,
+#    N(1:3):pzmemory ~ practice / gaussian(param="mean") + common
 # The state predicts the marker, not vise-versa, the order of state:marker
 #  is intentional. 
 # By default each state/marker/parameter of the distribution will be a
@@ -235,7 +236,7 @@ parsemarker2 <- function(parse1, statedata, Terms, Xname, Xassign,
     #  for this use we only want one of them
     # Exception: a marker with ~0 as a formula has no linear predictor
     # it gets created in cmap below, then taken away
-    zeroform <- sapply(parse1$term, function(x) x == ~0)
+    zeroform <- sapply(parse1$mterm, function(x) x == ~0)
     tlabel <- lapply(match(umarker, marker), function(i) {
         if (is.null(rlist[[i]]$pname)) NULL
         else {
@@ -243,7 +244,6 @@ parsemarker2 <- function(parse1, statedata, Terms, Xname, Xassign,
             paste0(tlab[1,],':', marker[i],'.', tlab[2,])
         }
     })
-    browser()
     n.eta <- sapply(tlabel, length)  # number of LP for each marker (umarker)
     lpname <- unlist(tlabel)
     numlp <- length(lpname)

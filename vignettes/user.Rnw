@@ -31,9 +31,9 @@ palette("Okabe-Ito")
 \maketitle
 
 \section{Introduction}
-The two main functions of this package deal with interval censored data
-from a multi-state hazard (MSH) model, where the states are either known
-(\code{cmsh} function) or latent (\code{hmm} function).
+The primary function of this package deals with interval censored data
+from a multi-state hazard (MSH) model, where the states are either known, 
+latent or a mixture thereof, e.g., death is a known state and others are latent. 
 An MSH model with latent states is known as a hidden
 Markov model since the true states are not directly observed, they are
  ``hidden''.  HMM fits have been a primary driver of this work and so will
@@ -41,11 +41,11 @@ be a greater focus in this vignette.
 However, the simpler interval-censored models are both of interest themselves
 and a useful stepping stone in the theory, so will appear first.
 
-We should state at the outset that these two problems are also the target of
+We should state at the outset that these problems are also the target of
 the \code{msm} package, so why create a new one?
 There are currently four primary differences between the two packages.
 \begin{enumerate}
-  \item From a user point of view, cmsh is designed to have similar structure
+  \item From a user point of view, icmsh is designed to have similar structure
     and code to the survival package.  The two packages share a 
     primary author, who (of course) finds this style more natural.
   \item For more complex data, like the dementia example found further below in
@@ -53,11 +53,9 @@ There are currently four primary differences between the two packages.
     not successful at finding the maximum, and very slow when they did succeed.
     Expermentation with more robust approaches, along with a need for these 
     models within our dementia research program, 
-    have been the primary drivers for the cmsh package.  
+    have been the primary drivers for the icmsh package.  
   \item Follow-up summaries of the model, e.g., mean time in state, are more
     fully fleshed out in the msm package.
-  \item Simple interval censored models and HMM models are set out as two
-    separate function in cmsh, the msm::msm function fits both.
 \end{enumerate}
 As a user, 1 and 2 might recommend cmsh, while item 3, a longer history, and 
 a deserved reputation for reliability would recommend msm.  
@@ -68,7 +66,7 @@ with particular data sets; both of which have been a key to the success of this
 endeavor.
 
 \section{Data}
-The cmsh functions use a different shape
+The icmsh functions use a different shape
 of input data than the multistate survfit and coxph functions in the survival
 package.
 The survival functions use data that has been cast into the counting process
@@ -95,19 +93,19 @@ data in timeline form requires two observations per subject:
 the first observation at time 0 will have baseline covariates along with a
 status of alive, with a second
 observation at the time of death or last follow-up will have the status at that
-time point (alive/dead). 
+time point (alive/dead).
 This is different than the traditional way that survival data is coded,
 i.e., a single observation with a time/status variable pair.
 The multistate format for the survival package evolved out of simple survival
 and so retains that instance as a special case, i.e., one line per subject
-for the simple case.
+for the simple cases of alive/dead or competing risks.
 
 This second observation in a timeline dataset will also have many missing 
 values, e.g., blood pressure would not normally be known at death, especially if
 death date is gathered from other sources.
 One consequence is that the usual first step of other modeling functions such
 as \code{lm} or \code{coxph}, i.e., to remove any data row that contains missing
-values, is not taken by the cmsh or hmm functions.  The handling of missings
+values, is not taken by the hmm function.  The handling of missings
 is more nuanced.
 
 \begin{figure}
@@ -126,83 +124,101 @@ ntrue[ntrue<1] <- 0
 \end{figure}
  
 In interval censored multistate data, the subjects may be observed to be in
-some state $S$ at time $t$, with the the time of entry to that state is unknown.
+some state $s$ at time $t$, but the the time of entry to that state is unknown.
 When there is interval censoring, the user will need to create a map of
 the valid transitions, as the underlying code is not able to do so with
 assurance.  For example consider the data for the NAFLD study, found in 
 the survival package.  
 Subjects were retrospectively categorized into one of 4 states at each office
-visit, by the number of metabolic comorbidities (MC) that they had accumulated
-where the MC were diabetes, hyperlipiemia, and hypertension.
+visit, by the number of metabolic comorbidities (MC) that they had accumulated;
+where the three MC of diabetes, hyperlipiemia, and hypertension.
 Figure \ref{fig:nafld1} shows the observed transtions.
 A given subject might have a multi-year gap between two office visits,
 leading to the accumulation of multiple MC in the interim;
 these observed transitions are drawn as dotted lines in Figure \ref{fig:nafld1}.
 The true transition matrix is below, which would be used as input 
-to the fitting function; it has zero for transtions which do not actually
+to the hmm function; it has zero for transtions which do not actually
 occur (biologically).
 
 In this data set the 1MC state is interval censored: for a subject who had
-none of the three conditions at their initial visit
-visit at age 56, and 1 MC observed at a visit 2 years later,
+none of the three conditions at their initial visit at age 56, say,
+and 1 MC observed at a visit 2 years later,
 we do not know exactly when the condition arose in that interval.
 For almost all interval censored data sets there is at least one state which
-is not interval censored, i.e., death.  Such states are specified by the
-\code{exact} argument to the hmm call.
+is not interval censored, i.e., death.  
 
 Contrast this to simpler multi-state hazard (MSH) model as fit by coxph, where
 the recorded times are taken to be the actual transtion times.
-Censoring marks another difference between the two models. In a MSH model
-fit by coxph, a status of censored means ``no transition was observed at this
-time''. With respect to the likelihood and predicted curves, a subject is
-assummed to still occupy the state of their most recent transtion, e.g.,
-1MC at 3 years and censored at 10 implies 1MC at 10.
+Censoring marks another difference between the two models.
+With respect to the likelihood and predicted curves, in the MSH model fit
+by coxph a subject is assummed to still occupy the state of their most recent 
+transtion until proven otherwise, e.g., observation of 
+1MC at 3 years and censored at 10 implies 1MC at 10: there is an implicit
+assumption that all transitions are observed over the time interval.
 In an interval censored MSH, censoring means only ``not dead at this time''.
 A subject who is 1MC at year 3 and censored at 10 could be in any of the
 1MC, 2MC, or 3MC states at that later time.
 
-More formally, the code treats censored as ``not in any state which is both
-exact and absorbing''.  The first of these is taken from the \code{exact} 
-argument, the latter is inferred from the transition matrix.
+Formally, the HMM code treats censored as ``not in any state which is both
+exact and absorbing''. 
+An exact state is one for which the time of entry to the state is known
+precisely, i.e., not interval censored, the list of exact states is 
+provided by the \code{exact} argument; death is the most common example.
+Absorbing states can be inferred from the transitions matrix.
 It is possible to an exact state which is not absorbing, an example is the
 surgical resection state in Crohn's disease \cite{Therneau2000}. 
 
 \section{Interval censored data}
 \subsection{Colon cancer trial}
 The \code{colon} data set in the survival package contains the results of
-a trial of three treatments for state B/C colon cancer.
+a trial of three treatments for stage B/C colon cancer.
 This is a simple 3 state model of entry, progression, and death.
 The data set is organized with 2 rows per subject, the first containing the
 progression outcome and the second the death outcome.
+As a first step, however, we need to decide what to do with the 5 subjects
+for which progression and death were recorded to have occured on the same day.
+To resolve the conflict we will shift those progressions one day earlier.
+(One could argue that the hmm routine itself should be smart enough to deal
+with an interval's endpoint at the exact time of death, but it isn't.)
+Also beware the two for whom progression is the last follow-up time, so as not
+to add a superfluous ``censoring'' row at the same date.
 
 <<colon1>>=
+temp1 <- subset(colon, etype==1) # progression
+temp2 <- subset(colon, etype==2) # death
+ties <- (temp1$time==temp2$time & temp1$status==1 & temp2$status==1)
+temp1$time[ties] <- temp1$time[ties] -1 
+
 # Only a few have with only progression, even fewer death before progression
 with(colon, table(prog= status[etype==1], death= status[etype==2]))
 
 # Make the timeline data set, we will use only a few predictors
-#  The baseline data can use either etype=1 or 2, covariates are the same
-baseline <- subset(colon, etype==1, c(id, rx, sex, age, node4, extent))
+#  The baseline data can use the row for either etype=1 or 2: the covariates 
+#  are the identical
+baseline <- subset(temp1, , c(id, rx, sex, age, node4, extent))
 baseline$time   <- 0
-baseline$status <- 0
-temp1 <- subset(colon, etype==1 & status==1, c(id, time, status))
-temp2 <- subset(colon, etype==2, c(id, time, status))
-temp2$status <- temp2$status + 2
-temp3 <- merge(baseline, temp1, all=TRUE)
-cdata <- merge(temp3, temp2, all=TRUE)
-cdata$status <- factor(cdata$status, c(2,0,1,3), 
+baseline$status <- -1
+prog <- subset(temp1, status==1, c(id, time, status)) # progression
+dfu  <- subset(temp2, temp1$status==0 | time > temp1$time, 
+               c(id, time, status)) # death or last fu
+dfu$status <- dfu$status *2  # recode as 0/2
+temp3 <- merge(baseline, prog, all=TRUE)
+cdata <- merge(temp3, dfu, all=TRUE)
+cdata$status <- factor(cdata$status, c(0, -1, 1, 2), 
                        c("censor", "stable", "progression", "death"))
 subset(cdata, id<4)
 @
 
 Subject 1 has both progression and death, subject 2
 is censored without progression at 3087 days.
+
 One of the necessary conditions for a valid model, per underlying counting
 process theory, is the concept of a predictable process.
 In essense, an outcome observed at time $t$ cannot depend on any predictors
 measured at or after time $t$. 
 The hmm function enforces this: any observed outcome on a given line of data is
 predicted using information from prior rows of data.
-One consequence is that prediction covariantes on the final row for a subject 
+One consequence is that prediction covariates on the final row for a subject 
 have no impact. 
 A second action within hmm is to use the most recently observed value for
 any predictor; it is not necessary to fill in the values for treatment, age at
@@ -214,23 +230,20 @@ should be propogated across all rows.
 The hmm function is happy with either, and more capable data set creation tools
 than the basic R merge used above may well fill these in. 
 
-For comparison, also create a timeline data set, and use it to create the
-multi-state cumulative hazard and probability in state (survival) curves.
+As a first look at the data look at the transition matrix.
+Then compute the probability in state and cumulative
+hazard curves. The survival routines can accept timeline data via
+the \code{Surv2} operator.
 
-<<coloncount>>=
-cdata2 <- tmerge(subset(cdata, !duplicated(id), -c(time, status)), 
-                 subset(cdata, !duplicated(id, fromLast=TRUE)), id=id,
-                 death = event(time, status=="death"),
-                 options=list(tstartname="time1", tstopname="time2"))
-cdata2 <- tmerge(cdata2, cdata, id=id, cstate= tdc(time, status),
-                 state= event(time, status))
-subset(cdata2, id <4, -death)
-survcheck(Surv(time1, time2, state) ~1, cdata2, id=id, istate=cstate)
+<<coloncount>>
+i1 <- duplicated(cdata$id, fromLast=TRUE)   # all but last obs
+i2 <- duplicated(cdata$id)                  # all but first obs
+with(cdata, table(from=status[i1], to=status[i2]))[-1,]
 
-aj1 <- survfit(Surv(time1, time2, state) ~ 1, cdata2, id=id, istate=cstate)
+aj1 <- survfit(Surv2(time, status) ~ 1, cdata, id=id)
 plot(aj1, col=1:3, xscale=365, lwd=2,
-     xlab="Years post randomization", ylab="Probability in state")
-legend(200, .54, c("Entry", "Progression", "Death"), lty=1, lwd=2, col=1:3,
+     xlab="Years post randomization", ylab="Current state")
+legend(400, .54, c("Entry", "Progression", "Death"), lty=1, lwd=2, col=1:3,
        bty='n')
 plot(aj1, cumhaz=TRUE, col=1:3, xscale=365, lwd=2,  
      xlab="Years post randomization", ylab= "Cumulative Hazard")
@@ -238,11 +251,15 @@ legend(1500, 2, c("Entry:Progression", "Entry:Death", "Progression:Death"),
        col=1:3, lwd=2, lty=1, bty='n')
 @ 
 
+In this study about 46\% finished observation still in the stable state, both
+death and progression was observed for 45\%.  Only a small number died without]
+progression or were still in the progression state at follow-up.
 The cumulative hazards at 8 years are about .7, .1 and 4 for the transition
 rates of entry to progression, entry to death and progression to death,
 which provide reasonable starting estimates for the baseline hazards of the
 interval censored fit. 
-Using years as the time scale will give more interpretable coefficients. 
+Using years as the time scale will give more interpretable coefficients, so we
+add that variable.
 
 <<colon2>>=
 # create the transition matrix
@@ -255,8 +272,8 @@ statefig(1:2, ctrans)  # visual check that it is correct
 
 A transition matrix is necessary for the fit: possible transitions
 are marked by 1 and invalid transitions by 0.
-The code actually allows any positive value, since the statefig routine
-uses non-integer values between 0 and 2 for drawing curved connections.
+(The code actually allows any positive value, since the statefig routine
+uses non-integer values between 0 and 2 for drawing curved connections.)
 
 <<colon2b>>=
 # Crude transitions, as a starting estimate
@@ -269,20 +286,52 @@ cfit0
 @
 
 The solution is not at all what we expected: it shows a transition rate from
-entry to progression of exp(3.97) = 53, a median time to progression of
-about log(2)/53 years or 5 days. 
+entry to progression of exp(3.97) = 53, which corresponds to a median time 
+to progression of log(2)/53 years or 5 days. 
 The issue is that we have no intermediate values in the data: there are no
 obserations of ``stable'' after entry, and so the best MLE estimate is to assume
-that subjects switch immediately to the progression state, we just don't 
-notice it for a while. 
+that subjects switch immediately to the progression state.
+The code iterates until the first progression, at 8 days, 
+has a large estimated Pr(progression).  The actual MLE is
+$\beta= \infty$, but the loglik doesn't change very much for higher rates;
+the figure below shows the profile likelihood, fixing the other two rates.
+
+<<highrate>>=
+beta <- matrix(0, nrow=51, ncol=3)
+beta[,1] <- seq(-1, 5, length=51)
+beta[,2] <- coef(cfit0)[2]
+beta[,3] <- coef(cfit0)[3]
+loglik <- double(51)
+for (i in 1:51) {
+    tfit <-  hmm(Surv(year, status) ~ 1, id=id,  init=beta[i,],
+             qmatrix= ctrans, exact="death", data= cdata, iter=0)
+    loglik[i] <- tfit$loglik
+}
+plot(beta[,1], loglik, type='l', xlab="Coefficient 1", ylab="loglik")
+abline(h=max(loglik) +2, lty=3)
+@ 
+
 Per reference 1 in the help file for the data, patients were
 assessed for progression every 8 weeks for the first year, every 4 months for
 the second year, and every 6 months for years 3 to 5.  To properly analyse
-this data using interval censored methods we need to add these intermediate 
-visits to the study data.
+this data using interval censored methods data rows for each of these 
+intermediate visits should be included in the study data, but this data is
+not available to us.
+An interesting exercise is to add psuedo observations that match
+the visit schedule, and observe how the estimate behaves. 
 
-An interesting exercise is to add psuedo observations that more or less match
-the visit schedule, and observe how the estimate behaves.
+\begin{itemize}
+  \item Not yet filled in (volunteers?).  Based in the cumulative hazard plot
+    the years on study effect may need to be nonlinear.
+  \item Compare results and curves to a multistate Cox for the same data
+  \item My expectation is almost no change in hazard ratio coefficients,
+    and the time to treatment failure estimate shifted 1-2 months earlier.
+  \item Message: when visits are at regular intervals, there is not a great
+    deal of clinical difference 
+    between the two endpoints of ``time to observed progression'' 
+    and ``time to biological progression'', and the analysis reflects that.
+\end{itemize}    
+
 
 \subsection{CAV example}
 Data from a study that monitors the progression of coronary allograft
@@ -314,15 +363,13 @@ with(cav2, table(from= cstate[duplicated(ptnum, fromLast=TRUE)],
 table(table(cav2$ptnum)) # number with 1, 2, 3, ... visits
 @
 
-For cmsh we use a standard multi-state Surv(time, state) form of the survival
+We use a standard multi-state Surv(time, state) form of the survival
 package, where the state variable is a factor such that
-the first level of the factor represents censoring.  The state labels are
-arbitrary.
+the first level of the factor represents censoring.
 This data is unusual in that there are no censored observations, each interval
 ends in one of the 4 states.
-The 622 subjects have betwen 2 and 15 assessments, 
-less than 1/2 have more than 4.
-The transitions table shows the count of observed transtition pairs, a 
+The 622 subjects have betwen 2 15 assessments, 27\% with 2 and 21\% with 3.
+The transitions table above shows the count of observed transtition pairs, a 
 subject with 5 visits will contribute 4 counts to the table.
 Remaining in the no CAV state accounts for the largest number of visit
 pairs. As should be the case, there are no transitions from death to another
@@ -345,8 +392,6 @@ hist(interval[igroup==1], nclass=30, main=NULL,
 For interval censored data we need to specifiy the set of
 valid transitions $Q$.  This is a matrix of 0/1 values, which can
 also be used by the statefig routine. 
-(Positive values other than 1 are allowed, since they are used to draw curved
-lines in statefig.)
 The row/column names of the transition matrix are the names of the states,
 levels in the Surv object need to match these.
 <<cavstates>>=
@@ -365,7 +410,7 @@ are enumerated in the \code{exact} argument.
 Death is the most common exact state.   
 (One can also have multiple exact states, one of the more common examples 
 is cause of death, e.g., states of `death due to cancer' and `other death'
-have been separated by the user.)
+had been separated by the user.)
 The status variable in the Surv call will be a factor with censored as the
 first level, followed by the states, in the same order as the $Q$ matrix.
 Now add covariates.
@@ -400,15 +445,16 @@ Later formulas update the formula(s) for specified transtions
   \item line 3 of cfit2 makes the sex coefficients for the two reverse 
     transitions identical
   \item 0:death stands for any state to death. Transitions marked as 0 in
-    qmatrix are ignored, i.e., the death:death transtion
+    qmatrix are ignored whenever exanding a shorthand like this, i.e., 
+    a death:death transtion
 \end{itemize}
 
 \subsection{NAFLD example}
  Metabolic dysfunction-associated fatty liver disease (previously known as
-NAFLD) is characterized by fat accumulation in the liver that is linked to 
+NAFLD) is characterized by fat accumulation in the liver, and is linked to 
 metabolic dysfunction, such as obesity, type 2 diabetes, or other signs of 
 metabolic dysregulation. 
-The \code{nafld1}, \code{nafld2} and \code{nafld3} data sets containing
+The \code{nafld1}, \code{nafld2} and \code{nafld3} data sets contain
 baseline, repeated laboratory, and outcome data, respectively from a 2018 
 study by Allen.
 
@@ -463,7 +509,10 @@ tstate <- with(ndata, ifelse(!is.na(status) & status==1, 5,
 ndata$state <- factor(tstate, c(4,0:3, 5),
                       c("censor", "0MC", "1MC", "2MC", "3MC", "death"))
 
+# table of first visit
 with(ndata, table(state[!duplicated(id)]))
+
+# table of transitions
 with(ndata, table(from= state[duplicated(id, fromLast=TRUE)],
                    to = state[duplicated(id)]))
 @ 
@@ -498,57 +547,124 @@ nfit <- hmm(Surv(days, state) ~ age + male + nafld, data= ndata,
 @ 
 
 
-\subsection{Theory}
-A big difference in the two models is how the likelihood is constructed.
-The semiparametric MSH (coxph) is a model for the transitions from state to
-state which the interval censored (hmm) approach is a model for a subject's
-current state.
-The semiparametric model assumes that we see all of the transitions, uses the
-transitions and their timings, via risk sets, to construct estimated rates.
-These can then be used, at the very end, to
+\section{Theory, pass 1}
+A big difference between coxph and hmm is how the likelihood is constructed.
+The semiparametric MSH (coxph) is a model for observed \emph{transitions}, 
+while the interval censored (hmm) approach is a model for observed
+\emph{state}.
+The semiparametric model assumes that we see all of the transitions, up to
+the point they are censored.  It uses those transition and their timings,
+via risk sets, to construct estimated rates. 
+These rates can the be used to compte probability in state curves $p(t)$.
 
+Let $R(t)$ be the multistate rate matrix at time $t$.
+Off diagonal element $R_{ij}(t;x) = \hat\lambda{ij}(t;z)$ is the estimated 
+transition rate between state $i$ and state $j$, at time $t$, for a subject
+with covariate vector $x$.  
+To normalize $R$ set its diagonal element such that row sums are 0. 
+(This is just what has to be done to use the matrix exponential, no serious
+theory is involved wrt this normalization step.)
+If we assume a set of time points 
+$t_0, t_1, t_2, ...$ such that the transition rates are constant over each
+interval $t_i \le t < t_{i+1}$ the the probability in estimate satisfies
+\begin{equation}
+ p(t_i; x) &= p(t_0) e^{(t_1-t_0)R(t_0;x)} e^{(t_2-t_1)R(t_1;x)} \ldots 
+ e^{(t_i-t_{i-1})R(t_{i-1};x)} \label{simplehmm}
+\end{equation}
+where $p(t)$ is a vector with one element per state, $p_k(t)$ the probability of
+being in state $k$, and $p(t_0)$ is the probability vector for the starting
+state, normally all zeros with a single ``1'' corresponding to the starting 
+state.
+The exponential of a matrix, e.g. $\exp(R)$, is dealt with at length in the
+mathematics vignette. Suffice it to say that compuation of this quantity, and
+of its derivative, is more complex than the exponential of a single value
+\cite{Moler78, Moler03, Mohey09}.
 
-Two primary differences between the MSH partial likelihood of \code{coxph} and
-the full likelihood of \code{hmm} is that first, the baseline hazard for 
-the latter is parametric, often a spline function of time. 
-The above models assumed a constant hazard and the fits include an intercept.
-A second difference is that the
-log-likelihood is a sum over subjects, each subject's term can be computed
-independently. 
+In the semiparametric MSH first the parameter estimates $\hat\beta$ are 
+computed based on a partial likelihood, predictions $p(t;z)$ for any chosen
+covariate vector $z$ are computed at the very end.
+In the interval censored MSH $p(t)$ is computed during maximization, that is,
+for each trial solution of $\hat\beta$
+\begin{enumerate}
+  \item Compute the predicted curve $p(t;x_i)$ for each subject $i$
+  \item Compare the prediction to the observed state for subject $i$, at each
+    observation time $t_{ij}$ for that subject.
+  \item Use this to compute an updated $\hat\beta$.
+\end{enumerate}
 
-Let $X^*$ and $Y^*$ be the portions of the $X$ matrix and survival outcome $Y$
-corresponding to some particular subject, with $t_1, t_2, ...,t_k$ the time
-points for this subject. Let $B$ be the martix of coeffients, one column for
-each transtion, and $\eta^* = X^* B$ the matrix of linear predictors, a row for
-each time and a column for each transtion.
-$H(t)$, the hazard matrix, will have elements of $\exp(\eta)$ for each
-possible transition (non-zero element of qmatrix).
-Like a Cox model, using exp guarrantees that rates are non-negative.
-$H$ has the same pattern of zero and non-zero elements as $Q$.
-Finally, set the diagonal elements of $H$ such that each row of $H$ sums to 0,
-then the nstate by nstate probability transtion matrix $P(s,t)$ from some 
-observation time $s$ until the next observation time $t$ is the matrix
-exponential $\exp[(t-s)H]$. 
-The matrix exponential is computationally expensive, so the routine computes
-the likelihood for multiple subjects in parallel for better speed
-(using the R parallel library of course).
-Further details of the likelihood and derivatives are found in the mathematics
-vignette, and further compute details in the compute vignette.
+The computation of a likelihood in hmm is a sum over subjects, and each subject
+can be computed independently.
+The algorithm for the likelihood of each subjects alternates two steps.  
+First step forward to
+a new time point using the matrix exponential as in equation \eqref{simplehmm}.
+When a subject is observed, restrict their $p(t)$ by setting to 0 all of the
+``states where they ain't'', i.e., all elements of $p$ except the observed state.
+The mathematics vignette has more formal details.
 
+\section{Partially observed states}
+\begin{figure}
+<<mcsa1, echo=FALSE>>=
+mstate <- c("CU", "MCI", "dementia", "death")
+mmat <- matrix(0, 4, 4, dimnames=list(mstate, mstate))
+mmat[1,2] <- mmat[2,3] <- 1
+mmat[1:3,4] <- 1
+statefig(rbind(3,1), mmat)
+@  
+ \caption{State space model for the dementia data.}
+ \label{mcsastate}
+\end{figure}
 
-The \code{hmm} function, the central function of this package, can deal
-with multi-state models which have any mixture of three types of states:
-latent, interval censored, and exact.
-Exact states are those where the entry to the state is known exactly, both
-the state and the time. The death state is the most common example. Death is
-never mistaken for another state, and the time of death is known.
-If all states are exact, then the hmm fit will be very similar to a
-multi-state hazards fit using survival::coxph,
-but with a parametric rather than non-parametric baseline hazard.
-Though such a model could be fit, it is not the target of the cmsh
-pacakge. (An hmm fit is likely to much slower, as well.)
-Interval censored states are also not the primary focus of the function, but
-will be illustrated in examples.
+The simplest extension of the simple interval censored model, and the simplest
+hidden Markov model, involves a partially observed state.
+An example appears in the Mayo Clinic Study of Aging, a blinded subset of which
+is present in the \code{dementia} data set.
+Per protocol, enrolled subjects have return visits every 15 months, at each
+visit they are diagnosed as being the cognitively unimpaired (CU), mild
+cognitive impairment (MCI), or dementia state, leading to the multi-state
+model shown in figure \ref{mcsastate}.
+
+Subjects who have not returned in 36 months or more are flagged for a record
+review and their medical history is retrieved. (Due to the resources of the
+Rochester Epidemiolgy Project, we have access to the medical records of all
+participants in the county, across all providers of care.) 
+From that review a status, at their most recent physician visit, 
+of demented vs non-demented (ND) can be ascertained, 
+but CU versus MCI cannot be distinguished.
+Study visits include additional cognitive testing, which will not have been
+part of a standard office visit.
+
+The modification of the likelihood is simple.  At such a visit, if the
+diagnosis is ``dementia'', then all elements of $p(t)$ for that subject, except
+state 3 (dementia) are set to 0.  For a non-demented diagnosis, elements 3
+and 4 (dementia and death) are set to 0, the other two are unchanged.
+We treat the off study diagnosis as a \emph{marker}, the HMM models
+label for an imperfect assessment of the underlying state.
+(Another common term is an emission distribution).
+The hmm fit will have three distinct outcome variables: death, observed state
+at a study visit, and partial state at an ordinary office visit. 
+
+<<dement1>>=
+states <- c("CU", "MCI", "dementia", "death")
+dqmat <- matrix(0, 4, 4, dimnames=list(from= states, to=states))
+dqmat[1,2] <- dqmat[2,3] <- 1
+dqmat[1:3, 4] <- 1
+dqmat
+# statefig(rbind(3,1), dqmat)  # generate the state figure
+
+table2 <- function(...) table(..., useNA= "ifany")  # show NA in tables
+with(dementia, table2(studydx, visitdx, last= !duplicated(ptnum, fromLast=TRUE)))
+
+vmiss <- cbind(c(1,1,0,0), c(0,0,1,0))
+dimnames(vmiss) <- list(state= states, visit=c("ND", "dementia"))
+
+ddat <- dementia
+temp <- with(ddata, ifelse(death==1, 4, as.numeric(studydx)))
+ddata$state <- factor(temp
+
+dfit1 <- hmm(Surv(age, death) ~ apoepos + male, qmatrix= dqmat,
+             data= dementia, id = ptnum,
+             marker= list(state:visitdx
+@ 
 
 \section{What is a hidden Markov model (HMM)?}
 The answer to this is that HMM is a general technique, and we see the

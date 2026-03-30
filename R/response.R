@@ -4,22 +4,30 @@
 # The parsemarker2 routine will create a call of
 #           gaussian(stateinfo, ...) where 'gaussian' is the function below that
 #              sets and returns a gaussian response function + other info
-# likewise  multinomial(statepattern, nclass, pattern)
+# likewise  multinomial(stateinfo, nclass, pattern)
 #
 # hmm.dist is used by parsemarker to check for legal names
-hmm.dist <- c("gaussian", "logistic", "beta", "multinomial", "noerror")
+hmm.dist <- c("gaussian", "logistic", "beta", "discrete")
 
-# The stateinfo has name and level information that is use to create labels
-#  for the linear predictors, plus an index matching gaussian densities to
-#  states, the static argument is used to indicate no linear predictors.
-#  the markerlevel argument is used by categorical methods, init by 
-#   the multinomial dist, and the param option for return information.
+# stateinfo: name and level information that is used to create labels
+#  for the linear predictors, and to match linear predictors to states.
+#  A list with one element per marker, with elements of
+#    name: used for creating a label
+#    levels= a vector of labels, e.g. if of length 2 there would be 2 gaussian
+#       densities
+#    index: a vector of length nstate with values of 1,2, ... which density
+#       goes to each state; 0= no density
+# static:  used to indicate no linear predictors.
+# mlevel: factor levels, if the marker was a factor, otherwise NULL
+# param: optional params, eg."mean" or "std", not present= both
 #
 # return a list with 
 #   rfun: the response function
 #   pname: labels for the parameters
 #   subset: which subset are referred to by the param argument
-gaussian <- function(stateinfo, markerlevel, param, ...) {
+gaussian <- function(stateinfo, levels, param, ...) {
+    if (length(levels) >0) 
+        stop("a factor variable cannot be a guassian marker")
     npeak <- length(stateinfo$levels)
     pname <- makedistlabels(stateinfo, c("mean", "std"))
     if (missing(param)) subset= 1:ncol(pname)
@@ -84,7 +92,9 @@ makedistlabels <- function(stateinfo, parms) {
 }
 
 # logistic, a bit fatter tails
-logistic <- function(stateinfo, markerlevel, param) {
+logistic <- function(stateinfo, levels, param, ...) {
+    if (length(levels) >0)
+        stop("factor variable cannot be a logistic marker")
     npeak <- length(stateinfo$levels)
     pname <- makedistlabels(stateinfo, c("mean", "std"))
     if (missing(param)) subset= 1:ncol(pname)
@@ -224,103 +234,157 @@ mlogit <- function(eta, gradient=FALSE) {
     }
     pi
 }
-# mulinomial distribution
-#  Say the the marker has 5 levels and there were k states, for each
-#  state there will 4 parameters to create the 5 probabilities of p=
-#  (1, exp(eta2), exp(eta3), exp(eta4), exp(eta5)) / (1 + exp(eta2) + ...eta5))
-# wlog eta1 is taken to be 0, leading to 4k linear predictors eta.
-# The derivatives turn out to have the same form as a multinomial variance:
-#  d p_i/d eta_i = p_i(1-p_i) and d p_i/ d eta_j = -p_ip_j; which is easy to
-#  remember. See the code vignette for more explanation. 
-# If the marker had 5 categories, the evaluation routine needs to report back
-#  pr(observed marker value, given state), i.e., a single probability p for 
-#  each state, for that observation (nstate by n.obs matrix), along with the 4
-#  derivatives of that value wrt the 4 eta values (nstate by n.obs by 4).
-#  The other p_i are just a tool to compute that set of 4 derivative values: 
-#    there is no variance matrix.
 # 
-# For more complex cases the user can supply a pattern matrix with one row
-#  per state and one col per value of the marker. A zero value in the matrix
-#  indicates that that state/marker pairing will not occur; there is no need
-#  to waste linear predictors for that eventuality. If there were m=5 marker
-#  values but one of them can not occur when the true state is 'A', there will
-#  be 3 eta vectors, not 4, for A.
-# Other values in the matrix determine the mapping, i.e., the smallest 
-#  non-zero value in a row identifies the reference category, the order of the
-#  remaining matrix values determine the mapping of eta to state/prob. 
-##  
-multinomial <- function(stateinfo, levels, init, static) {
+#  The rfun for discrete has the usual y and eta arguments, along with a
+# matrix etamap. The response y is a factor, each level maps to a column
+# of etamap, rows of etamap correspond to states, and elements of etamap index
+# to the linear predictors.  The details of this corresondence are controled
+# by a pattern argument.  If there are no linear predictors and instead
+# an init matrix, that is used directly: a row per state, col per response.
+#  This function sets this all up and creates rfun
+#
+discrete <- function(stateinfo, mlevel, init, pattern, static) {
+    ngroup <- length(stateinfo$levels)  #number of calls to hmmlogit, later
     nstate <- length(stateinfo$index)
-    if (is.null(levels)) 
-        stop("marker must be a factor for multinomial distribution")
-    nlevel <- length(levels)
-    ngroup <- max(stateinfo$index)  #number of predicted phat vectors
-    nstate <- length(stateinfo$index)
-
-    errmat <- matrix(0, nrow=nstate, ncol= 
-    if (static) {
-        # Call with a fixed matrix, no parameters
-        if (missing(init)) 
-            stop("a formula of ~0 requires an missclass matrix as `init`")
-        
-
-    if (missing(init)) {
-        if (static) error("a formula of ~0 requires an error matrix as init")
-        # the compute function gets two lists with one elment per state
-        #  eindex = which columns of eta for this state
-        #    our default is to use 1,2,..., k-1 for state 1, k, ... for 
-        #    state 2, etc where k is the number of levels for the marker
-        #  mindex = non-zero responses
-        n.eta <- nstate * (nlevel-1)
-        eindex <- split(1:n.eta, rep(1:nstate, each=nlevel-1))
-        mindex <- lapply(1:nstate, function(x) 1:nlevel)
-        nparm <- nstate
-        
-    }
-    else {
-        if (!is.matrix(init) || nrow(init) != ngroup ||
-            ncol(init) != nlevel)
-        stop("init must be a matrix with one row per group of states",
-             " and one column per level of the marker")
-        if (any(is.na(init))) stop("missing value in init matrix")
-
-        nphat <- apply(init!=0, 1, sum)  # number of probabilities per row
-        if (any(nphat ==0)) stop("init matrix has a zero row")
-        n.eta  <- sum(nphat -1) # total number of linear predictors
-    }
-
-    p2 <- init # modify this into "standard" form
-    ref <- apply(init, 1, function(x) min(which(x!=0)))
-    p2[cbind(1:ngroup, ref)] <- -1
-    index <- which(p2>0)
-    p2[index] <- rank(p2[index], ties="first")
-    # make pname
-
-    if (static) {
-        # there are no linear predictors, eta will be null, no gradient
-        if (any(init <0 | init>1)) 
-            stop("misclassification matrix elements must be between 0 and 1")
-        isum <- rowSums(init) # make rows sum to 1
-        if (any(isum==0)) 
-            stop("rows of an misclassification matrix must sum to 1")
-        init <- init %*% diag(1/isum)
-        rfun <- function(y, missclass= init) missclass[,y]
-        checkfun <- function(y) all(y== floor(y) & y>0 & y<ncol(init))
-        rval <- list(name="multinomial", rfun=rfun, pname=NULL,
-                     subset=NULL, check = checkfun)
-        return(rval)
-    }
+    if (length(mlevel) ==0)
+        stop("a discrete marker must be a factor")
+    nlevel <- length(mlevel)
     
-    rfun <- function(y, eta, gradient=FALSE,  npeak, map) {
-        # y a vector of m values, m= number of measurements of this biomarker
-        # eta = matrix of values, m rows by (2*npeak) columns of log(shape1),
-        #    log(shape2) for first peak, then second, ...
-        # map= a map of peak to state
-        # value: nstate rows by m columns, row j= f(y| state=j) 
-        #
+    if (!missing(pattern)) {
+        # check for a valid pattern matrix
+        if (!is.matrix(pattern))
+            stop("pattern argument must be a matrix")
+        if (ncol(pattern) != nlevel)
+            stop("pattern matrix's columns must match marker variable")
+        if (!is.null(colnames(pattern))) {
+            k <- match(colnames(pattern), mlevel)
+            if (any(is.na(k)) || any(duplicated(k)))
+                stop("pattern matrix's columns must match marker variable")
+            pattern <- pattern[,k]
+        }  # cols are now in the order of the marker variable (factor)
+        if (nrow(pattern) != ngroup)
+            stop("pattern should have one row per ", stateinfo$sname, " level")
+        if (!is.null(rownames(pattern))) {
+            k <- match(rownames(pattern), stateinfo$levels)
+            if (any(is.na(k)) || any(duplicated(k)))
+                stop("rows of pattern should match levels of", stateinfo$sname)
+        }
+        if (any(pattern) != floor(pattern) | any(pattern < 0))
+            stop("a pattern matrix for discrete must be integers >=0")
+        n.prob <- apply(pattern, 1, function(x) length(unique(x[x>0])))
+        # each row has to sum to 1, so there fewer linear predictors than probs
+
+        # Create the emap matrix. There will be one vector of probabilities,
+        #  which sum to 1, for postive value of statefig$index.
+        # emap: ngroup rows and nlevel columns (same as pattern)
+        #  if emap[i,j]= k, then eta[,k] is used for index 1 and mlevel j. 
+        # Multiple emap elements can be associated with the same linear 
+        #  predictor k. 
+        emap <- matrix(0L, ngroup, nlevel)
+        # any coefficients shared across rows? (other than 0)
+        # first, make the values be 0,1,2,.. with no gaps
+        # The user will often assign numbers by row, use unique rather than
+        #  sort(unique( to keep things in the same order
+        emap[,] <- match(pattern, unique(c(0L, pattern))) -1L
+        maxp <- max(emap) # total number of unique phat values
+        nz <- (emap >0)
+        pcount <- table(row(emap)[nz], emap[nz])
+        across.row <- (colSums(pcount>0) > 1)
+        if (any(across.row)) emap[,across.row] <- emap[,across.row] + maxp
+        # by default, choose the smallest non-shared index in each row as the
+        #  reference value, but avoid those that are shared across rows
+        for (i in 1:nrow(emap)) {
+            j <- min(emap[i, nz[i,]])
+            reference <- (emap[i,] ==j)  # reference cell(s) for this row
+            emap[i,reference] <- -1    # special code for reference cells
+        }
+        uval <- unique(emap[emap>0]) # not counting reference cells
+        emap[emap>0] <- match(emap[emap>0], uval) # re-number
+        dimnames(emap) <- list(paste0(stateinfo$sname, stateinfo$levels),
+                               marker=mlevel)
+        # why match rather than emap>0?  I don't want duplicates
+        pname <- outer(rownames(emap), colnames(emap),sep='_')[match(uval, emap)]
+    } else if (!static) {
+        # Assume the fully parameterized missclassification matrix
+        uval <- seq.int(1, ngroup *(nlevel-1))
+        temp <- matrix(uval, nrow=ngroup, byrow=TRUE)
+        emap <- cbind(-1, temp) # first state is reference group
+        dimnames(emap) <- list(paste0(stateinfo$sname, stateinfo$levels),
+                               marker=mlevel)
+        pname <- outer(rownames(emap), colnames(emap),sep='_')[match(uval, emap)]
+    }  
+
+    if (!missing(init)) {
+        # check for a valid init matrix
+        if (!is.matrix(init))
+            stop("init must be a missclassification matrix")
+        if (ncol(init) != nlevel)
+            stop("init matrix's columns must match marker variable")
+        if (!is.null(colnames(init))) {
+            k <- match(colnames(init), mlevel)
+            if (any(is.na(k)) || any(duplicated(k)))
+                stop("init matrix's columns must match marker variable")
+            init <- init[,k]
+        }  # cols are now in the order of the marker variable (factor)
+        if (nrow(init) != ngroup)
+            stop("init should have one row per ", stateinfo$sname, " level")
+        if (!is.null(rownames(init))) {
+            k <- match(rownames(init), stateinfo$levels)
+            if (any(is.na(k)) || any(duplicated(k)))
+                stop("rows of init should match levels of", stateinfo$sname)
+        }
+        if (!all(rowSums(init) ==1))
+            stop("row sums of init matrix must be 1")
+    }
+
+    if (static) { # no parameters
+        if (missing(init)) stop("init argument is needed discrete")
+        # expand rows to one per state
+        missmat <- matrix(1, nrow=nstate, ncol= nlevel)
+        j <- stateinfo$index
+        missmat[j>0,] <- init[j,]
+        colnames(missmat) <- mlevel
+        rfun <- function(y, missclass= missmat, deriv=FALSE) missclass[,y]
+        return(list(name="discrete", rfun=rfun, pname=NULL))
+    }
+        
+    # Remainder is the more common non-static case
+    if (!missing(init)) 
+        warning("init option not yet available for pattern matrix")
+    # There is not necessarily a set of eta values that will exactly
+    #  produce a user's desired initial probabilities, so implementation
+    #  will require a non-linear maximization.  The result would
+    #  be passed back and used as the initial intercept parameters.
+          
+    rfun <- function(y, eta, gradient=FALSE, emap=emap, index=stateinfo$index) {
+        # y = a factor, , m= number of measurements of this biomarker
+        # eta = matrix of values: m rows, one column per linear predictor
+        # emap = map from lp to errors, -1= reference cell
+        ny <- length(y)
+        if (is.factor(y)) y <- as.integer(y)  # might already have been converted
+        if (!is.matrix(eta)) eta <- matrix(eta, ncol=1) #single linear predictor
+        nstate <- length(index)
+        phat <- matrix(0., nrow= nstate, ncol=ny)
+        if (any(index==0) phat[index==0,] <- 1  # marker uninformative for state
+        if (gradient) gmat <- array(0., dim=c(nstate, ny, ncol(eta)))
+
+        # Do one row of  emap at a time
+        # 
+        for (i in 1:nrow(emap)) {
+            etemp <- emat[i,]
+            ecol <- sort(unque(etemp[etemp>0]))
+            mtemp <- mlogit(eta[,ecol]) # result has col 1= ref, then others
+            indx <- c(which(etemp== -1), 1L+ match(etemp, ecol, nomatch= -1))
+            yindx <- indx[y]
+            if (gradient) {
+                for (j in which(index==i)) {
+                    phat[j, yindx>0] <- mtemp[yindx]
+                    gmat[j, yindx>0,]<- attr(mtemp, "gradient")[yindx,]
+            
+
         nstate <- length(map)
-        mcount <- table(map[map!=0])
         yprob <- matrix(0., nstate, length(y))
+        if (any(index==0)) yprob[index==0,] <- 1 # marker is unifomative
         if (gradient) ygrad <- array(0, dim=c(nstate, length(y), ncol(eta)))
    
         for (i in 1:npeak) {
@@ -360,28 +424,29 @@ multinomial <- function(stateinfo, levels, init, static) {
     list(name="multinomial", rfun=rfun, pname=pname, subset=subset, 
          check= checkfun)
 }
-
-
-# the distribution for an state observed without error
-noerror <- function(stateinfo, ...) {
-    rfun <- function(y, nstate) {
-        # eta should be 0 columns, gradient will be ignored
-        temp <- diag(nstate)
-        if (any(y < 1 | y>nstate | floor(y) !=y))
-            stop("y must be an integer between 1 and number of states")
-        temp[,y, drop = FALSE]
-        }
-    temp <- formals(rfun)
-    temp$nstate <- length(stateinfo$index)
-    formals(rfun) <- temp
-
-    checkfun <- function(y, nstate) {
-        if (any(y < 1 | y>nstate | floor(y) !=y))
-            stop("y must be an integer between 1 and number of states")
-    }
-    temp <- formals(checkfun)
-    temp$nstate <- length(stateinfo$index)
-    formals(checkfun) <- temp
-    list(name="noerror", rfun=rfun, pname=NULL, check= checkfun)
-}
         
+#Say the the marker has 5 levels and there were k states, the goal is
+# to return a matrix with k rows and n col
+#  state there will k-1 parameters to create the k probabilities of p=
+#  (1, exp(eta1), exp(eta2), exp(eta3),..)) / (1 + sum(exp(eta)))
+#  wlog eta0 is taken to be 0 leading to k-1 linear predictors eta.
+# The derivatives turn out to have the same form as a multinomial variance:
+#  d p_i/d eta_i = p_i(1-p_i) and d p_i/ d eta_j = -p_ip_j; which is easy to
+#  remember. See the code vignette for more explanation. 
+# If the marker had 5 categories, the evaluation routine needs to report back
+#  pr(observed marker value, given state), i.e., a single probability p for 
+#  each state, for that observation (nstate by n.obs matrix), along with the 4
+#  derivatives of that value wrt the 4 eta values (nstate by n.obs by 4).
+#  The other p_i are just a tool to compute that set of 4 derivative values: 
+#    there is no variance matrix.
+# 
+# For more complex cases the user can supply a pattern matrix with one row
+#  per state and one col per value of the marker. A zero value in the matrix
+#  indicates that that state/marker pairing will not occur; there is no need
+#  to waste linear predictors for that eventuality. If there were m=5 marker
+#  values but one of them can not occur when the true state is 'A', there will
+#  be 3 eta vectors, not 4, for A.
+# Other values in each row determine the mapping, e.g., 1,2,2,3 would say that
+#  two probabilities are the same.  The smallest value will be mapped to
+#  the reference.
+##  
