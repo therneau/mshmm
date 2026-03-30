@@ -194,11 +194,12 @@ hmm <- function(formula, data, subset, weights,
     #   categories (used to set up response functions)
     # 
     if (nmarker >0) {
-        markerlevels <- sapply(marker1$marker, function(x) 
+        markerlevels <- lapply(marker1$marker, function(x) 
             levels(mf[[x]]))
         marker2 <- parsemarker2(marker1, statedata, Terms, colnames(X), 
                                 xassign, markerlevels)
         nlp[2] <- ncol(marker2$cmap)
+        if (nlp[2] ==0) b2 <- 0 else b2 <- nlp[1] + 1:nlp[2]
         cmap <- cbind(cmap,
                       ifelse(marker2$cmap==0, 0, marker2$cmap +max(cmap))) 
     } 
@@ -465,15 +466,17 @@ hmm <- function(formula, data, subset, weights,
 
     # Set up response functions
     if (nmarker > 0) {
-        ymarker <- mf[, unique(marker1$marker)]  # a data frame
-        nmarker <- length(ymarker)
+        ymarker <- mf[unique(marker1$marker)]  # a data frame
+        nmarker <- ncol(ymarker)
         rlist <- marker2$response
-        eta <- X%*% B[,b2]
+        if (b2>0) eta <- X%*% B[,b2]
         for (i in 1:nmarker) {
             # check for a valid response vector
-            if (!is.null(rlist[[i]]$check)) rlist[[i]]$check(ymarker[,i])
+            if (!is.null(rlist[[i]]$checkfun)) rlist[[i]]$checkfun(ymarker[,i])
             keep <- !is.na(ymarker[,i])
-            test <- rlist$rfun(ymarker[keep,i], eta[keep, rlist$rindex[[i]]])
+            if (length(rlist$rindex[[i]]) >0 ) #e.g. a fixed missclass matrix
+               test <- rlist$rfun(ymarker[keep,i], eta[keep, rlist$rindex[[i]]])
+            else test <- rlist$rfun(ymarker[keep,i], eta=NULL)
             if (nrow(test) != nstate || ncol(test) != sum(keep)) 
                 stop("wrong result from marker function ",i)
         }

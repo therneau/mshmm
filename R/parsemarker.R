@@ -218,7 +218,7 @@ parsemarker2 <- function(parse1, statedata, Terms, Xname, Xassign,
     mindex <- match(marker, umarker)  # markerlevel will be in umarker order
     rlist <- lapply(seq(along=mindex), function(i) {
         arglist <- list(stateinfo= parse1$stateinfo[[i]],
-                        levels =   markerlevel[[oindex[i]]])
+                        mlevel =   markerlevel[[oindex[i]]])
         arglist$static <- (parse1$mterm[[oindex[i]]] == ~0) 
         tdist <- odist[[oindex[i]]] #options for this marker
         if (!is.null(tdist$call)) {
@@ -247,12 +247,25 @@ parsemarker2 <- function(parse1, statedata, Terms, Xname, Xassign,
     n.eta <- sapply(tlabel, length)  # number of LP for each marker (umarker)
     lpname <- unlist(tlabel)
     numlp <- length(lpname)
-    eindex <- split(1:numlp, rep(1:nmarker, n.eta)) # lp for each marker
-    names(eindex) <- umarker  # keep them in the order of the marker arg
+    # eindex will have the cmap colums for marker 1, then for marker 2,
+    #  etc.  A marker with no rows prevents a simple use of split()
+    eindex <- vector("list", nmarker)
+    names(eindex) <- umarker 
+    k <- 0L
+    for (i in 1:nmarker){
+        if (n.eta[i]>0) eindex[[i]] <- seq.int(1, n.eta[i]) + k
+        k <- k + n.eta[i]
+    }
 
-    # Create cmap
     cmap <- matrix(0L, nrow=length(Xname), ncol= numlp,
                    dimnames=list(Xname, lpname))
+    if (numlp==0) { # there are no parameters, e.g. a fixed missclass matrix
+        return(list(cmap=cmap, response = rlist[match(umarker, marker)],
+                    rindex= eindex))
+    }
+                    
+
+    # Fill in cmap
     dmap <- matrix(1:length(cmap), nrow(cmap), ncol(cmap)) #distinct integers
  
     # Walk through the formulas one at a time
@@ -282,7 +295,7 @@ parsemarker2 <- function(parse1, statedata, Terms, Xname, Xassign,
     # map the elements of cmap to 0, 1, ...
     cmap[,] <- match(cmap, unique(c(0L, cmap))) - 1L
     list(cmap=cmap, response = rlist[match(umarker, marker)],
-         rindex= ifelse(zeroform,0, eindex)) 
+         rindex= eindex)
 }
                                                            
 # Run down the formula parse tree and see if there is an explicit

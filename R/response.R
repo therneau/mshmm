@@ -25,6 +25,15 @@ hmm.dist <- c("gaussian", "logistic", "beta", "discrete")
 #   rfun: the response function
 #   pname: labels for the parameters
 #   subset: which subset are referred to by the param argument
+#   checkfun, optional
+# The functions below are called by parsemarker2, and the presence or
+#  absence of levels is sometimes enough for an error, .e.g. a factor can't
+#  be a gaussian marker.  But the full set of y values that will be presented
+#  is not yet available. The returned checkfun, if present, is called a
+#  bit later by hmm when the response list is generated, and can be more
+#  complete wrt a valid y.   For instance state:zed/gaussian where zed was
+#  a list will be caught in the later check.
+#  
 gaussian <- function(stateinfo, levels, param, ...) {
     if (length(levels) >0) 
         stop("a factor variable cannot be a guassian marker")
@@ -76,7 +85,10 @@ gaussian <- function(stateinfo, levels, param, ...) {
     temp$map <- stateinfo$index
     formals(rfun) <- temp
 
-    list(name="gaussian", rfun=rfun, pname=pname, subset=subset)
+    check <- function(y)
+        if (!is.numeric(y)) stop("a gaussian marker must be numeric")
+    list(name="gaussian", rfun=rfun, pname=pname, subset=subset,
+         checkfun = check)
 }
 
 makedistlabels <- function(stateinfo, parms) {
@@ -93,8 +105,6 @@ makedistlabels <- function(stateinfo, parms) {
 
 # logistic, a bit fatter tails
 logistic <- function(stateinfo, levels, param, ...) {
-    if (length(levels) >0)
-        stop("factor variable cannot be a logistic marker")
     npeak <- length(stateinfo$levels)
     pname <- makedistlabels(stateinfo, c("mean", "std"))
     if (missing(param)) subset= 1:ncol(pname)
@@ -143,7 +153,9 @@ logistic <- function(stateinfo, levels, param, ...) {
     temp$map <- stateinfo$index
     formals(rfun) <- temp
 
-    list(name="logistic", rfun=rfun, pname=pname, subset=subset)
+    check <- function(y)
+        if (!is.numeric(y)) stop("a gaussian marker must be numeric")
+    list(name="logistic", rfun=rfun, pname=pname, subset=subset, checkfun=check)
 }
 
 # beta distribution
@@ -200,10 +212,10 @@ beta <- function(stateinfo, markerlevel, param) {
     temp$map <- stateinfo$index
     formals(rfun) <- temp
 
-    checkfun <- function(y) {
+    check <- function(y) {
         if (any(y<0 | y>1)) stop("invalid marker value for beta distribution")
     }
-    list(name="beta", rfun=rfun, pname=pname, subset=subset, check= check)
+    list(name="beta", rfun=rfun, pname=pname, subset=subset, checkfun= check)
 }
 
 # multivariate logit, first category is the reference. If there are k
@@ -326,8 +338,6 @@ discrete <- function(stateinfo, mlevel, init, pattern, static) {
                 stop("init matrix's columns must match marker variable")
             init <- init[,k]
         }  # cols are now in the order of the marker variable (factor)
-        if (nrow(init) != ngroup)
-            stop("init should have one row per ", stateinfo$sname, " level")
         if (!is.null(rownames(init))) {
             k <- match(rownames(init), stateinfo$levels)
             if (any(is.na(k)) || any(duplicated(k)))
@@ -335,6 +345,12 @@ discrete <- function(stateinfo, mlevel, init, pattern, static) {
         }
         if (!all(rowSums(init) ==1))
             stop("row sums of init matrix must be 1")
+        if (nrow(init) != nstate) {
+            # assume missing rows are states for which the marker is irrelevant
+            i2 <- matrix(0, nstate, ncol(init))
+            i2[k,] <- init
+            init <- i2
+        }
     }
 
     if (static) { # no parameters
@@ -365,7 +381,7 @@ discrete <- function(stateinfo, mlevel, init, pattern, static) {
         if (!is.matrix(eta)) eta <- matrix(eta, ncol=1) #single linear predictor
         nstate <- length(index)
         phat <- matrix(0., nrow= nstate, ncol=ny)
-        if (any(index==0) phat[index==0,] <- 1  # marker uninformative for state
+        if (any(index==0)) phat[index==0,] <- 1  #marker uninformative for state
         if (gradient) gmat <- array(0., dim=c(nstate, ny, ncol(eta)))
 
         # Do one row of  emap at a time
@@ -379,74 +395,19 @@ discrete <- function(stateinfo, mlevel, init, pattern, static) {
             if (gradient) {
                 for (j in which(index==i)) {
                     phat[j, yindx>0] <- mtemp[yindx]
-                    gmat[j, yindx>0,]<- attr(mtemp, "gradient")[yindx,]
-            
-
-        nstate <- length(map)
-        yprob <- matrix(0., nstate, length(y))
-        if (any(index==0)) yprob[index==0,] <- 1 # marker is unifomative
-        if (gradient) ygrad <- array(0, dim=c(nstate, length(y), ncol(eta)))
-   
-        for (i in 1:npeak) {
-            j <- i*2L - 1L  # npeak (log(shape1), log(shape2)) pairs
-            a <- exp(eta[,j])
-            b <- exp(eta[,j+1])
-            f <- dbeta(y, a, b, log=FALSE)
-            yprob[map==i,] <- rep(f, each= mcount[i])
-            if (gradient) {
-                #see the derivation in the code vignette
-                dga <- psi(a + b) - psi(a)
-                dgb <- psi(a + b) - psi(b)
-                g <- gamma(a+b)/(gamma(a)* gamma(b))
-                dha <- (a-1)*y^(a-2)* (1-y)^(b-1)
-                dhb <- -(y^(a-1) * (b-1)*(1-y)^(b-2))
-                ygrad[map==i,,j] = a*(dga* f + g*dha)
-                ygrad[map==i,,j+1] = b*(dgb*f + g*dhb)
-                attr(yprob, "gradient") <- ygrad
+                    gmat[j, yindx>0,ecol]<- attr(mtemp, "gradient")[yindx,]
+                }
             }
-
-            yprob
         }
+        if (gradient) attr(phat, "gradient") <- gmat
+        phat
     }
-    # rfun will be called many times; set the defaults so that they don't
-    #  have to be passed through the maximizer
-    temp <- formals(rfun)
-    temp$npeak <- npeak
-    temp$map <- stateinfo$index
-    formals(rfun) <- temp
 
-    checkfun <- function(y, nc=ncol(init)) {
-        if (!is.factor(y) || length(levels(y))!= nc)
-            stop("marker must be a factor with ", nc, 
-                 " levels, to match the init matrix")
+    check <- function(y) {
+        if (!is.factor(y))
+            stop("marker for a discrete distribution must be categorical")
     }
             
-    list(name="multinomial", rfun=rfun, pname=pname, subset=subset, 
-         check= checkfun)
+    list(name="discrete", rfun=rfun, pname=pname, checkfun= check)
 }
         
-#Say the the marker has 5 levels and there were k states, the goal is
-# to return a matrix with k rows and n col
-#  state there will k-1 parameters to create the k probabilities of p=
-#  (1, exp(eta1), exp(eta2), exp(eta3),..)) / (1 + sum(exp(eta)))
-#  wlog eta0 is taken to be 0 leading to k-1 linear predictors eta.
-# The derivatives turn out to have the same form as a multinomial variance:
-#  d p_i/d eta_i = p_i(1-p_i) and d p_i/ d eta_j = -p_ip_j; which is easy to
-#  remember. See the code vignette for more explanation. 
-# If the marker had 5 categories, the evaluation routine needs to report back
-#  pr(observed marker value, given state), i.e., a single probability p for 
-#  each state, for that observation (nstate by n.obs matrix), along with the 4
-#  derivatives of that value wrt the 4 eta values (nstate by n.obs by 4).
-#  The other p_i are just a tool to compute that set of 4 derivative values: 
-#    there is no variance matrix.
-# 
-# For more complex cases the user can supply a pattern matrix with one row
-#  per state and one col per value of the marker. A zero value in the matrix
-#  indicates that that state/marker pairing will not occur; there is no need
-#  to waste linear predictors for that eventuality. If there were m=5 marker
-#  values but one of them can not occur when the true state is 'A', there will
-#  be 3 eta vectors, not 4, for A.
-# Other values in each row determine the mapping, e.g., 1,2,2,3 would say that
-#  two probabilities are the same.  The smallest value will be mapped to
-#  the reference.
-##  
