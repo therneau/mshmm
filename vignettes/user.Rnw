@@ -652,18 +652,20 @@ dqmat
 # statefig(rbind(3,1), dqmat)  # generate the state figure
 
 table2 <- function(...) table(..., useNA= "ifany")  # show NA in tables
-with(dementia, table2(studydx, visitdx, last= !duplicated(ptnum, fromLast=TRUE)))
+with(dementia, table2(studydx, offdx))
 
-vmiss <- cbind(c(1,1,0,0), c(0,0,1,0))
-dimnames(vmiss) <- list(state= states, visit=c("ND", "dementia"))
+# Create a missclassification table for the off study diagnosis
+vmiss <- cbind(c(1,1,0), c(0,0,1))
+dimnames(vmiss) <- list(state= states[1:3], visit=c("ND", "dementia"))
 
-ddat <- dementia
-temp <- with(ddata, ifelse(death==1, 4, as.numeric(studydx)))
-ddata$state <- factor(temp
+# create a state variable for death + on study
+temp <- with(dementia, ifelse(is.na(studydx), 4*death, as.numeric(studydx)))
+dstate <- factor(temp, 0:4, c("censor", "CU", "MCI", "dementia", "death"))
 
-dfit1 <- hmm(Surv(age, death) ~ apoepos + male, qmatrix= dqmat,
+
+dfit1 <- hmm(Surv(age, dstate) ~ apoepos + male, qmatrix= dqmat,
              data= dementia, id = ptnum,
-             marker= list(state:visitdx
+             marker= list(state:offdx ~0 /discrete(init=vmiss)))
 @ 
 
 \section{What is a hidden Markov model (HMM)?}

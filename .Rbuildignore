@@ -1,8 +1,7 @@
 testmc
 Readme
 data/dementia.Rmd
-data/dementia.log
-data/dementia.pdf
+data/Readme
 noweb/
 .git
 .gitignore

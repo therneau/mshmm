@@ -6,11 +6,13 @@ Cognitive change over time.
 }
 \description{
   This is a manufactured data set based on a subset of subjects
-  from the Mayo Clinic Study of Aging.
+  from the Mayo Clinic Study of Aging.  It replicates many important
+  aspects of that data such as age distribution, covariate distrbutions
+  and correlations, and number of visits.
   }
 \usage{data("dementia")}
 \format{
-  A data frame with 23841 observations on 4200 subjects,
+  A data frame with 24983 observations on 4200 subjects,
   with the following 10 variables.
   \describe{
     \item{\code{ptnum}}{patient identifier of 1, 2, \ldots (not in
@@ -25,7 +27,6 @@ Cognitive change over time.
       Heath and Human services as indicators of vacular health:
       hypertension, hyperlipidemia, cardiac arrhythmias, coronary artery
       disease, congestive heart failure, diabetes mellitus, and stroke}
-     \item{\code{death}}{0=alive, 1=dead}
      \item{\code{centiloid}}{PET measurment of amyloid level in the brain using
        Pittsburgh compound B (PiB), expressed in centiloid units}
      \item{\code{tau}}{PET measurement of tau level in the brain using
@@ -36,13 +37,18 @@ Cognitive change over time.
        impairment, not demented (CU or MCI) and dementia}
      \item{\code{memory}}{a scaled memory score, based on a battery of
        cognitive tests}
-     \item{\code{hpvol}}{hippocampal volume}
+     \item{\code{studydx}}{diagnosis at a study visit, one of CU
+       (cognitively unimpaired), MCI (mild cognitive impairment) or dementia}
+       a factor variable; cognitively unimpaired, mild cognitive
+       \item{\code{offdx}}{diagnosis from a off-study office visit, one of
+	 ND (not demented) or dementia}
+     \item{\code{death}}{0=alive, 1=dead}
   }
 }
 \details{
 The data set is modeled on a subset of the MCSA data used in Jack (2022).
-Covariates were further modified by the addition of random noise,
-including the visit intervals, sex, and all continuous variables
+Covariates were further modified by the addition of random noise to the
+visit intervals, sex, and all continuous variables.
 As such this data will not reproduce the results in the reference,
 nor should it be used for clinical descison making.  It is useful for
 illustration of statistical methods, however.
@@ -64,8 +70,8 @@ be ascertained.
 
 Participation in the imaging portion of the study (MRI, amyloid PET,
 tau PET, optional FDG PET) requires a second patient visit of
-2-3 days, partly as a consequence less than half the MCSA subjects chose to
-partcicpate in the imaging portion of the study.
+2-3 days, partly as a consequence of this less than half the MCSA
+subjects chose to partcicpate in the imaging portion of the study.
 A small further number are excluded due to technical issues, e.g., a
 metallic implant.
 Cumulative radiation exposure limits the total number of PET scans;
@@ -73,7 +79,7 @@ for this reason subjects with no current evidence of amyloid accumulation
 were often scheduled for rescan at every other study visit rather than
 at each return.
 Since the PiB ligand did not become available until year 6 of the study
-a subset of those who do have amyloid data will be missing
+a subset of those who elected to participate in imagine will be missing
 PET for their first visits.
 For further details see Jack (2022) and the references therein.
 
