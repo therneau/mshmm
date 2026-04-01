@@ -1,23 +1,22 @@
 predict.icmsh <- function(object, newdata, type=c("link", "rate", "pstate"),
-                        se.fit=FALSE, times, ...) {
-    if (!inherits(object, "hmm")) stop("only valid for hmm objects")
+                        se.fit=FALSE, times, absorb, ...) {
+    if (!inherits(object, "icmsh")) stop("only valid for icmsh objects")
     type <- match.arg(type)
     Terms <- delete.response(terms(object))
 
-    if (missing(newdata) || is.null(newdata)) {
-        X <- object$x
-        if (is.null(X)) stop("program not yet finished")
-    }
-    else {
-        mf <- model.frame(Terms, newdata, na.action=na.pass,
-                          xlev=object$xlevels)
-        X <- model.matrix(Terms, mf, contrasts.arg=object$contrasts)
-    }
+    if (missing(newdata) || is.null(newdata)) 
+        X <- model.matrix(object)
+    else X <- model.matrix(object, data=newdata)
 
     if (!is.null(object$fit$accept)) 
         return(predict_hmcmc(object, X, type, se.fit, ...))
 
     eta <- X %*% coef(object, type="matrix")
+    
+    if (se.fit && type=="pstate") {
+        warning("se.fit not available for pstate")
+        se.fit <- FALSE
+    }
     if (se.fit) {
         se <- 0* eta   # inherit the dimnames        
         ncoef <- length(object$coef)
@@ -46,7 +45,7 @@ predict.icmsh <- function(object, newdata, type=c("link", "rate", "pstate"),
             return(list(fit=exp(eta[,keep]), 
                         se.fit=exp(eta[keep])*se[,keep]))
         }
-        else stop("std is not avaiable for type=", type)
+        else stop("std is not avaiable for type=", type) # future proof
     }
 
     if (type == "link") eta
@@ -54,7 +53,7 @@ predict.icmsh <- function(object, newdata, type=c("link", "rate", "pstate"),
         keep <- 1:sum(object$qmat > 0)        
         exp(eta[,keep])
     }
-    else {
+    else if (type=="pstate") {
         # For a probability in state curve the data is restricted to be a single
         #  set of sequential times, along with its set of time dependent
         #  covariates.

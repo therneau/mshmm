@@ -9,7 +9,7 @@ coef.icmsh <- function(object, matrix=FALSE,
         B <- coef.to.B(object$coefficients, cmap, fixed=fixed)
         dimnames(B) <- dimnames(cmap)
         keep <- rep(c(matrix1, matrix2, matrix3), object$nlp)
-        B[,keep]
+        B[,keep, drop=FALSE]
     }
     else if (fixed) object$coefficients
     else object$coefficients[sort(unique(cmap[cmap>0]))]
@@ -47,7 +47,7 @@ B.to.coef <- function(B, cmap, fixed=FALSE) {
     new
 }       
 
-print.hmm <- function(x, digits=max(options()$digits - 4, 3), ...) {
+print.icmsh <- function(x, digits=max(options()$digits - 4, 3), ...) {
      if (!is.null(cl<- x$call)) {
 	cat("Call:\n")
 	dput(cl)
@@ -56,6 +56,8 @@ print.hmm <- function(x, digits=max(options()$digits - 4, 3), ...) {
    
      B <- coef(x, matrix=TRUE, fixed=TRUE)
      printCoefmat(B, has.Pvalue=FALSE)
+     cat(" States: ", paste(paste(seq(along.with=x$states), x$states, sep='= '),
+                            collapse=", "), '\n')
      cat("\n")
      loglik <- round(x$loglik, 2)
      if (length(loglik)==1)

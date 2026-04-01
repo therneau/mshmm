@@ -1,13 +1,13 @@
-\name{hmm.control}
-\alias{hmm.control}
-\title{Control parameters for the hmm function
+\name{icmsh.control}
+\alias{icmsh.control}
+\title{Control parameters for the icmsh function
 }
 \description{
   These are miscellaneous control parameters used by the solution
-  functions underlying the \code{hmm} function.
+  functions underlying the \code{icmsh} function.
 }
 \usage{
-hmm.control(smallpos = 0.001, debug = FALSE, scale=TRUE,
+icmsh.control(smallpos = 0.001, debug = FALSE, scale=TRUE,
              makecluster = .Platform$OS.type == "windows", detail=FALSE)
 }
 \arguments{
@@ -30,6 +30,6 @@ hmm.control(smallpos = 0.001, debug = FALSE, scale=TRUE,
   each individual id to the estimate and derivatives is returned}
 }
 \value{a list containing the options}
-\seealso{\code{\link{hmm}}
+\seealso{\code{\link{icmsh}}
 }
 \keyword{ models }

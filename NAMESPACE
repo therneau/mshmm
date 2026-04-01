@@ -8,15 +8,15 @@ importFrom(stats, model.extract, model.response, model.matrix, model.weights,
            model.frame, na.pass, na.omit, terms, cov, sd, dnorm, rnorm, runif,
            delete.response, coef, printCoefmat, naprint, .getXlevels,
            dlogis, plogis, pnorm, logLik, dbeta, dgamma, dexp)
-export(hmm)
+export(icmsh)
 export(mcmc0, mcmc1, pade, hmmscore)
 export(ptplot, qplus, noworse)
 export(survexpm, hmmeigen)
-S3method(print, hmm)
+S3method(print, icmsh)
 # S3method('plot',  'hmm')
-S3method(coef,  hmm)
-S3method(logLik, hmm)
-S3method(predict, hmm)
-S3method(model.matrix, hmm)
-S3method(model.frame, hmm)
+S3method(coef,  icmsh)
+S3method(logLik, icmsh)
+S3method(predict, icmsh)
+S3method(model.matrix, icmsh)
+S3method(model.frame, icmsh)
 

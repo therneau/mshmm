@@ -297,7 +297,7 @@ icmsh <- function(formula, data, subset, weights,
     beta.names <- paste(rownames(cmap)[indx], colnames(cmap)[indx], sep='.')
     param <- rep(0, nparam)
     if (!missing(init)) {
-        if (inherits(init, "hmm")) { # a prior hmm model
+        if (inherits(init, "icmsh")) { # a prior hmm model
             priormod <- init
             init <- coef(priormod, matrix=TRUE, fixed=TRUE)
         }
@@ -540,7 +540,8 @@ icmsh <- function(formula, data, subset, weights,
                   time = compute.time,
                   cmap= cmap, nlp= nlp,
                   qmatrix = qmatrix,   # the structure and state names
-                  n = c(observations =nrow(mf), id =nid)
+                  n = c(observations =nrow(mf), id =nid),
+                  states= statenames
                   )
     if (!is.null(removed)) final$removed <- removed
     if (!is.null(mfit$penalty) && mfit$penalty >0)   

@@ -1,15 +1,15 @@
-\name{coef.hmm}
-\alias{coef.hmm}
-\title{Extract coefficients from an hmm object}
-\description{Return the coefficients of an hmm object, either as
+\name{coef.icmsh}
+\alias{coef.icmsh}
+\title{Extract coefficients from an icmsh object}
+\description{Return the coefficients of an icmsh object, either as
   a vector or a matrix.
 }
 \usage{
-\method{coef}{hmm}(object, matrix= FALSE, fixed= TRUE, 
+\method{coef}{icmsh}(object, matrix= FALSE, fixed= TRUE, 
                    matrix1= matrix, matrix2= matrix, matrix3= matrix, ...)
 }
 \arguments{
-  \item{object}{an hmm object}
+  \item{object}{an icmsh object}
   \item{matrix}{if TRUE, return the coefficients as a matrix, otherwise
     as a vector}
   \item{fixed}{include fixed coefficients in the result}
@@ -38,7 +38,7 @@
   coefficients may be fixed; thus this vector will often be much
   shorter than the number of non-zero values from the matrix form.
   For \code{fixed=TRUE} it is the \code{coefficient} component of the
-  \code{hmm} object.
+  \code{icmsh} object.
 
   The \code{cmap} component of a fit has one row for each covariate that
   appears and one column for each linear predictor; each transition for
@@ -49,13 +49,14 @@
   that the coefficient in question was fixed.
 }
 \examples{
-# assume hfit is the result of an hmm fit
+# assume hfit is the result of an icmsh fit
 # The following will give the matrix of estimated transition rates
 #  for a new data set, one row per observation in new, one column
 #  per transition
 \dontrun{
  exp(model.matrix(hfit, data=new) %*% coef(hfit, matrix1=TRUE))
 }
-\value{a matrix or vector of coefficients}
-\seealso{\code{\link{hmm}}}
 }
+\value{a matrix or vector of coefficients}
+\seealso{\code{\link{icmsh}}}
+

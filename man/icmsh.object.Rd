@@ -1,14 +1,14 @@
-\name{hmm.object}
-\alias{hmm.object}
-\title{HMM regression object}
-\description{This class of objects is returned by the \code{hmm}
+\name{icmsh.object}
+\alias{icmsh.object}
+\title{Multi-state model regression object}
+\description{This class of objects is returned by the \code{icmsh}
   function.
   Objects of this class have methods for \code{print}, \code{predict}
   and \code{coef}.
 }
 
 \section{Components}{
-The following components should be included in a legitimate \code{hmm}
+The following components should be included in a legitimate \code{icmsh}
 object.
 }
 \arguments{
@@ -44,6 +44,6 @@ and/or \code{frame}.
 }
 
 
-\seealso{\code{\link{hmm}}}
+\seealso{\code{\link{icmsh}}}
 
   

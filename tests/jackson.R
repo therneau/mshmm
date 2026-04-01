@@ -123,8 +123,7 @@ mfit2 <- msm(istate ~ age, data=test1, subject=id,
 
 # To match msm we need to precenter our data to match it
 test1b <- test1
-#center <- attr(mfit1b$data$mm.cov, "means")
-center <- c("educ"= 13.1538462,  "male"= 0.230769)
+center <- attr(mfit2$data$mm.cov, "means")
 test1b$educ <- test1b$educ - center["educ"]
 test1b$male <- test1b$male - center["male"]
 
@@ -147,7 +146,7 @@ missmat <- cbind(missmat, 0)
 missmat <- rbind(missmat, c(0,0,0,.1,.9))
 dimnames(missmat) <- list(true= 1:5, obs=sname[1:5])
 
-# Do this very formally, with dx = a formal marker
+# Do this very formally, with dx = a marker variable
 test1b$death <- 1*(test1b$state=="death")
 dx <- with(test1b, ifelse(state=="death", NA, state))
 test1b$dx <- factor(dx, 2:6, sname[1:5])
@@ -156,32 +155,21 @@ alias <- data.frame( state=sname, truedx= 1:6)
 # Treat the true entry state as random, but not dementia, and 
 #  death as part of the state
 #  
-istate <- c(1,1,1,1,0,0)/4
+iprob <- c(1,1,1,1,0,0)/4
 hfit3 <- icmsh(Surv(age, death) ~ 1,
-               data= test1b, id= id, qmatrix= qmat, iprob= istate,
-               statedata= alias,
+               data= test1b, id= id, qmatrix= qmat, iprob= iprob,
+               statedata= alias,  center=FALSE,
                marker= truedx(1:5):dx ~0 /discrete(init=missmat))
 
-temp <- with(test1, ifelse(duplicated(id)& state!='death', 0, istate))
-test1$state3 <- factor(temp, 0:6, levels(test1$state))
-hfit3 <- icmsh(list(Surv(age,state3) ~1, 
-                  1:3 ~ educ, 1:6+ 2:6 ~ male),
-             marker = 1:5 ~1/ multinomial + fixed=missmat),
-             data=test1, id=id, qmatrix=qmat, init=i2, iter=0)
+# msm needs an integer state, with 1-6 matching qmat; it is part of test1
+#  the missmat needs to be 6x6
+missmat2 <- rbind(cbind(missmat, 0),0)
+missmat2[6,6] <- 1
 
 mfit3 <- msm(istate ~ age, data=test1, subject= id, 
              qmatrix = qmat, fixedpar=TRUE, death=6,
-             ematrix=missmat, initprob=c(1,1,1,1,0,0)/4)
+             ematrix=missmat2, initprob=c(1,1,1,1,0,0)/4)
 
-init6 <- function(nstate, ...) {
-    c(1,1,1,1,0,0)/4
-}
-hfit3 <-  icmsh(hbind(age, state) ~ 1, data=test1, mc.cores=3,
-               id = id, qmatrix = qmat, rfun=hmiss,
-               pfun=init6, mfun=hmmtest, mpar=list(fn="hmmloglik"),
-               otype= otype, death=6)
-aeq(-2*hfit3$loglik[2], mfit3$minus2loglik)
- 
 
 # These models use the cav data set from the msm package
 Qm <- rbind(c(0, .148, 0, .0171),

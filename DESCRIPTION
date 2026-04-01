@@ -1,7 +1,7 @@
 Title: Interval censored multistate hazard models 
 Package: icmsh
-Version: 2.0-1
-Date: 2026-03-25
+Version: 2.0-2
+Date: 2026-04-01
 Depends: survival, Matrix, R (>= 3.5.0)
 Imports:  parallel, mvtnorm, quadprog
 Suggests: msm, knitr

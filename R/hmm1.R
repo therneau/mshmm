@@ -31,8 +31,8 @@ hmm1 <- function(who, B) {
         rfun <- vector("list", nmarker) # results of calling the rfun() fcns
         for (k in 1:nmarker) {
             j <- rlist[[k]]$e2map  + nlp[1] #columns of B for this response
-            indx <- rneed & !is.na(yobs[rows, k])
-            yy <- yobs[rows[indx], k]
+            indx <- rneed & !(is.na(ymarker[rows, k]))
+            yy <- ymarker[rows[indx], k]
             if (length(yy) >0) {
                 # all the response functions have gradient=FALSE as default
                 if (length(j)==0) rfun[[k]] <- rlist[[k]]$rfun(yy) 
@@ -89,7 +89,7 @@ hmm1 <- function(who, B) {
         else if (otype[j]==3) {  # one or more markers observed
             #temp <- rep(1, nstate)
             for (k in 1:nmarker) {
-                if (!is.na(yobs[j,k])) {
+                if (!is.na(ymarker[j,k])) {
                     nc[k] <- nc[k] +1
                     alpha <- alpha* rfun[[k]][,nc[k]]
             #        temp  <- temp * rfun[k]][,nc[k]]
@@ -147,15 +147,18 @@ hmm2 <- function(who,  B) {
     
     # Execute the response functions, over the censored obs
     rfun <- rgrad <- vector("list", nmarker)  # results from calling rfun()s
+    # rfun will be a matrix with nstate rows and nk col, nk = number of
+    #  rows which have marker k not missing
+    # rgrad is array of (nstate, length(e2map), nk)= (state, lp, row)
     rneed <- (otype[rows]==3)  # observed markers
     # rlist was created in icmsh from marker2$response
     if (any(rneed)) {
         for (k in 1:nmarker) {
-            index <- rneed & !is.na(yobs[rows,k])
+            index <- rneed & !is.na(ymarker[rows,k])
             j <- rlist[[k]]$e2map  + nlp[1] #linear predictors for this response
-            yy <- yobs[rows[index], k]
+            yy <- ymarker[rows[index], k]
             if (length(yy) > 0) {
-                if (length(j) ==0) rfun[[k]] <- rlist[[k]]rfun(yy)
+                if (length(j) ==0) rfun[[k]] <- rlist[[k]]$rfun(yy) # no lp
                 else {
                     temp <- rlist[[k]]$rfun(yy, eta[index, j, drop=FALSE], 
                                             gradient= TRUE)
@@ -212,7 +215,7 @@ hmm2 <- function(who,  B) {
         }
         else if (otype[j]==3) {  # marker(s) were observed
             for (k in 1:nmarker) {
-                if (!is.na(yobs[j,k])) {
+                if (!(is.na(ymarker[j,k]))) {
                     nc[k] <- nc[k] +1
                     temp <- rfun[[k]][,nc[k]]
                     if (nlp[3]) pi.d <- pi.d * temp 
@@ -221,9 +224,9 @@ hmm2 <- function(who,  B) {
                     if (!is.null(rgrad[[k]])) { #if there are derivatives
                         j <- rlist$e2map[[k]] # which linear predictors
                         # eta.b3(X[j,]) is d\eta/d\beta for all response lp
-                        # rgrad[[k]] will be nstate cols, length(j) rows
-                        temp <- rgrad[[k]]
-                        R.d <- R.d + alpha %*% eta.b3(X[j,])[,rlist$e2map[[k]]]
+                        # rgrad[[k]] will nstate rows, length(j) cols
+                        temp <- alpha %*% rgrad[[k]][,,nc[k]]
+                        R.d <- R.d + temp %*% eta.b3(X[j,])[,rlist$e2map[[k]]]
                     } 
                     if (control$debug>3) browser()
                     alpha <- alpha * temp
