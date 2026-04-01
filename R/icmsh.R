@@ -1,5 +1,5 @@
 # The main function
-hmm <- function(formula, data, subset, weights, 
+icmsh <- function(formula, data, subset, weights, 
                 id, qmatrix, markers, iprob, init, fixed,  
                 penalty,  constraint, statedata,
                 iter=30, exact= "death", mfun=hmmscore, mpar=list(), mfattr, 
@@ -96,7 +96,7 @@ hmm <- function(formula, data, subset, weights,
     # if the formula is a list, do the first level of processing on it,
     #  which is to pick off the list of variable names
     if (is.list(formula)) {
-        if (length(formula)==1 && is.formula(formula[[1]])) {
+        if (length(formula)==1 && inherits(formula[[1]], "formula")) {
             # a list with only one formula
             multiform <- FALSE
             parse1 <- NULL
@@ -415,7 +415,7 @@ hmm <- function(formula, data, subset, weights,
     }
     else if (missing(iprob))
         stop("iprob argument is required")
-    else if (is.formula(iprob))  
+    else if (inherits(iprob, "formula"))  
         stop("iprob = formula, code not yet completed")
     else if (!is.numeric(iprob))
         stop("iprob must be numeric or a formula")
@@ -473,10 +473,15 @@ hmm <- function(formula, data, subset, weights,
         for (i in 1:nmarker) {
             # check for a valid response vector
             if (!is.null(rlist[[i]]$checkfun)) rlist[[i]]$checkfun(ymarker[,i])
+            tfun <- rlist[[i]]$rfun
             keep <- !is.na(ymarker[,i])
-            if (length(rlist$rindex[[i]]) >0 ) #e.g. a fixed missclass matrix
-               test <- rlist$rfun(ymarker[keep,i], eta[keep, rlist$rindex[[i]]])
-            else test <- rlist$rfun(ymarker[keep,i], eta=NULL)
+            if (length(rlist$e2map[[i]]) >0 ) {
+                # the e2map indices from parsemarker are within the cmap cols
+                #  for markers, hmm1 and hmm2 will want overall cmap index
+                j <- rlist$e2map[[i]] + nlp[1]
+                test <- tfun(ymarker[keep,i], eta[keep, j])
+                }
+            else test <- tfun(ymarker[keep,i]) #e.g. a fixed missclass matrix
             if (nrow(test) != nstate || ncol(test) != sum(keep)) 
                 stop("wrong result from marker function ",i)
         }
@@ -548,6 +553,6 @@ hmm <- function(formula, data, subset, weights,
     final <- c(final, list(call=Call,  xlevels=xlevels,
                   contrasts= attr(X, "contrasts"),
                   terms = Terms))
-    class(final) <- "hmm"
+    class(final) <- "icmsh"
     final
 }

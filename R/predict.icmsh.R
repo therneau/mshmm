@@ -1,4 +1,4 @@
-predict.hmm <- function(object, newdata, type=c("link", "rate", "pstate"),
+predict.icmsh <- function(object, newdata, type=c("link", "rate", "pstate"),
                         se.fit=FALSE, times, ...) {
     if (!inherits(object, "hmm")) stop("only valid for hmm objects")
     type <- match.arg(type)

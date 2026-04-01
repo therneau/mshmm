@@ -14,12 +14,14 @@ qmat[1,2:3] <- 1
 qmat[2:3, 4] <- 1
 qmat[3:4, 5] <- 1
 qmat[-6,6] <- 1
-# statefig(c(1,2,2,1), qmat)
+# statefig(c(1,2,2,1), qmat)  # draw it: 11 transitions!
 icoef <- log(c(.05, .05, .06, .07, .05, .15, rep(c(.05,.07, .15), c(3,1,1)),
               1:5/10))
+# icoef has the 11 intercepts for the 11 transitions, followed by the 5 age
+#   coefs for death
 
 # A simple model, but not the simplest
-hfit1 <- hmm(list(Surv(age,state) ~1, 0:6 ~ male), center=FALSE, 
+hfit1 <- icmsh(list(Surv(age,state) ~1, 0:6 ~ male), center=FALSE, 
              data=test1, id=id, qmatrix=qmat, init=icoef, iter=0)
 
 # do the computation by hand
@@ -59,7 +61,7 @@ truelog <- sum(log(rowSums(true1)))
 aeq(hfit1$loglik, truelog)
 
 # detail=TRUE forces no iteration, and returns extra info
-hfit1b <- hmm(list(Surv(age,state) ~1, 0:6 ~ male), center=FALSE, mc.cores=1,
+hfit1b <- icmsh(list(Surv(age,state) ~1, 0:6 ~ male), center=FALSE, mc.cores=1,
               data=test1, id=id, qmatrix=qmat, init=icoef, detail=TRUE)
 
 # derivatives
@@ -69,7 +71,7 @@ deriv <- double(nbeta)
 for (i in 1:nbeta) {
     i2 <- icoef
     i2[i] <- i2[i]+ eps
-    tfit <- hmm(list(Surv(age,state) ~1, 0:6 ~ male), center=FALSE,
+    tfit <- icmsh(list(Surv(age,state) ~1, 0:6 ~ male), center=FALSE,
                 data=test1, id=id, qmatrix=qmat, init=i2, iter=0)
     deriv[i] <- (tfit$loglik - hfit1$loglik)/eps
 }
@@ -81,11 +83,19 @@ tder  <- apply(hfit1b$deriv, c(1,3), sum) # ditto
 logder <- unname(rowSums(tder %*% diag(1/alpha)))
 aeq(deriv, logder, tol= sqrt(eps))
 
-# msm wants the intital rates in qmat, hmm only uses 0 vs >0
-qmat[qmat>0] <- exp(icoef)
+# msm wants the intital rates in qmat, icmsh only uses 0 vs >0
+qmat[qmat>0] <- exp(icoef[1:11])
+# initial values for the age coefficient is a nuisance: msm wants the states
+#  to be in row major order of qmat, and icmsh uses standard R order (col major)
+temp <- qmat
+temp[temp>0] <- 1:11 # icmsh order
+t2 <- t(temp)
+minit <- c(rep(0,6), icoef[12:16])[match(t2[t2>0], temp[temp>0])]
+
 mfit1 <- msm(istate ~ age, data=test1, subject=id, death=6,
-             qmatrix = qmat, fixedpar=TRUE)
+             qmatrix = qmat, covinits= list(male=minit), fixedpar=TRUE)
 # Below verifies that Chris Jackson and I agree wrt formulas
+# At the moment it does not agree, unless the male coef is forced to zero.
 aeq(mfit1$minus2loglik, -2*truelog)  
 
 # Add select covariates
@@ -95,7 +105,7 @@ i2["educ", "1:3"] <- .1
 i2["male", c("1:6", "2:6")] <- c(.2, .3)
 # init arg expectes an object that looks look like coef(hfit2, matrix=TRUE)
 
-hfit2 <- hmm(list(Surv(age,state) ~1, 
+hfit2 <- icmsh(list(Surv(age,state) ~1, 
                   1:3 ~ educ, 1:6+ 2:6 ~ male),
              data=test1, id=id, qmatrix=qmat, init=i2, iter=0)
 eta2 <- model.matrix(hfit2) %*% i2
@@ -103,7 +113,7 @@ true2 <- byhand(test1, eta2)
 aeq(hfit2$log, sum(log(rowSums(true2))))
 
 
-# hmm centered the covariates internally *and* also transformed the 
+# icmsh centered the covariates internally *and* also transformed the 
 #  coefficients, i.e., the user never sees the change.  msm on the
 #  other hand returns coefs wrt recentered data
 mfit2 <- msm(istate ~ age, data=test1, subject=id, 
@@ -118,10 +128,10 @@ center <- c("educ"= 13.1538462,  "male"= 0.230769)
 test1b$educ <- test1b$educ - center["educ"]
 test1b$male <- test1b$male - center["male"]
 
-hfit2b <- hmm(list(Surv(age,state) ~1, 
+hfit2b <- icmsh(list(Surv(age,state) ~1, 
                   1:3 ~ educ, 1:6+ 2:6 ~ male), center=FALSE,
              data=test1b, id=id, qmatrix=qmat, init=i2, iter=0)
-aeq(-2*hfit2b$loglik[2], mfit2$minus2loglik)  
+aeq(-2*hfit2b$loglik, mfit2$minus2loglik)  
 
 
 # Repeat with misclassification probabilities
@@ -133,14 +143,28 @@ temp <- outer(c("Acorrect"= (1-e1), "Afalse"= e1),
 
 missmat <- rbind(temp[c(1,2,3,4)], temp[c(2, 1, 4,3)],
                  temp[c(3,4,1,2)], temp[c(4, 3, 2, 1)])
-missmat <- cbind(missmat, 0, 0)
-missmat <- rbind(missmat, c(0,0,0,.1,.9,0), c(0,0,0,0,0,1))
+missmat <- cbind(missmat, 0)
+missmat <- rbind(missmat, c(0,0,0,.1,.9))
+dimnames(missmat) <- list(true= 1:5, obs=sname[1:5])
 
-# Treat the entry state as known (and death of course), others
-#  hidde
+# Do this very formally, with dx = a formal marker
+test1b$death <- 1*(test1b$state=="death")
+dx <- with(test1b, ifelse(state=="death", NA, state))
+test1b$dx <- factor(dx, 2:6, sname[1:5])
+
+alias <- data.frame( state=sname, truedx= 1:6)
+# Treat the true entry state as random, but not dementia, and 
+#  death as part of the state
+#  
+istate <- c(1,1,1,1,0,0)/4
+hfit3 <- icmsh(Surv(age, death) ~ 1,
+               data= test1b, id= id, qmatrix= qmat, iprob= istate,
+               statedata= alias,
+               marker= truedx(1:5):dx ~0 /discrete(init=missmat))
+
 temp <- with(test1, ifelse(duplicated(id)& state!='death', 0, istate))
 test1$state3 <- factor(temp, 0:6, levels(test1$state))
-hfit3 <- hmm(list(Surv(age,state3) ~1, 
+hfit3 <- icmsh(list(Surv(age,state3) ~1, 
                   1:3 ~ educ, 1:6+ 2:6 ~ male),
              marker = 1:5 ~1/ multinomial + fixed=missmat),
              data=test1, id=id, qmatrix=qmat, init=i2, iter=0)
@@ -152,7 +176,7 @@ mfit3 <- msm(istate ~ age, data=test1, subject= id,
 init6 <- function(nstate, ...) {
     c(1,1,1,1,0,0)/4
 }
-hfit3 <-  hmm(hbind(age, state) ~ 1, data=test1, mc.cores=3,
+hfit3 <-  icmsh(hbind(age, state) ~ 1, data=test1, mc.cores=3,
                id = id, qmatrix = qmat, rfun=hmiss,
                pfun=init6, mfun=hmmtest, mpar=list(fn="hmmloglik"),
                otype= otype, death=6)

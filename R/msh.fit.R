@@ -50,7 +50,7 @@ msh.fit <- function(id, ytime, ystate, X, iprob, B,
     #  user. The current hmm1/hmm2 code will ignore the markers.
     temp1 <- (ystate %in% iexact) & duplicated(id)
     if (nmarker >0 ) {
-        temp3 <- rowSums(sapply(ymarker, is.na)) >0
+        temp3 <- rowSums(sapply(ymarker, function(x) !is.na(x))) >0
         if (any(temp3 & ystate>0))
             warning("marker variables present for an obs with known state")
     } else temp3 <- 0
@@ -75,17 +75,17 @@ msh.fit <- function(id, ytime, ystate, X, iprob, B,
     nparm <- rep(0L,3)
     if (nlp[1] > 0) { #should always be true
         ctemp <- cmap[, 1:nlp[1], drop=FALSE]
-        eta.beta1 <- derivfun(ctemp)
+        eta.beta1 <- derivfun(ctemp)   # chain rule for eta to param
         nparm[1] <- length(unique(ctemp[ctemp>0]))
         e1 <- 1:nlp[1]  # the columns of eta for transition matrix
     }
     if (nlp[2] >0) {
-        e2 <- nlp[1] + 1:nlp[2] # cols for the
+        e2 <- nlp[1] + 1:nlp[2] # cols of cmap for the markers
         ctemp <- cmap[, e2, drop=FALSE]
         eta.beta2 <- derivfun(ctemp)
         nparm[2] <- length(unique(ctemp[ctemp>0]))
     }
-    if (nlp[3] >0) {
+    if (nlp[3] >0) { # cols of cmap and eta for initial probability
         e3 <- nlp[1] +nlp[2] + 1:nlp[3]
         ctemp <- cmap[, e3, drop=FALSE]
         eta.beta3 <- derivfun(ctemp)

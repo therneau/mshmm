@@ -261,7 +261,7 @@ parsemarker2 <- function(parse1, statedata, Terms, Xname, Xassign,
                    dimnames=list(Xname, lpname))
     if (numlp==0) { # there are no parameters, e.g. a fixed missclass matrix
         return(list(cmap=cmap, response = rlist[match(umarker, marker)],
-                    rindex= eindex))
+                    e2map = eindex))
     }
                     
 

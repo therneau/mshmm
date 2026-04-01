@@ -279,7 +279,7 @@ discrete <- function(stateinfo, mlevel, init, pattern, static) {
         if (!is.null(rownames(pattern))) {
             k <- match(rownames(pattern), stateinfo$levels)
             if (any(is.na(k)) || any(duplicated(k)))
-                stop("rows of pattern should match levels of", stateinfo$sname)
+                stop("rows of pattern should match levels of ", stateinfo$sname)
         }
         if (any(pattern) != floor(pattern) | any(pattern < 0))
             stop("a pattern matrix for discrete must be integers >=0")

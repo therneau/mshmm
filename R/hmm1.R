@@ -25,19 +25,19 @@ hmm1 <- function(who, B) {
     else alpha <- p0fixed
     
     # Now the response functions for this set
+    # rlist was set up by icmsh
     rneed <- (otype[rows]==3)
     if (any(rneed)) {
-        rlist <- vector("list", nmarker)
+        rfun <- vector("list", nmarker) # results of calling the rfun() fcns
         for (k in 1:nmarker) {
-            j <- e2map[[k]]  #columns of B for this response
+            j <- rlist[[k]]$e2map  + nlp[1] #columns of B for this response
             indx <- rneed & !is.na(yobs[rows, k])
             yy <- yobs[rows[indx], k]
             if (length(yy) >0) {
-                if (length(j)==0) 
-                    rlist[[k]] <-rfun[[k]](yy, nstate, gradient=FALSE)
-                else rlist[[k]] <- rfun[[k]](yy, nstate, 
-                    eta[indx, j,drop=FALSE], gradient=FALSE)
-            }
+                # all the response functions have gradient=FALSE as default
+                if (length(j)==0) rfun[[k]] <- rlist[[k]]$rfun(yy) 
+                else rfun[[k]] <- rlist[[k]]$rfun(yy, eta[indx, j,drop=FALSE]) 
+             }
         }
     }
 
@@ -91,8 +91,8 @@ hmm1 <- function(who, B) {
             for (k in 1:nmarker) {
                 if (!is.na(yobs[j,k])) {
                     nc[k] <- nc[k] +1
-                    alpha <- alpha* rlist[[k]][,nc[k]]
-            #        temp  <- temp * rlist[[k]][,nc[k]]
+                    alpha <- alpha* rfun[[k]][,nc[k]]
+            #        temp  <- temp * rfun[k]][,nc[k]]
                 }
             }
             if (!all(is.finite(alpha)) || sum(alpha) <=0) {
@@ -146,18 +146,22 @@ hmm2 <- function(who,  B) {
     }
     
     # Execute the response functions, over the censored obs
-    rlist <- rgrad <- vector("list", nmarker)
+    rfun <- rgrad <- vector("list", nmarker)  # results from calling rfun()s
     rneed <- (otype[rows]==3)  # observed markers
+    # rlist was created in icmsh from marker2$response
     if (any(rneed)) {
         for (k in 1:nmarker) {
             index <- rneed & !is.na(yobs[rows,k])
-            j <- e2map[[k]]  #linear predictors for this response
+            j <- rlist[[k]]$e2map  + nlp[1] #linear predictors for this response
             yy <- yobs[rows[index], k]
             if (length(yy) > 0) {
-                temp <- rfun[[k]](yy, nstate, eta[index, j, drop=FALSE], 
-                    gradient= TRUE)
-                rlist[[k]] <- temp
-                rgrad[[k]] <- attr(temp, "gradient")
+                if (length(j) ==0) rfun[[k]] <- rlist[[k]]rfun(yy)
+                else {
+                    temp <- rlist[[k]]$rfun(yy, eta[index, j, drop=FALSE], 
+                                            gradient= TRUE)
+                    rfun[[k]] <- temp
+                    rgrad[[k]] <- attr(temp, "gradient")
+                }
             }
         }
     }
@@ -210,13 +214,16 @@ hmm2 <- function(who,  B) {
             for (k in 1:nmarker) {
                 if (!is.na(yobs[j,k])) {
                     nc[k] <- nc[k] +1
-                    temp <- rlist[[k]][,nc[k]]
+                    temp <- rfun[[k]][,nc[k]]
                     if (nlp[3]) pi.d <- pi.d * temp 
                     if (nlp[1]) P.d  <- P.d * rep(temp, each=nlp[1])
                     if (nlp[2]) R.d  <- R.d * temp
-                    if (!is.null(Rtrans[[k]])) { #if there are derivatives
-                        dtemp <- Rtrans[[k]](rgrad[[k]][,nc[k],], X[j,])
-                        R.d  <- R.d + alpha * dtemp
+                    if (!is.null(rgrad[[k]])) { #if there are derivatives
+                        j <- rlist$e2map[[k]] # which linear predictors
+                        # eta.b3(X[j,]) is d\eta/d\beta for all response lp
+                        # rgrad[[k]] will be nstate cols, length(j) rows
+                        temp <- rgrad[[k]]
+                        R.d <- R.d + alpha %*% eta.b3(X[j,])[,rlist$e2map[[k]]]
                     } 
                     if (control$debug>3) browser()
                     alpha <- alpha * temp

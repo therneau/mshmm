@@ -1,6 +1,6 @@
 # The coefficients/coef and print methods
 
-coef.hmm <- function(object, matrix=FALSE, 
+coef.icmsh <- function(object, matrix=FALSE, 
                      fixed=TRUE, matrix1= matrix, matrix2= matrix, 
                      matrix3= matrix, ...) {
     cmap <- object$cmap

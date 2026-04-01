@@ -32,7 +32,7 @@ loglik1 <- sum(log(ptot))  # the true loglik (by hand)
 
 icoef <- matrix(log(c(.1, .2, .3)), nrow=1, 
                 dimnames=list("(Intercept)", c("1:2", "1:3", "2:3")))
-hfit <- hmm(Surv(time, state) ~ 1, id= id, qmatrix=qmat,
+hfit <- icmsh(Surv(time, state) ~ 1, id= id, qmatrix=qmat,
             data=ddata, init=icoef, iter=0, mc.cores=1)
 all.equal(hfit$loglik, loglik1)
 
@@ -40,7 +40,7 @@ all.equal(hfit$loglik, loglik1)
 #  alpha vector and its derivative, per subject.  And it exercises a different
 #  part of the code (hmm2 routine) than the usual iter=0 (hmm1 routine)
 # One doesn't need derivatives if not iterating (or debugging)
-h2 <- hmm(Surv(time, state) ~ 1, id= id, qmatrix=qmat,
+h2 <- icmsh(Surv(time, state) ~ 1, id= id, qmatrix=qmat,
             data=ddata, init=icoef, iter=0, mc.cores=1, detail=TRUE)
 log2 <- sum(log(colSums(h2$alpha)))
 all.equal(log2, loglik1)
