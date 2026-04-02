@@ -87,12 +87,10 @@ hmm1 <- function(who, B) {
             if (control$debug > 2) cat("A2: j=", j, "alpha=", alpha, "\n")
         }
         else if (otype[j]==3) {  # one or more markers observed
-            #temp <- rep(1, nstate)
             for (k in 1:nmarker) {
                 if (!is.na(ymarker[j,k])) {
                     nc[k] <- nc[k] +1
                     alpha <- alpha* rfun[[k]][,nc[k]]
-            #        temp  <- temp * rfun[k]][,nc[k]]
                 }
             }
             if (!all(is.finite(alpha)) || sum(alpha) <=0) {

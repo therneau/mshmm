@@ -15,9 +15,11 @@ qmat[2:3, 4] <- 1
 qmat[3:4, 5] <- 1
 qmat[-6,6] <- 1
 # statefig(c(1,2,2,1), qmat)  # draw it: 11 transitions!
-temp <- rbind(c(.05, .05, .06, .07, .05, .15, rep(c(.05,.07, .15), c(3,1,1))),
+
+icoef <- rbind(c(.05, .05, .06, .07, .05, .15, rep(c(.05,.07, .15), c(3,1,1))),
                c(rep(0,6), 1:5/10))
-icoef <- log(temp[temp>0]) 
+row.names(icoef) <- c("(Intercept)", "male")
+
 # icoef has the 11 intercepts for the 11 transitions, and the 5 age
 #   coefs for death.  The ordering of the vector form, is, I have to admit,
 #   not the most obvious; but we will more often use the matrix form
@@ -25,12 +27,12 @@ icoef <- log(temp[temp>0])
 
 # Simple models
 hfit0 <- icmsh(Surv(age, state) ~1, data= test1, id=id, qmatrix=qmat,
-               init= icoef[1:11], iter =0)
+               init= icoef[1,], iter =0)
 hfit1 <- icmsh(list(Surv(age,state) ~1, 0:6 ~ male), 
                data=test1, id=id, qmatrix=qmat, init=icoef, iter=0)
 
 # do the computation by hand
-byhand <- function(data, eta, q=qmat, missmat, detail=FALSE) {
+byhand <- function(data, eta, q=qmat, missmat, p0, msm=FALSE, debug=FALSE){
     idlist <- unique(data$id)
     nid <- length(idlist)
     phat <- matrix(0, nid, 6)  # n subjects, 4 states
@@ -39,7 +41,12 @@ byhand <- function(data, eta, q=qmat, missmat, detail=FALSE) {
         tdata <- subset(data, id== idlist[i])
         n <- nrow(tdata)
         e2 <- eta[data$id==idlist[i],]
-        phat[i, tdata$istate[1]] <- 1  # initial state
+        if (missing(p0)) phat[i, tdata$istate[1]] <- 1 #observed state
+        else phat[i,] <- p0
+        # a difference in philosphy
+        if (debug) browser()
+        if (!msm && !missing(missmat)) 
+            phat[i,] <- phat[i,]* missmat[, tdata$istate[1]]
         delta <- diff(tdata$age)
         for (j in 1:(n-1)) {
             # go forward
@@ -55,7 +62,6 @@ byhand <- function(data, eta, q=qmat, missmat, detail=FALSE) {
                 temp[6,]  <- 0
                 phat[i,] <-phat[i,] %*% temp
             } else  phat[i,] <- phat[i,]* missmat[,k]
-            if (detail) cat("i=",i, " j=", j, format(round(phat[i,],4)), "\n")
         }
     }       
     phat
@@ -91,30 +97,29 @@ aeq(deriv, logder, tol= sqrt(eps))
 
 # msm wants the intital rates in qmat, icmsh only uses 0 vs >0
 mqmat <- qmat
-mqmat[qmat>0] <- exp(icoef[1:11])
+mqmat[qmat>0] <- exp(icoef[1,])
 mfit0 <-  msm(istate ~ age, data=test1, subject=id, death=6,
              qmatrix = mqmat, fixedpar=TRUE)
 aeq(-2*hfit0$loglik, mfit0$minus2loglik)  # we agree
 
 # now with covariates
-minit <- log(1:5/10)
+minit <- 1:5/10
 mfit1 <- msm(istate ~ age, data=test1, subject=id, death=6,
              qmatrix = mqmat, fixedpar=TRUE,
              covariates= list("1-6"=~male, "2-6"=~male, "3-6"=~male, 
                               "4-6"= ~male, "5-6"= ~male), 
              covinits= list(male=minit))
 
-# but this loglik doesn't agree, with hfit1, or truelog
-# 1.msm centers each x, and reports results for model using centered variables
+# but this loglik doesn't agree, with hfit1, or truelog:
+# msm centers each x, and reports results for model using centered variables
 #     Where to find that centering value is not particularly obvious,
-#   (they appear to be mean(x[duplicated(id)])
+#   (they appear to use mean(x[duplicated(id)])
 #  To match msm, create a recentered data set and invoke hmm with center=FALSE,
 #   or check against the byhand function
 eta1m <- model.matrix(mfit1) %*% coef(hfit1, matrix=TRUE)
 true1m<- byhand(test1, eta1m, qmat)
 truelogm <- sum(log(rowSums(true1m)))
 aeq(-2*truelogm, mfit1$minus2loglik)
-
 
 test1b <- test1
 test1b$male <- test1b$male - attr(mfit1$data$mm.cov, "means")
@@ -129,7 +134,7 @@ i2 <- rbind("(Intercept)" = coef(hfit1, matrix=TRUE)[1,], educ=0, male=0)
 dimnames(i2) <- list(c("(Intercept)", "educ", "male"), colnames(hfit1$cmap))
 i2["educ", "1:3"] <- .1
 i2["male", c("1:6", "2:6")] <- c(.2, .3)
-# init arg expectes an object that looks look like coef(hfit2, matrix=TRUE)
+# init arg expects an object that looks look like coef(hfit2, matrix=TRUE)
 
 hfit2 <- icmsh(list(Surv(age,state) ~1, 
                   1:3 ~ educ, 1:6+ 2:6 ~ male),
@@ -185,6 +190,7 @@ alias <- data.frame( state=sname, truedx= 1:6)
 iprob <- c(1,1,1,1,0,0)/4
 hfit3 <- icmsh(list(Surv(age,death) ~1, 
                   1:3 ~ educ, 1:6+ 2:6 ~ male), scale=FALSE,
+               mc.cores=1,
                data= test1b, id= id, qmatrix= qmat, iprob= iprob,
                statedata= alias,  center=FALSE, iter=0, init=i2,
                marker= truedx(1:5):dx ~0 /discrete(init=missmat))
@@ -194,14 +200,8 @@ missmat2 <- rbind(cbind(missmat, death=0), death= 0)
 missmat2[6,6] <- 1
 
 eta3 <- model.matrix(hfit3) %*% coef(hfit3, matrix=TRUE)
-true3 <- byhand(test1b, eta3,, missmat=missmat2)
-sum(log(rowSums(true3)))
-
-# msm needs an integer state with 1-6 matching qmat; that variable is
-#  already in test1
-#  the missmat needs to be 6x6, ditto for the byhand function
-missmat2 <- rbind(cbind(missmat, death=0), death= 0)
-missmat2[6,6] <- 1
+true3 <- byhand(test1b, eta3, missmat=missmat2, p0=iprob)
+aeq(hfit3$log, sum(log(rowSums(true3))))
 
 mfit3 <- msm(istate ~ age, data=test1, subject= id, 
              qmatrix = qmat, fixedpar=TRUE, death=6,
@@ -209,6 +209,8 @@ mfit3 <- msm(istate ~ age, data=test1, subject= id,
              covariates= list("1-3"= ~educ,  "1-6"= ~male, "2-6"= ~male),
              covinits= list(educ=.1, male=c(.2, .3)))
 eta3m <- model.matrix(mfit3) %*% coef(hfit3, matrix=TRUE)
+aeq(eta3m, eta3)  # verifies that test1b is properly centered
+aeq(hfit3$log, mfit3$minus2loglik/ -2)
 
 # These models use the cav data set from the msm package
 Qm <- rbind(c(0, .148, 0, .0171),

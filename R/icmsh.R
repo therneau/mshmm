@@ -304,8 +304,16 @@ icmsh <- function(formula, data, subset, weights,
         if (is.matrix(init)) {
             # allow for partial matching, so that a smaller model can feed a 
             #  larger
-            rmatch <- match(rownames(init), rownames(cmap))
-            cmatch <- match(colnames(init), colnames(cmap))
+            if (is.null(rownames(init))) {
+                if (nrow(init)== nrow(cmap)) rmatch= 1:nrow(cmap)
+                else stop("init matrix has the wrong number of rows")
+            }
+            else rmatch <- match(rownames(init), rownames(cmap))
+            if (is.null(colnames(init))) {
+                if (ncol(init) == ncol(cmap)) cmatch <- 1:ncol(cmap)
+                else stop("init matrix has the wrong number of columns")
+            } else cmatch <- match(colnames(init), colnames(cmap))
+
             if (any(is.na(rmatch))) 
                 stop("init has covariates not in the current model")
             if (any(is.na(cmatch)))

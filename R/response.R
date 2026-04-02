@@ -356,7 +356,7 @@ discrete <- function(stateinfo, mlevel, init, pattern, static) {
     if (static) { # no parameters
         if (missing(init)) stop("init argument is needed discrete")
         # expand rows to one per state
-        missmat <- matrix(1, nrow=nstate, ncol= nlevel)
+        missmat <- matrix(0, nrow=nstate, ncol= nlevel)
         j <- stateinfo$index
         missmat[j>0,] <- init[j,]
         colnames(missmat) <- mlevel
@@ -381,7 +381,7 @@ discrete <- function(stateinfo, mlevel, init, pattern, static) {
         if (!is.matrix(eta)) eta <- matrix(eta, ncol=1) #single linear predictor
         nstate <- length(index)
         phat <- matrix(0., nrow= nstate, ncol=ny)
-        if (any(index==0)) phat[index==0,] <- 1  #marker uninformative for state
+        if (any(index==0)) phat[index==0,] <- 0  #marker uninformative for state
         if (gradient) gmat <- array(0., dim=c(nstate, ny, ncol(eta)))
 
         # Do one row of  emap at a time
