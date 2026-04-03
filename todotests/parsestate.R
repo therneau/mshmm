@@ -2,11 +2,11 @@
 # Test the subroutines for parsing set of states
 #  The parsecovar and parsemarker set are two of the more subtle routines
 # The functions are not exported, hence the need for :::
-library(icmsh)
-parsecovar1 <- icmsh:::parsecovar1
-parsecovar2 <- icmsh:::parsecovar2
-parsemarker1 <- icmsh:::parsemarker1
-parsemarker2 <- icmsh:::parsemerker2
+library(mshmm)
+parsecovar1 <- mshmm:::parsecovar1
+parsecovar2 <- mshmm:::parsecovar2
+parsemarker1 <- mshmm:::parsemarker1
+parsemarker2 <- mshmm:::parsemerker2
 
 states <- c("A0N0", "A1N0", "A0N1", "A1N1", "A0N2","A1N2", "death")
 qmat <- matrix(0, 7,7, dimnames=list(states, states))

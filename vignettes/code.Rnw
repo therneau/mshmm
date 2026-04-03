@@ -16,10 +16,10 @@
 
 <<setup, echo=FALSE>>=
 library(survival)
-library(icmsh)
+library(mshmm)
 
 library(knitr)
-opts_chunk$set(tidy=FALSE, fig.keep='none', highlight=FALSE
+opts_chunk$set(tidy=FALSE, fig.keep='none', highlight=FALSE,
                fig.width=7, fig.height=5.5, fig.path="figures/",
                out.width="\\textwidth", out.height="!", 
                background="#FFFFFF", warning=FALSE)
@@ -91,7 +91,7 @@ statefig(cbind(2,2,2,1), qmat, alty=rep(1:2, c(7,8)))
 
 And here is an example call using this data.
 <<mfit, echo=TRUE, eval=FALSE>>=
-mfit <- hmm(list(Surv(time, death) ~ male,
+mfit <- cmsh(list(Surv(time, death) ~ male,
                  0:death ~ iage,
                  A(0):A(1) ~ apoe + ns(iage,4)/ common,
                  N(0):N1(1) + N(1):N(2) ~ iage + cmc),
@@ -99,7 +99,7 @@ mfit <- hmm(list(Surv(time, death) ~ male,
                           N:memory~ 1 + practice/ gaussian,
                           A:(centiloid + sqrt(p.tau181)) ~ 1/gaussian),
             data= dementia, id=ptnum, qmatrix = qmat, 
-            statedata = statedata)
+            alias = statedata)
 @ 
 
 The first argument of hmm is \code{formula}, as with most modeling functions,

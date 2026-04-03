@@ -25,7 +25,7 @@ pdf.options(pointsize=10) #text in graph about the same as regular text
 table2 <- function(...) table(..., useNA = "ifany")
 options(show.significant.stars = FALSE) # be statistically intelligent
 palette("Okabe-Ito")
-options(mc.cores= floor(parallel::detectCores()*.8))
+options(mc.cores= floor(detectCores()*.7))
 @ 
 
 \begin{document}
@@ -434,6 +434,7 @@ are marked by 1 and invalid transitions by 0.
 uses non-integer values between 0 and 2 for drawing curved connections.)
 
 <<colon2b>>=
+options(mc.cores = floor(detectCores()*.7))  # use more than 1, but not all
 # Crude transitions, as a starting estimate
 cdata$year <- cdata$time/365.25  # rates per year are more understandable
 crude <-  c(.7, .1, 4)/8
@@ -1420,7 +1421,6 @@ par(opar)
   \label{mshplot}
 \end{figure}
 
-
 \section{HMM fitter}
 \subsection{data}
 The \code{cmsh} function allows for interval censored data and for latent
@@ -1546,9 +1546,9 @@ We have made an assumption that CU and dementia diagnoses are not confused.
   \begin{tabular}{ccccc}
     & \multicolumn{4}{c}{Observed biomarker} \\
  True & CU & MCI & dementa & ND \\
-  C0  & $p_1$ & $1-p_1$ & 0 &  1  \\
-  C1  & $p_2$ & $1-(p_2 + p_3)$ &$ p_3 $& $1-p_3$ \\
-  C2  &  0  & $p_4$  & $1-p_4$ & $p_4$
+  C0  & p_1 & 1-p_1 & 0 &  1  \\
+  C1  & p_2 & 1-(p_2 + p_3) & p_3 & 1-p_3 \\
+  C2  &  0  & p_4  & 1-p_4 & p_4
  \end{tabular}
  \caption{Multinomial distributions for the dementia data. At an in-person
    study visit CU/MCI/dementia is recorded, 
@@ -1571,6 +1571,390 @@ be not demented is coded as ND, as CU and MCI cannot be distinguished in this
 instance. However, the data entry screen for this task retains only the most
 recent ND/dementia date and the ND/dementia status as of that date.)
 
+
+\subsection{Fit}
+<<hmmfit1>>=
+# make death a factor
+dement2$death <- factor(dement$death, 0:1, c("censor", "death"))
+
+# updated state matrix, using C0, C1, C2 for the latent (hidden) states
+cstate <- c("C0", "C1", "C2", "death")
+qmat <- matrix(0, 4, 4, dimnames=list(cstate, cstate))
+qmat[1:3,4] <- qmat[1,2] <- qmat[2,3] <- 1
+
+# pattern matrix for the multinomial
+pmat <- matrix(c(-1,1,0, 2, -1, 3, 0, 4, -1), 3,3,byrow= TRUE,
+                  dimnames=list(true= paste0("C", 0:2),
+                                marker=c("CU", "MCI", "dementia")))
+ns2 <- function(x, ...) ns(x, Boundary.knots=c(60,90), knots=c(70, 80))
+zzz
+hfit1 <- cmsh(list(Surv(age, death) ~ male + apoepos + clgp + cmc,
+                  1:2 + 2:3 ~ ns2(iage) + male*(apoepos + clgp),
+                  1:4 + 2:4 + 3:4 ~ iage,
+                  1:2  ~ yearc),  qmatrix= qmat,
+             marker= c(1:3):dx ~1 / multinomial(pattern=pmat),
+             data= dement2, id= ptnum, exacttime="death")
+@ 
+
+
+This leads to the following basic components for an cmsh call
+\begin{itemize}
+  \item A model formula specifying the time and covariates that apply to the
+    transition rates. This has the same form as a MSH model fit using
+    coxph.
+  \item The usual data, weight, and subset arguments that go with a formula.
+    Parallel to \code{lm}, \code{glm}, and other standard modeling functions,
+    formula, data, weight and subset are the first four arguments.
+    There is not an na.action argument, more on this later.
+  \item The subject identifier.
+  \item A matrix specifying the valid transitions, whose dimnames are the
+    names of the states.
+  \item An indicator of the death state, if any.
+  \item The mapping(s) between latent states and biomarkers.
+\end{itemize}
+
+The data is specified by using standard R modeling language, illustrated
+in the call below.
+<<model, eval=FALSE>>=
+
+fit <- cmsh(hbind(age, cstate) ~ iage + ns(iage,3) + male, data=data2,
+           subset=1:50, id=clinic, otype=otype,
+           qmatrix= qmat, qcoef=qcon, rcoef=rcon, pcoef=pcon,
+           rfun = hmmgauss, fitter = hmmscore)
+@ 
+
+
+In this example \code{age} indicates the observation time at which the 
+state was observed for the subject and \code{cstate}
+is a variable giving the \emph{observed} 
+outcome for each observation, as opposed to the true underlying state of
+the HMM.  The iage variable is integer age: for HMM models a covariate must
+be constant over each time interval, so as a predictor iage moves forward
+in steps at each birthday.
+The otype and id variables are required, and will normally be found in 
+the data set along with the
+formula variables.  The data must have all of the observations for a particular
+id in contiguous rows, sorted by time within subject, but the data set
+does not need to be sorted by subject identifier.
+The \code{obstype} variable is 0= censored, 1= usual, 2= death, 3= entry.
+The \code{data} and \code{subset} arguments work exactly as in other
+R modeling functions.
+
+
+Having age as both our time scale and ``current age'' as a covariate can be 
+confusing, 
+and one needs to use two separate variable names.  
+The variable on the left hand side encodes actual observation times
+and so will be continuous.  The variable on the right hand
+side is a time dependent covariate and will normally be an integer,
+corresponding to the idea that there is a rate for age 50-51, another for
+age 51-52, \ldots and each rate applies over the whole age interval. 
+This is similar to US death rate tables. More importantly a stepped
+variable like this is the only way that the HMM model can handle continuous
+age; the matrix exponential, a key part of the compuation, is only defined
+for constant hazard rates over the interval, i.e., constant covariates.
+(Or more accurately, the matrix exponential can be efficiently computed for
+only this case.)
+How many intervals to use is up to the user: single years of age is
+perhaps overkill (at least at the younger ages).
+Note that the exact same model fit would ensue if the first term were
+\code{hbind(time, y)} with \code{time} the time since enrollment.
+
+In the current iteration of the package (1.x series) the hmm function acts as
+more of an organizer of the computation than than a doer of the work.
+This was done on purpose, to make the code a better testbed for new ideas.
+The fitter argument, for instance, specifies an external program to use as
+the maximizer.  We have routines that make use of the optim library, Fisher
+scoring, and MCMC methods.  The default fitter simply returns the fit at 
+the initial values.  
+
+Although this made the code a good tool for exploration, setting up any given
+problem can be tedious. Sections below talk about all of the individual bits.
+
+\subsection{Transition rates}
+The matrix of transition rates is specified using the \code{qmatrix}
+argument, which has the same form as it does in the msm package.
+If there were 6 true states then $Q$ will be 6 by 6, element $i,j$ is 0
+if transitions from state $i$ to state $j$ do not (directly) occur
+and a positive value if the transition is allowed.
+The row and/or column names of $Q$ contain
+the names of the states, which will be attached to various parts of the
+printout; no dimnames corresponds to using 1, 2, 3, \ldots as the state names.
+(This is discouraged).
+
+For our 6 state model of Alzheimers the $Q$ matrix would be
+<<qmat>>=
+qmat <- matrix(c(0, 1, 1, 0, 0, 1,
+                 0, 0, 0, 1, 0, 1,
+                 0, 0, 0, 1, 1, 1,
+                 0, 0, 0, 0, 1, 1, 
+                 0, 0, 0, 0, 1, 1,
+                 0, 0, 0, 0, 0, 1), ncol=6, byrow=TRUE)
+states <- c("A-N-", "A+N-", "A-N+", "A+N+", "demented", "dead")
+dimnames(qmat) <- list(states, states)
+qmat
+@ 
+The diagonal is ignored and can contain any value.  
+(Subjects can always stay in the same state, and the program
+knows this.)  Zeros correspond to transitions that cannot occur
+and non-zero to those that can.
+The non-zero values will normally be simple indicators as in the above example,
+with initial values for the transitions found in the \code{qcoef} argument.
+Alternately, the elements of \code{qmat} can contain initial values for the
+log of the transition rates.  Any initial values in \code{qcoef} will 
+override the values in \code{qmat}.
+
+
+
+The first three variables can be either numeric or character, depending
+on whether you want to refer to the states and/or terms by number or label.
+A term in the model formula such as \code{ns(x3, 3)} will expand into multiple 
+coefficients but is thought of as one \emph{term} by R, and entered as
+such in qcoef.  Do not forget the intercept, which is
+implicit in most R models and can be referred to either as `(Intercept)'
+or as term number 0.
+
+Any row in \code{qcoef} that has coef=0 causes that coefficient to not
+be optimized; it will be fixed at its initial value. 
+All rows with \code{coef} set to the same nonzero value are 
+constrained to share the same coefficient.  
+The actual values used in the coef column for this purpose 
+are of no consequence although one will normally use integers.
+Initial values for the intercept terms are are taken from the 
+\code{qmatrix} argument or the \code{qcoef} data frame; if present
+the \code{qcoef} values override any in $Q$.
+
+In the model given above, assume that we want a common death rate for
+the first 4 states, differing for males and females, and
+the spline term only for the A-N- to A+N- transition.
+Below is a sample qcoef argument.
+The program will automatically add the
+intercepts and their initial values. 
+In order to be consistent with the msm package the current code expects the
+hazard (exp(coef)) in qmat and the coefficient itself in qcoef.  
+I'm not sure if this is a good idea.
+
+<<qcon>>=
+states <- c("A-N-", "A+N-", "A-N+", "A+N+", "demented", "dead")
+qcon1 <- data.frame(state1 = states[c(1,3,1,2,3,4,5)],
+                    state2 = states[c(2,4,3,4,5,5,6)],
+                    term = rep(c("ns(iage, 3)", "iage"), c(1,6)),
+                    coef = 1:7)
+# force equal age coefficients for death
+qcon2 <- data.frame(state1 = states[rep(1:4, 3)],
+                    state2 = rep("dead", 12),
+                    term   = rep(c("(Intercept)", "iage","male"), c(4,4,4)),
+                    coef = rep(12:14, c(4,4,4)))
+rbind(qcon1, qcon2)
+@ 
+
+\subsection{Response functions}
+Response functions are set up in a parallel way.
+The \code{rfun} argument contains the name of the response
+function, or a list of functions if there are multiple y values at
+each visit.  The first response function goes with the first $y$ value
+and etc.
+The \code{rcoef} argument is a data frame with names of 
+response, lp, term, coef and optionally init; 
+the first of these is not needed if there
+is a single response.
+A given response function can depend on multiple linear predictors.
+The term, coef, and init arguments are identical to those for qcoef.
+
+A response function will be called with four arguments
+\begin{description}
+  \item[y] a vector of values $y$ of length $n$
+  \item[nstate] number of states
+  \item[eta] a matrix of linear predictors with $n$ rows.
+  \item[derivative]  FALSE or TRUE, whether the function should also return
+    derivatives of the result
+\end{description}
+The routine will return a matrix with $nstate$ rows and $n$ columns.
+Each column refers to a single observation, and contains
+$P(y_i | s_i=j)$, the probability of seeing the given $y$ if the true state
+were $j$.  
+The routine is not called for missing $y$ values, the parent \code{hmm}
+routine has taken care of that.
+If derivatives are requested then the response will have a \code{gradient}
+attribute which is an array whose first two dimensions are identical to 
+the return, and last dimension is the number of linear predictors.
+Each ``slice'' of the array contains the derivatives wrt a single linear
+predictor.
+
+The code contains a response function \code{noerror.hmm} which treats every
+response as though it were observed without error.  Using this yields the
+usual Markov model rather than a hidden Markov model.
+Say one has a response function with no optimized parameters, e.g., if error
+rates were known a-priori.  
+One way to deal with this are to write a simple function with those rates
+baked in as constants; it depends on no parameters so the
+the \code{rcoef} argument would be empty.
+Another is to write one that depends on parameters but call
+it with those parameters fixed.
+An rcoef data frame for the latter would have one or more rows with
+lp= 1, 2, \ldots, term=0 (intercept), coef=0 (fixed
+value) and init = the desired value. 
+In either test cases the parent routine is smart enough not to 
+ask for derivatives.
+
+\subsection{Starting probabilities}
+The starting probability $\pi_0$ is defined in the same way as the
+response functions using \code{pfun} and \code{pcoef}.
+The \code{pfun} function has arguments of number of states, linear predictors,
+and derivative.
+
+\section{Optmization}
+Within the code there are a few key variables.
+First is the $X$ matrix which has $n$ rows and $m$ columns, and is
+like any other X matrix in a modeling function.
+Second is $\beta$ which has $m$ rows and $p$ columns, one for each linear 
+predictor.  There is a linear predictor for each allowed transition rate,
+along with those for the response functions and $\pi$.  
+Some elements of $\beta$ may be constant.
+The third is \code{cmap}, which has the same shape as $\beta$, and contains
+parameter numbers.  A value of 0 means that the corresponding element of
+$\beta$ is fixed (often at zero), a value of $k$ means that the corresponding
+element of $\beta$ is taken from the $k$th parameter.
+The maximum value of \code{cmap} is the number of estimated parameters,
+which is also the length of the \code{coefficient} vector. 
+This is the vector that the optimization routine sees.
+
+The \code{scale} option controls centering and scaling of the variables.
+If centered then the intercepts are with respect to the mean
+covariate values, scaling scales them all to a standard deviation of 1.
+Centering can be critical for convergence of the code, and scaling will
+often be helpful.  The default for the routine is \code{c(TRUE, FALSE)}
+for centering but not scaling.
+The \code{scale} component of an hmm fit contains the vector of centering
+values and the vector of scale values.  This can be used as the argument
+in other hmm fits to ensure the same center/scale from run to run of a 
+set of models.
+
+A strength of the code (but more work for the user) is that it allows the
+use of an optimizer of choice.  The routine should have \code{par} and
+\code{fn} as the first arguments, and return a list containing elements
+\code{loglik} and {coefficients}.
+As an olive branch to the optim routine the results can also be labeled
+as \code{par} and \code{value}.
+The \code{mfun} argument to \code{hmm} should contain the name of the
+optimizer and \code{mpar} a list of any other parameters desired by the
+routine.  
+When called \code{par} will contain the initial values of the parameters
+and \code{fn} will by default be 'hmmloglik'.  However, any of
+'hmmloglik', 'hmmgrad' or 'hmmfull', can be be used by
+adding this as the \code{fn} element of \code{mpar}.  
+Each of these takes a single vector of parameter values as input.
+\begin{itemize}
+  \item hmmloglik returns a single log-likelihood value
+  \item hmmgrad returns a vector of first derivatives
+  \item hmmfull returns vector of log-likelihood values, one per subject,
+    along with a matrix of derivatives with one row per subject and one
+    column per parameter.
+\end{itemize}
+
+\section{Constraints and penalties}
+One way to create the constraints is to use the hmmpenalty function.
+The primary idea is to define contrasts between linear predictors.
+The arguments are
+\begin{itemize}
+  \item A data set with the same covariates as the fitted model, and one
+    row for each target.
+  \item A vector of linear predictor names, which will be matched to the
+    column names of \code{coef(fit)}.  Alternately this can be a vector of
+    column numbers.
+  \item A set of contrasts/comparisons between the linear predictors.
+\end{itemize}
+
+For instance, suppose that we want the a:b rate to be similar to the c:d rate
+for a model with multiple transitions, with age, sex, and APOE as covariates.
+As our default subject choose a 70 year old male, APOE negative.  Then the
+data set and linear predictors could be:
+<<apoe>>=
+newdata <- data.frame(age=c(70, 70), male=c(1,1), apoe=c(0,0))
+lp      <- c("a:b", "c:d")
+@ 
+to create a contrast matrix that will be used as a penalty.
+
+Alternatively we might want to force the rate to be increasing from age 70 to
+80, in which case the data set and linear predictors would be
+<<apoe2>>=
+newdata <- data.frame(age=c(70, 80), male=c(1,1), apoe=c(0,0))
+lp      <- c("a:b", "a:b")
+@ 
+
+A call might have two targets or a hundred, it is entirely up to the user.
+The third argument creates combinations of the constraints.  For instance if
+there were 4 targets we could have a contrast argument of
+<<apoe3>>=
+contrast <- rbind(c(1, -1, 0, 0), c(0, 0, 1, -1), c(1, 0, -1, 0))
+contrast
+@ 
+This compares linear predictors 1 with 2, 3 with 4, and 1 with 3.
+If all of the pairing are simple +1/-1 comparisons like the above then an
+alternate form of the argument is allowed which is a 2 column matrix
+with rows of (1,2), (3,4), and (1,3).
+
+
+One reason for thinking of the constraints in this way is that the result is
+invariant to any variable recoding.  A covariate can be centered or rescaled
+and the predicted value is unchanged.
+A second reason which is perhaps more important is that working directly 
+with the
+parameters can be hard.  For instance, we might want one linear rate to be 
+greater than another --- but what does this mean?  Consider the figure below.
+The second rate will cross the first at about age 95, but it may be larger
+for all the ages we care about.  Constraints that the rate is
+higher at ages 60 and 80 may accomplish what we want without resorting to 
+non-linear tail behavior.
+<<agefig, echo=FALSE>>=
+age <- 50:90
+y <- cbind(-8 + age/100, -7.55 + age/190)
+matplot(age, 1e4*exp(y), type='l', lty=1, lwd=2, log='y',
+        xlab="Age", ylab = "rate/100")
+@ 
+
+A last advantage is that this approach is simple to specify for non-linear
+functions such as a spline.  
+
+The result of a call to \code{hmmpenalty} is a 3 dimensional array whose 
+first 2 dimensions match \code{coef(fit)} and third dimension the number of
+comparisons.  Each ``slice'' is one comparison.
+An array can instead be created directly by the user, if desired.
+The same form is used for both the penalty and constraint arguments.
+Let $C\beta$ be the set of linear contrasts after translation to the
+underlying parameters $\beta$ of the maximization. 
+(This is done automatically by hmm).  Then a penalty
+is the addition of the square of each contrast to the log-likelihood,
+formally $\beta'(C'C) \beta /2$.  
+For our figure above, a penalty at age 70 adds the square of the distance
+between the two curves.
+(Actually the log curves, since rates are fit on log scale to avoid negative
+numbers).
+
+How should penalties be scaled?  
+For penalties, a degrees-of-freedom argument would note that the likelihood
+should increase by about 2 units with the addition of an extraneous
+degree of freedom,
+which is the basis of Akiake's information criterion.  
+(Compare 2*loglik to a chi square on 1 degree of freedom).
+The BIC replaces 2 with log(n).
+Since rates are all on the log scale, two rates that differ by 1 unit
+corresponds to a 2.7 fold change in the event rate, which is fairly 
+substantial.  The penalty to the loglik in this case is $1^2/2 = 1/2$ unit.
+A difference of 2 units (7.4 fold rate change) has a penalty of 2 units.
+We see that an unscaled penalty does not impose a large practical constraint
+from a biology point of view.  
+In a small number of examples, however, it seems to be able to stop the
+derivative based methods from particularly bad guesses during optimization.
+When using an MCMC optimization the priors on the parameters perform the same 
+function.
+
+Constraints are handled by the minimization routines themselves.  The MCMC
+code deals with them perfectly.  
+The hmmscore function obeys the constraints and seems to do well, but there
+is no guarantee that it will find the optimal solution.  More importantly
+the approximate variance matrix that is returned is not a reliable way to 
+create confidence intervals.  The optim function will ignore any constraints.
 
 \bibliographystyle{plain}
 \bibliography{refer}

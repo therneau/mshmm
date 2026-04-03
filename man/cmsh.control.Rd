@@ -1,13 +1,13 @@
-\name{icmsh.control}
-\alias{icmsh.control}
-\title{Control parameters for the icmsh function
+\name{cmsh.control}
+\alias{cmsh.control}
+\title{Control parameters for the cmsh function
 }
 \description{
   These are miscellaneous control parameters used by the solution
-  functions underlying the \code{icmsh} function.
+  functions underlying the \code{cmsh} function.
 }
 \usage{
-icmsh.control(smallpos = 0.001, debug = FALSE, scale=TRUE,
+cmsh.control(smallpos = 0.001, debug = FALSE, scale=TRUE,
              makecluster = .Platform$OS.type == "windows", detail=FALSE)
 }
 \arguments{
@@ -30,6 +30,6 @@ icmsh.control(smallpos = 0.001, debug = FALSE, scale=TRUE,
   each individual id to the estimate and derivatives is returned}
 }
 \value{a list containing the options}
-\seealso{\code{\link{icmsh}}
+\seealso{\code{\link{cmsh}}
 }
 \keyword{ models }

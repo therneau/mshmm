@@ -1,25 +1,25 @@
 # The main function
-icmsh <- function(formula, data, subset, weights, 
+cmsh <- function(formula, data, subset, weights, 
                 id, qmatrix, markers, iprob, init, fixed,  
-                penalty,  constraint, statedata,
+                penalty,  constraint, alias,
                 iter=30, exact= "death", mfun=hmmscore, mpar=list(), mfattr, 
                 mc.cores=getOption("mc.cores", 2L), 
-                control= hmm.control(), ...) {
+                control= cmsh.control(), ...) {
     Call <- match.call()
     time0 <- proc.time()
 
-    ## We want to pass any ... args to icmsh.control, but not pass things
+    ## We want to pass any ... args to cmsh.control, but not pass things
     ##  like "dats=mydata", i.e., where someone made a typo.  The use of ...
     ##  is simply to allow things like "eps=1e6" with easier typing
     extraArgs <- list(...)
     if (length(extraArgs) && missing(control)) {
-        controlargs <- names(formals(hmm.control)) #legal arg names
+        controlargs <- names(formals(cmsh.control)) #legal arg names
         indx <- pmatch(names(extraArgs), controlargs, nomatch=0L)
         if (any(indx==0L))
             stop(gettextf("Argument %s not matched", 
                           names(extraArgs)[indx==0L]), domain = NA)
-        control <- do.call(hmm.control, extraArgs)
-    } else if (missing(control)) control <- hmm.control()
+        control <- do.call(cmsh.control, extraArgs)
+    } else if (missing(control)) control <- cmsh.control()
 
 
     # create a call to model.frame() that contains the formula (required)
@@ -79,19 +79,19 @@ icmsh <- function(formula, data, subset, weights,
     else iter <- ceiling(iter)
 
     # Is there state data?
-    if (!missing(statedata)) { # check that it is okay
-        if (!inherits(statedata, "data.frame"))
-            stop("statedata must be a data frame")
-        if (names(statedata)[1] != "state" || !is.character(statedata$state))
-            stop("first variable in statedata must be a character variable named 'state'")
-        indx <- match(statenames, statedata$state, nomatch=0)
+    if (!missing(alias)) { # check that it is okay
+        if (!inherits(alias, "data.frame"))
+            stop("alias must be a data frame")
+        if (names(alias)[1] != "state" || !is.character(alias$state))
+            stop("first variable in alias must be a character variable named 'state'")
+        indx <- match(statenames, alias$state, nomatch=0)
         if (any(indx==0))
-            stop("statedata$state does not contain all the states")
-        statedata <- statedata[indx,]  # same row order as the states
-        # Statedata might have rows for states that are not in the data set,
+            stop("alias$state does not contain all the states")
+        alias <- alias[indx,]  # same row order as the states
+        # Alias might have rows for states that are not in the data set,
         #  for instance if the hmm call had used a subset argument.  Any of
         #  those are eliminated by the above line.
-    } else statedata <- data.frame(state=statenames)
+    } else alias <- data.frame(state=statenames)
      
     # if the formula is a list, do the first level of processing on it,
     #  which is to pick off the list of variable names
@@ -115,7 +115,7 @@ icmsh <- function(formula, data, subset, weights,
     # grab markers for the hidden states
     if (missing(markers)) nmarker <- 0
     else {
-        marker1 <- parsemarker1(markers, statedata)
+        marker1 <- parsemarker1(markers, alias)
         nmarker <- length(unique(marker1$marker))  # number of markers
         # the result has a separate list of markers (character) and formulas for
         #  the covariates of the markers (most or all of which might be ~1)
@@ -182,7 +182,7 @@ icmsh <- function(formula, data, subset, weights,
     contrasts <- attr(X, "contrasts")
     
     # Do the second pass on the formula and markers
-    parse2 <- parsecovar2(parse1, statedata, dformula, Terms, qmatrix,
+    parse2 <- parsecovar2(parse1, alias, dformula, Terms, qmatrix,
                           colnames(X), xassign)
     cmap <- parse2$cmap # coefficients for the transitions
     tmap <- parse2$tmap # terms for the transitions
@@ -196,7 +196,7 @@ icmsh <- function(formula, data, subset, weights,
     if (nmarker >0) {
         markerlevels <- lapply(marker1$marker, function(x) 
             levels(mf[[x]]))
-        marker2 <- parsemarker2(marker1, statedata, Terms, colnames(X), 
+        marker2 <- parsemarker2(marker1, alias, Terms, colnames(X), 
                                 xassign, markerlevels)
         nlp[2] <- ncol(marker2$cmap)
         if (nlp[2] ==0) b2 <- 0 else b2 <- nlp[1] + 1:nlp[2]
@@ -297,7 +297,7 @@ icmsh <- function(formula, data, subset, weights,
     beta.names <- paste(rownames(cmap)[indx], colnames(cmap)[indx], sep='.')
     param <- rep(0, nparam)
     if (!missing(init)) {
-        if (inherits(init, "icmsh")) { # a prior hmm model
+        if (inherits(init, "cmsh")) { # a prior hmm model
             priormod <- init
             init <- coef(priormod, matrix=TRUE, fixed=TRUE)
         }
@@ -346,9 +346,9 @@ icmsh <- function(formula, data, subset, weights,
             else if (is.numeric(test)) cmap[test>0] <- - cmap[test>0]
             else stop("fixed argument must be logical or numeric")
         } else { # it should be a vector
-            fixed <- asLogical(fixed)  # change numeric to T/F
+            fixed <- as.logical(fixed)  # change numeric to T/F
             if (!is.null(names(fixed))) {
-                index <- match(names(fixed), param.names)
+                index <- match(names(fixed), pname)
                 if (any(is.na(index)))
                     stop("fixed has an coefficient not found in the model: ",
                          (names(fixed)[is.na(index)])[1])
@@ -524,11 +524,10 @@ icmsh <- function(formula, data, subset, weights,
     mfit <- msh.fit(id, ytime, ystate, X, iprob, B,
                      cmap, nlp, ymarker, rlist, qmatrix,
                      mc.cores, control, mfun, mfattr, mpar, iter,
-                     iexact, conmat, penmat)
+                     iexact, constraint, penmat)
 
 
     time2 <- proc.time()
-    if (mc.cores > 1 & control$makecluster) stopCluster(hmm_cluster)
 
     # Undo any scaling and centering
     if (control$scale || control$center) {
@@ -553,7 +552,7 @@ icmsh <- function(formula, data, subset, weights,
                   )
     if (!is.null(removed)) final$removed <- removed
     if (!is.null(mfit$penalty) && mfit$penalty >0)   
-        final$penalty <- c(initial= penalty0, final= mfit$penalty)
+        final$penalty <- c(initial= mfit$penalty0, final= mfit$penalty)
     if (!is.null(mfit$fit)) final$fit <- mfit$fit
     if (control$center && ncol(X) >1) final$xmean <- Xmean
     if (control$scale  && ncol(X) >1) final$xscale <- Xscale
@@ -562,6 +561,6 @@ icmsh <- function(formula, data, subset, weights,
     final <- c(final, list(call=Call,  xlevels=xlevels,
                   contrasts= attr(X, "contrasts"),
                   terms = Terms))
-    class(final) <- "icmsh"
+    class(final) <- "cmsh"
     final
 }

@@ -82,4 +82,4 @@ hmmscore(par, fn, gr, iter = 30, scale = 2, shrink = 1, debug = FALSE, constrain
 \item{trace}{tracing information. A list with matrices loglik, coef, and
   active, each of which has a row per iteration.}
 }
-\seealso{\code{\link{hmm}}}
+\seealso{\code{\link{cmsh}}}

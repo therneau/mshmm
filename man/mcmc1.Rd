@@ -55,4 +55,4 @@ of the user and are set via the \code{mpar} argument.
 }
 \author{Terry Therneau}
 
-\seealso{\code{\link{hmm}}, \code{\link{hmmscore}}}
+\seealso{\code{\link{cmsh}}, \code{\link{hmmscore}}}

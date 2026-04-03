@@ -2,6 +2,7 @@ testmc
 Readme
 data/dementia.Rmd
 data/Readme
+data/renal.R
 noweb/
 .git
 .gitignore

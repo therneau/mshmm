@@ -1,6 +1,6 @@
 # The coefficients/coef and print methods
 
-coef.icmsh <- function(object, matrix=FALSE, 
+coef.cmsh <- function(object, matrix=FALSE, 
                      fixed=TRUE, matrix1= matrix, matrix2= matrix, 
                      matrix3= matrix, ...) {
     cmap <- object$cmap
@@ -47,7 +47,7 @@ B.to.coef <- function(B, cmap, fixed=FALSE) {
     new
 }       
 
-print.icmsh <- function(x, digits=max(options()$digits - 4, 3), ...) {
+print.cmsh <- function(x, digits=max(options()$digits - 4, 3), ...) {
      if (!is.null(cl<- x$call)) {
 	cat("Call:\n")
 	dput(cl)

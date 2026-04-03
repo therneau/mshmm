@@ -25,7 +25,7 @@ hmm1 <- function(who, B) {
     else alpha <- p0fixed
     
     # Now the response functions for this set
-    # rlist was set up by icmsh
+    # rlist was set up by cmsh
     rneed <- (otype[rows]==3)
     if (any(rneed)) {
         rfun <- vector("list", nmarker) # results of calling the rfun() fcns
@@ -149,7 +149,7 @@ hmm2 <- function(who,  B) {
     #  rows which have marker k not missing
     # rgrad is array of (nstate, length(e2map), nk)= (state, lp, row)
     rneed <- (otype[rows]==3)  # observed markers
-    # rlist was created in icmsh from marker2$response
+    # rlist was created in cmsh from marker2$response
     if (any(rneed)) {
         for (k in 1:nmarker) {
             index <- rneed & !is.na(ymarker[rows,k])

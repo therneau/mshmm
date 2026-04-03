@@ -1,13 +1,13 @@
-\name{predict.hmm}
-\alias{predict.hmm}
-\title{Predictions for an hmm model}
-\description{Predictions for an hmm model}
+\name{predict.cmsh}
+\alias{predict.cmsh}
+\title{Predictions for an cmsh model}
+\description{Predictions for an cmsh model}
 \usage{
-\method{predict}{hmm}(object, newdata, type = c("link", "rate",
+\method{predict}{cmsh}(object, newdata, type = c("link", "rate",
 "pstate"), se.fit = FALSE, times, \dots)
 }
 \arguments{
-  \item{object}{the result of an \code{hmm} fit}
+  \item{object}{the result of an \code{cmsh} fit}
   \item{newdata}{a data set for prediction}
   \item{type}{the type of predicted value}
   \item{se.fit}{should standard errors of the predicted values be given}
@@ -30,4 +30,4 @@
   otherwise a list with component fit and se.fit.
 }
 \author{Terry Therneau}
-\seealso{\code{\link{hmm}}, \code{\link{hmmcontrast}}}
+\seealso{\code{\link{cmsh}}, \code{\link{hmmcontrast}}}

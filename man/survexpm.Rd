@@ -36,7 +36,7 @@ survexpm(R, time = 1, deriv = FALSE, tol=1e-8, method=c("eigen", "pade"))
   for the matrix exponential, which are used in said case.
   These cases occur often in multi-state hazard (MSH) models fit by
   survival::coxph, e.g., at any time point with only one event.
-  They are rare in the censored MSH dealt with in icmsh.
+  They are rare in the censored MSH dealt with in a cmsh fit.
   
   If the eigenvectors corresponding to the non-zero eigenvalues are of
   full rank, then an eigenvalue based decompostion method is used for

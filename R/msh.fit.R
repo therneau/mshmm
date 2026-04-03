@@ -202,6 +202,8 @@ msh.fit <- function(id, ytime, ystate, X, iprob, B,
         pderiv  <-  c(param %*% penmat)
     }
     else penalty <- 0
+    if (mc.cores > 1 & control$makecluster) stopCluster(hmm_cluster)
+
     rval <- list(param=param, 
                  loglik= c(initial= initial.loglik, final= loglik),
                  penalty=penalty, iter=fit$iter, fit=fit)

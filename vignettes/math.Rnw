@@ -14,7 +14,7 @@
 \maketitle
 
 <<setup, echo=FALSE>>=
-library(icmsh)
+library(mshmm)
 library(survival)
 library(knitr)
 
@@ -37,14 +37,38 @@ We will first talk about interval censored models, then build on that for
 HMM
 
 \section{Multi-state hazard models}
-The survival package deals with multistate hazard (MSH) models which are 
+The survival package deals with multistate hazard (MSH) models that are 
 based on a 
 non-parametric baseline hazard.
-The Aalen-Johansen estimator is a natural extension of the Kaplan-Meier,
-and the MSH models a natural extension of the Cox model.
+The Aalen-Johansen estimator is a the natural multi-state extension of the 
+Kaplan-Meier, and the MSH models themselves
+a natural extension of the Cox model.
 The \code{survfit} routine produces both the KM and AJ estimates, and the
 \code{coxph} function estimates both the simple proportional hazards (Cox)
 MSH model fits.
+The primary fitting function of this package, \code{cmsh}, deals with
+(interval) censored multi-state hazard models.
+
+\begin{figure}
+<<simpleprog, echo=FALSE>>=
+pstate <- c("Entry", "Progression", "Death")
+pmat <- matrix(0, 3, 3, dimnames=list(pstate, pstate))
+pmat[1,2] <- pmat[1,3] <- pmat[2,3] <- 1
+statefig(1:2, pmat)
+@ 
+  \caption{A simple model of cancer progression.}
+  \label{simpleprog}
+\end{figure}
+
+A primary differnce between models fit using \code{coxph} and \code{cmsh}
+is that the former is focused on modeling the \emph{observed transitions},
+and implicitly assumes we know when those transitions happened,
+while the latter on modeling the \emph{observed state} at selected times.
+Consider Figure \ref{simpleprog}, for instance, in a cancer clinical trial
+where patients are followed up every 8 weeks.  
+We could think of cmsh as providing
+a model for the time to progression and coxph a model for the time to detection
+of progression.
 
 \begin{figure}
 <<nafld, echo=FALSE>>=
@@ -60,29 +84,37 @@ metabolid comorbidites.}
  \label{fig:nafld}
 \end{figure}
 
-This library deals with interval censored variants of these models. 
-As an illustration consider Figure \ref{fig:nafld}, 
-which shows the state space diagram for the NAFLD data set, an
-example used in the survival vignette on multistate models.  
-At any given visit, subjects will have accumulated
-0--3 of three predefined metabolic comorbidites (MC):
+For a study with regular follow-up, such as this, we will see that the results
+of the two fits are often nearly identical.
+A more interesting case is the non-alcoholic fatty liver disease (MAFLD),
+whose states are shown in Figure \ref{fig:nafld} and data used as an 
+illustration in the survival package.
+example used in the survival vignette on multistate models. 
+All adult subject subjects with a diagnosss of MAFLD from 1997 to 2012,
+along with 4 potential controls for each case, were followed forward from
+that point for the occurence of any of 3 metabolic comorbidities (MC):
 diabetes, hypertension, and hyperlipidemia.
-If measured continuously, subjects will progress via the solid arrows from 0 
+If measured continuously, subjects would progress via the solid arrows from 0 
 to 1 to 2 to 3 comorbidities.
 (We assume that no one progresses on two of the markers at the 
 \emph{exact} same instant.)
-In the observed data, however, there will be subjects who are in the 0MC
+
+However, the interval between clinical visits varies considerably from
+subject to subject and visit to visit, with 20, 50 and 80 percentiles
+of 2.5, 24, and 70 months.
+In the observed data, there will be subjects who are in the 0MC
 state at one visit, and in the 2MC state at their next visit; as that following
 visit might be several years later.  Such visit pairs lead to the dashed
 line transtions in Figure \ref{fig:nafld}.
-Since comorbidities in the study were defined as ``history of diabetes'', 
+If there are systematic differences in visit frequency, e.g., if women saw
+their physician more often on average than men,
+this can introduce a bias in the coxph analysis.
+The cmsh approach may be more appropriate.
+(Footnote: since comorbidities in the study were defined as 
+``history of diabetes'', 
 ``history of dyslipidemia'', and ``history of hypertension''
-no arrows go backwards.
+no arrows go backwards.)
 
-The primary underlying difference between the two approaches is
-that the semiparametric MSH model fit by coxph is a model for
-observed \emph{transitions} while the interval censored MSH model of mshmm
-is a model for observed \emph{states}.  
 Say that subject X was seen at age 55, 58.2 and 61.4 with their first
 MC of diabetes at the second visit.
 The coxph fit assumes that a 0MC:1MC transition has occured at exactly age
@@ -93,14 +125,14 @@ the particpants come back at a regular interal and each visit involves
 a panel of tests. The state at each visit is known, but not the
 state transitions had occured.
 
-The perceptive user will have noticed that a call to icsmh looks remarkably
+The perceptive user will notice that a call to csmh looks remarkably
 like a call to coxph.  This is on purpose, but there are some important
 differences between the calls.
-The first is that icmsh requires
-a matrix of valid transions $Q$.  For $Q$ matrix for the above data this 
+The first is that cmsh requires
+a matrix of valid transions $Q$.  The $Q$ matrix for the MAFLD data  
 is shown below,
 and corresponds to the solid arrows in figure \ref{fig:nafld}.
-The computer can't know that a direct 0MC to 2MC transition is impossible
+The computer won't know that a direct 0MC to 2MC transition is impossible
 without being told.
 <<qmatrix>>=
 states <- c("0MC", "1MC", "2MC", "3MC", "death")
@@ -110,7 +142,7 @@ qmat[1:4, 5] <- 1
 qmat
 @ 
 
-A second difference is that the icmsh routine uses a parametric baseline
+A second difference is that the cmsh routine uses a parametric baseline
 hazard for each state to state transition, most often a spline function
 of age or time.  As a consequence the rates include an intercept term.
 

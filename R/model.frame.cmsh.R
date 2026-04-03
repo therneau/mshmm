@@ -1,4 +1,4 @@
-model.frame.icmsh <- function (formula, ...) {
+model.frame.cmsh <- function (formula, ...) {
     dots <- list(...)
     nargs <- dots[match(c("data", "na.action", "subset"), 
             names(dots), 0)]
@@ -8,7 +8,7 @@ model.frame.icmsh <- function (formula, ...) {
         indx <- match(c("formula", "data", "weights", "subset", 
             "na.action"), names(fcall), nomatch = 0)
         if (indx[1] == 0) 
-            stop("The icmsh call is missing a formula!")
+            stop("The cmsh call is missing a formula!")
         temp <- fcall[c(1, indx)]
         temp[[1L]] <- quote(stats::model.frame) 
         temp$formula <- formula$terms 
@@ -22,7 +22,7 @@ model.frame.icmsh <- function (formula, ...) {
     else formula$model
 }
 
-model.matrix.icmsh <- function(object, data,  ...) {
+model.matrix.cmsh <- function(object, data,  ...) {
     if (missing(data) && !is.null(object[["x"]]))
         return(object[["x"]])
 

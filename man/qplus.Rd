@@ -25,7 +25,7 @@ example below.
   or 1.
 }
 \seealso{
-  \code{\link{hmm}}
+  \code{\link{cmsh}}
 }
 \examples{
 # An example with states of amyloid burden (A0, A1, A2) and cognitive state

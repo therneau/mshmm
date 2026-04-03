@@ -40,7 +40,7 @@ hmmcontrast(fit, data, lp, contrast)
   \code{p} giving the value of each contast, its estimated standard
   error, and a two sided P value.
 }
-\seealso{\code{\link{hmm}}, \code{\link{predict.hmm}}}
+\seealso{\code{\link{cmsh}}, \code{\link{predict.cmsh}}}
 \author{Terry Therneau}
 \keyword{ model }% use one of  RShowDoc("KEYWORDS")
 

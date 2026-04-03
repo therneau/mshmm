@@ -90,7 +90,7 @@ statepair <- function(lhs, statemap) {
     # The entire reason for this is so that a user can type N(1) as a 
     #  shorthand for "all the states for which variable N is 1"
     env1 <- new.env(parent= parent.frame(2))
-    assign("state", env= env1,
+    assign("state", envir= env1,
            value = function(..., target=statemap[,1], cname= "state") {
                j <- c(...)
                check <- match(j, target)
@@ -102,12 +102,12 @@ statepair <- function(lhs, statemap) {
     if (ncol(statemap) > 1) {
         cname <- colnames(statemap)
         for (i in 2:ncol(statemap)) {
-            temp <- get("state", env= env1)
+            temp <- get("state", envir= env1)
             ftemp <- formals(temp)
             ftemp$target <- statemap[,i]
             ftemp$cname <- cname[i]
             formals(temp) <- ftemp
-            assign(cname[i], temp, env= env1)
+            assign(cname[i], temp, envir= env1)
         }
     }
 
@@ -155,7 +155,7 @@ statepair <- function(lhs, statemap) {
             # a user might write 3:"death" or 3:death
             if (is.character(x) || is.name(x)) 
                 z <- which(statemap$state == as.character(x)) 
-            else z <- eval(x, env= env1)
+            else z <- eval(x, envir= env1)
 
             if (!is.numeric(z)) stop("non-numeric state: ", deparse(x))
             if (any(z != as.integer(z))) {

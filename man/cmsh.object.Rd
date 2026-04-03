@@ -1,14 +1,14 @@
-\name{icmsh.object}
-\alias{icmsh.object}
+\name{cmsh.object}
+\alias{cmsh.object}
 \title{Multi-state model regression object}
-\description{This class of objects is returned by the \code{icmsh}
+\description{This class of objects is returned by the \code{cmsh}
   function.
   Objects of this class have methods for \code{print}, \code{predict}
   and \code{coef}.
 }
 
 \section{Components}{
-The following components should be included in a legitimate \code{icmsh}
+The following components should be included in a legitimate \code{cmsh}
 object.
 }
 \arguments{
@@ -44,6 +44,6 @@ and/or \code{frame}.
 }
 
 
-\seealso{\code{\link{icmsh}}}
+\seealso{\code{\link{cmsh}}}
 
   

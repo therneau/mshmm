@@ -6,7 +6,7 @@
 #  matrix in row major order, and icmsh in column major, ie. standard R.
 #
 library(msm)
-library(icmsh)
+library(mshmm)
 aeq <- function(x, y, ...) all.equal(as.vector(x), as.vector(y), ...)
 
 # test1 has 4 subjects, 17 rows
@@ -32,9 +32,9 @@ icoef[1,] <- log(icoef[1,])
 #   
 
 # Simple models
-hfit0 <- icmsh(Surv(age, state) ~1, data= test1, id=id, qmatrix=qmat,
+hfit0 <- cmsh(Surv(age, state) ~1, data= test1, id=id, qmatrix=qmat,
                init= icoef[1,], iter =0)
-hfit1 <- icmsh(list(Surv(age,state) ~1, 0:6 ~ male), 
+hfit1 <- cmsh(list(Surv(age,state) ~1, 0:6 ~ male), 
                data=test1, id=id, qmatrix=qmat, init=icoef, iter=0)
 
 # do the computation by hand
@@ -79,7 +79,7 @@ truelog <- sum(log(rowSums(true1)))
 aeq(hfit1$loglik, truelog)
 
 # detail=TRUE forces no iteration, and returns extra info
-hfit1b <- icmsh(list(Surv(age,state) ~1, 0:6 ~ male), center=FALSE, mc.cores=1,
+hfit1b <- cmsh(list(Surv(age,state) ~1, 0:6 ~ male), center=FALSE, mc.cores=1,
               data=test1, id=id, qmatrix=qmat, init=icoef, detail=TRUE)
 
 # derivatives
@@ -89,7 +89,7 @@ deriv <- double(nbeta)
 for (i in 1:nbeta) {
     i2 <- icoef[icoef>0] #treat init as a vector
     i2[i] <- i2[i]+ eps
-    tfit <- icmsh(list(Surv(age,state) ~1, 0:6 ~ male), center=FALSE,
+    tfit <- cmsh(list(Surv(age,state) ~1, 0:6 ~ male), center=FALSE,
                 data=test1, id=id, qmatrix=qmat, init=i2, iter=0)
     deriv[i] <- (tfit$loglik - hfit1$loglik)/eps
 }
@@ -101,7 +101,7 @@ tder  <- apply(hfit1b$deriv, c(1,3), sum) # ditto
 logder <- unname(rowSums(tder %*% diag(1/alpha)))
 aeq(deriv, logder, tol= sqrt(eps))
 
-# msm wants the intital rates in qmat, icmsh only uses 0 vs >0
+# msm wants the intital rates in qmat, cmsh only uses 0 vs >0
 mqmat <- qmat
 mqmat[qmat>0] <- exp(icoef[1,])
 mfit0 <-  msm(istate ~ age, data=test1, subject=id, death=6,
@@ -130,7 +130,7 @@ aeq(-2*truelogm, mfit1$minus2loglik)
 
 test1b <- test1
 test1b$male <- test1b$male - attr(mfit1$data$mm.cov, "means")
-hfit1c <- icmsh(list(Surv(age, state) ~ 1, 0:6 ~ male), data = test1b,
+hfit1c <- cmsh(list(Surv(age, state) ~ 1, 0:6 ~ male), data = test1b,
                 id = id, qmatrix = qmat, init = icoef, iter = 0, center=FALSE)
 aeq(mfit1$minus2loglik, -2*hfit1c$loglik)
 # So Chris Jackson and I agree
@@ -143,14 +143,14 @@ i2["educ", "1:3"] <- .1
 i2["male", c("1:6", "2:6")] <- c(.2, .3)
 # init arg expects an object that looks look like coef(hfit2, matrix=TRUE)
 
-hfit2 <- icmsh(list(Surv(age,state) ~1, 
+hfit2 <- cmsh(list(Surv(age,state) ~1, 
                   1:3 ~ educ, 1:6+ 2:6 ~ male),
              data=test1, id=id, qmatrix=qmat, init=i2, iter=0)
 eta2 <- model.matrix(hfit2) %*% i2
 true2 <- byhand(test1, eta2)
 aeq(hfit2$log, sum(log(rowSums(true2))))
 
-# icmsh centered the covariates internally *and* also transformed the 
+# cmsh centered the covariates internally *and* also transformed the 
 #  coefficients, i.e., the user never sees the change.  msm on the
 #  other hand returns coefs wrt recentered data
 mfit2 <- msm(istate ~ age, data=test1, subject=id, 
@@ -167,7 +167,7 @@ center <- attr(mfit2$data$mm.cov, "means")
 test1b$educ <- test1b$educ - center["educ"]
 test1b$male <- test1b$male - center["male"]
 
-hfit2b <- icmsh(list(Surv(age,state) ~1, 
+hfit2b <- cmsh(list(Surv(age,state) ~1, 
                   1:3 ~ educ, 1:6+ 2:6 ~ male), center=FALSE,
              data=test1b, id=id, qmatrix=qmat, init=i2, iter=0)
 aeq(-2*hfit2b$loglik, mfit2$minus2loglik)  
@@ -188,7 +188,7 @@ missmat <- cbind(rbind(missmat,0),0)
 missmat[6,6] <- 1
 dimnames(missmat) <- list(true= sname, obs=sname)
 
-# For icmsh death is always part of Surv, the marker variable(s) for
+# For cmsh death is always part of Surv, the marker variable(s) for
 #  other states treat it as missing.
 test1b$death <- 1*(test1b$state=="death")
 dx <- with(test1b, ifelse(state=="death", NA, state))
@@ -196,7 +196,7 @@ test1b$dx <- factor(dx, 2:6, sname[1:5])
 
 # treat initial state as random from 1-4
 iprob <- c(1,1,1,1,0,0)/4
-hfit3 <- icmsh(list(Surv(age,death) ~1, 
+hfit3 <- cmsh(list(Surv(age,death) ~1, 
                   1:3 ~ educ, 1:6+ 2:6 ~ male), scale=FALSE,
                mc.cores=1,
                data= test1b, id= id, qmatrix= qmat, iprob= iprob,

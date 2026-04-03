@@ -1,5 +1,5 @@
-\name{icmsh}
-\alias{icmsh}
+\name{cmsh}
+\alias{cmsh}
 \title{Interval censored multi-state hazard models}
 
 \description{Fit a multi-state hazard model to data that may be interval
@@ -8,11 +8,11 @@ hidden) this becomes a hidden Markov model (HMM).  This function allows
 for mix of hidden and directly observed states.}
 
 \usage{
-icmsh(formula, data, subset, weights, 
+cmsh(formula, data, subset, weights, 
     id, qmatrix, markers, iprob, init, fixed,  
-    penalty,  constraint, statedata,
+    penalty,  constraint, alias,
     iter=30, exact= "death", mfun=hmmscore, mpar=list(), mfattr, 
-    mc.cores=getOption("mc.cores", 2L), control= icmsh.control(), ...)
+    mc.cores=getOption("mc.cores", 2L), control= cmsh.control(), ...)
 }
 \arguments{
   \item{formula}{a formula for the model.  The left hand side will be a
@@ -33,7 +33,7 @@ icmsh(formula, data, subset, weights,
   \item{fixed}{optional, initial values that are fixed}
   \item{penalty}{an optional data frame descibing penalties.}
   \item{constraint}{an optional data frame descibing constraints.}
-  \item{statedata}{a data frame which provides aliases for the states}
+  \item{alias}{a data frame which provides aliases for the states}
   \item{iter}{maximum number of iterations}
   \item{exact}{states for which the time of entry to the state
     is known exactly}
@@ -43,11 +43,11 @@ icmsh(formula, data, subset, weights,
   \item{mc.cores}{how many parallel cores to use for computing the
     per-subject log-likelihood contributions}
   \item{control}{a list of control parameters, normally created with
-      the \code{icmsh.control} function.}
+      the \code{cmsh.control} function.}
   \item{...}{optional parameters, any names that match control arguments are
-      used as input to \code{icmsh.control}}
+      used as input to \code{cmsh.control}}
 }
-\value{an icmsh fit object}
+\value{an cmsh fit object}
 \details{
 If the response is \code{Surv(time, status)}, then the status variable
 should be a factor whose first level corresponds to censored, and
@@ -75,7 +75,7 @@ In each case not all transitions or
 covariates need be present, the remainder are assumed to be 0. 
 This makes it easy to use a smaller fit as intial values for a larger one.
 
-Missing values are dealt with in a way peculiar to the icmsh function.
+Missing values are dealt with in a way peculiar to the cmsh function.
 Any \code{id} value with a missing value for the response, weight, or intial
 rate covariates is removed, i.e., all rows for that id. 
 This is because retaining only some rows

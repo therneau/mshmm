@@ -388,8 +388,8 @@ discrete <- function(stateinfo, mlevel, init, pattern, static) {
         # Do one row of  emap at a time
         # 
         for (i in 1:nrow(emap)) {
-            etemp <- emat[i,]
-            ecol <- sort(unque(etemp[etemp>0]))
+            etemp <- emap[i,]
+            ecol <- sort(unique(etemp[etemp>0]))
             mtemp <- mlogit(eta[,ecol]) # result has col 1= ref, then others
             indx <- c(which(etemp== -1), 1L+ match(etemp, ecol, nomatch= -1))
             yindx <- indx[y]

@@ -1,15 +1,15 @@
-\name{coef.icmsh}
-\alias{coef.icmsh}
-\title{Extract coefficients from an icmsh object}
-\description{Return the coefficients of an icmsh object, either as
+\name{coef.cmsh}
+\alias{coef.cmsh}
+\title{Extract coefficients from an cmsh object}
+\description{Return the coefficients of an cmsh object, either as
   a vector or a matrix.
 }
 \usage{
-\method{coef}{icmsh}(object, matrix= FALSE, fixed= TRUE, 
+\method{coef}{cmsh}(object, matrix= FALSE, fixed= TRUE, 
                    matrix1= matrix, matrix2= matrix, matrix3= matrix, ...)
 }
 \arguments{
-  \item{object}{an icmsh object}
+  \item{object}{an cmsh object}
   \item{matrix}{if TRUE, return the coefficients as a matrix, otherwise
     as a vector}
   \item{fixed}{include fixed coefficients in the result}
@@ -38,7 +38,7 @@
   coefficients may be fixed; thus this vector will often be much
   shorter than the number of non-zero values from the matrix form.
   For \code{fixed=TRUE} it is the \code{coefficient} component of the
-  \code{icmsh} object.
+  \code{cmsh} object.
 
   The \code{cmap} component of a fit has one row for each covariate that
   appears and one column for each linear predictor; each transition for
@@ -49,7 +49,7 @@
   that the coefficient in question was fixed.
 }
 \examples{
-# assume hfit is the result of an icmsh fit
+# assume hfit is the result of an cmsh fit
 # The following will give the matrix of estimated transition rates
 #  for a new data set, one row per observation in new, one column
 #  per transition
@@ -58,5 +58,5 @@
 }
 }
 \value{a matrix or vector of coefficients}
-\seealso{\code{\link{icmsh}}}
+\seealso{\code{\link{cmsh}}}
 

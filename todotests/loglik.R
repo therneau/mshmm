@@ -1,4 +1,4 @@
-library(hmm)
+library(mhsmm)
 aeq <- function(x, y, ...) all.equal(as.vector(x), as.vector(y), ...)
 
 # Do the loglik by hand for a small data set that has per-subject initial
@@ -30,10 +30,8 @@ mdata <- structure(list(ptnum = c(1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 2L,
 
 mdata$iage <- floor(mdata$age)
 mdata$death <- 1L*(mdata$dx == "death")
-temp <- c(1,1,1, 2,1,0)[as.numeric(mdata$dx)]
-mdata$otype <- ifelse(!duplicated(mdata$ptnum), 3, temp)
 
-# Minnesota death rates
+# Minnesota death rates, used as initial values
 dummy <- data.frame(y= c(survival::survexp.mn[60:95, 1:2, "2010"]*365.25),
                age= rep(60:95, 2), male=rep(1:0, each=36))
 dfit <- lm(log(y) ~ age + male, dummy)
@@ -57,14 +55,6 @@ states <- c("C0", "C1", "C2", "death")
 Q <- matrix(0, 4, 4, dimnames=list(from=states, to=states))
 qindex <- cbind(c(1,2, 1,2,3), c(2,3,4,4,4)) # nonzero transtions 
 Q[qindex] <- 1
-
-sdata <- data.frame(states=states, C=1:4, D=c(0,0,0,1))
-q0 <- qcoef(Q, sdata, 
-            list(C(1)/ D(1) ~ 1+ iage + male,
-                 C(2)/ D(1) ~ 1+ iage + male,
-                 C(3)/ D(1) ~ 1+ iage + male,
-                 C(1) / C(2)  ~ 1+ iage,
-                 C(2) / C(3) ~  1 + iage))
 
 # Error matrix
 emat <- rbind(c(.8, .2, 0, 0, 1),
@@ -140,49 +130,13 @@ P7 <- pmat(.63, eta[7,])
 density <- c(exp(eta[8,3:5]),0)
 alpha5 <- (alpha4 %*% P7)*density
 
-# Now hmm
-efun <- function(y, ..., emap=emat){
-    emap[,y]
-}
-
-# the first subject
-htest0 <- hmm(hbind(age,dx) ~ iage + male, mdata, id=ptnum, otype=otype,
-              qmat=Q, qcoef=q0, rfun=efun, iprob= entry, entry=c(1,1,1,1),
-              death=4, mc.cores=1, subset= (ptnum==1), icoef=beta) # debug=3)
+# Fit an hmm to subject 1
+# levels of the marker need to match the error matrix
+mdata$dx2 <- factor(as.numeric(mdata$dx), 1:5, levels(mdata$dx)[1:5])
+htest0 <- cmsh(list(Surv(age, death)~ iage,
+                    0:"death" ~ male),  mdata, subset= (ptnum==1),
+               mdata, id=ptnum, qmatrix=Q, iprob= entry, init= beta,
+               marker= state:dx2 ~0 /discrete(init=emat))
 aeq(htest0$loglik, log(sum(alpha5)))
 
-htest1 <-  hmm(hbind(age,dx) ~ iage + male, mdata, id=ptnum, otype=otype,
-              qmat=Q, qcoef=q0, rfun=efun, iprob= entry, entry=c(1,1,1,1),
-              death=4, mc.cores=1, icoef=beta)
 
-
-# repeat this with msm
-library(msm)
-
-# for msm intial estimates of the rates go in Q
-# but, it is the intercept at the mean of the other covariate
-Q[qindex] <- exp(colMeans(eta))
-
-# msm thinks of the parameters in row major order of qmat, so
-# states are in the order 1:2, 1:4, 2:3, 2:4, 3:4
-beta2 <- beta[,c(1,3,2,4,5)]
-mdata$istate <- as.integer(mdata$dx)
-mfit0 <- msm(istate ~ age, data=mdata, subject=ptnum, 
-             qmatrix=Q, fixedpar=TRUE,
-             covariates= list("1-2"= ~ iage, "2-3" = ~iage,
-                              "1-4"= ~ iage + male, "2-4" = ~ iage + male,      
-                              "3-4"= ~ iage + male),
-             covinits= list(iage= beta2[2,], male= beta2[3, c(2,3,4)]),
-             ematrix= emat[,1:4], deathexact=4,
-             censor=c(5,6), censor.states=list(1:2, 1:3),
-             initprobs=entry) 
-
-c(hlog= htest1$loglik, mlog= -.5*mfit0$minus2loglik)
-
-# The two loglik are subtly different, because msm uses an odd mean;
-# which I have not yet been able to puzzle out.  The mean of their data
-# frame (msm.mean2 below) agrees with my data mean, but that is not the centering
-# constant that they use (msm.mean).  Very puzzling.
-rbind(hmean= colMeans(X)[-1],  msm.mean= attr(mfit0$data$mm.cov, "means"),
-      msm.mean2 = sapply(mfit0$data$mf[,c("iage", "male")], mean))
-                

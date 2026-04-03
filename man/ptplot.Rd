@@ -25,7 +25,7 @@ ptplot(x, depth = 0, ...)
  an invisible list containing the structure of the tree
 }
 \author{Terry Therneau}
-\seealso{\code{\link{hmm}}}
+\seealso{\code{\link{cmsh}}}
 \examples{
 \dontrun{
 ptplot(A0:A1 + A2:(A3 + death) ~ age + sex / init(.21, .3))

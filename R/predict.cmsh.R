@@ -1,6 +1,6 @@
-predict.icmsh <- function(object, newdata, type=c("link", "rate", "pstate"),
+predict.cmsh <- function(object, newdata, type=c("link", "rate", "pstate"),
                         se.fit=FALSE, times, absorb, ...) {
-    if (!inherits(object, "icmsh")) stop("only valid for icmsh objects")
+    if (!inherits(object, "cmsh")) stop("only valid for icmsh objects")
     type <- match.arg(type)
     Terms <- delete.response(terms(object))
 
