@@ -1,6 +1,10 @@
 #
 # Fit the same model with msm and hmm, to verify that I have the
 #  right likelihood.
+# Getting the initial values in the correct order is the bugbear here, as msm
+#  and icmsh use very different styles, plus msm thinks of the state space 
+#  matrix in row major order, and icmsh in column major, ie. standard R.
+#
 library(msm)
 library(icmsh)
 aeq <- function(x, y, ...) all.equal(as.vector(x), as.vector(y), ...)
@@ -81,7 +85,7 @@ eps <- 1e-8
 nbeta <- sum(hfit1$cmap >0)
 deriv <- double(nbeta)
 for (i in 1:nbeta) {
-    i2 <- icoef
+    i2 <- icoef[icoef>0] #treat init as a vector
     i2[i] <- i2[i]+ eps
     tfit <- icmsh(list(Surv(age,state) ~1, 0:6 ~ male), center=FALSE,
                 data=test1, id=id, qmatrix=qmat, init=i2, iter=0)
@@ -110,9 +114,10 @@ mfit1 <- msm(istate ~ age, data=test1, subject=id, death=6,
                               "4-6"= ~male, "5-6"= ~male), 
              covinits= list(male=minit))
 
-# but this loglik doesn't agree, with hfit1, or truelog:
-# msm centers each x, and reports results for model using centered variables
+# The above loglik doesn't agree with hfit1 or truelog:
+# msm centers each x, and reports results for a model using centered variables
 #     Where to find that centering value is not particularly obvious,
+#     attr(model.matrix(mfit1), "means") is one method
 #   (they appear to use mean(x[duplicated(id)])
 #  To match msm, create a recentered data set and invoke hmm with center=FALSE,
 #   or check against the byhand function
@@ -129,7 +134,7 @@ aeq(mfit1$minus2loglik, -2*hfit1c$loglik)
 # So Chris Jackson and I agree
 
 
-# Add a second covariate
+# Add a second covariate, this was used in jackson.R in my earlier hmm package
 i2 <- rbind("(Intercept)" = coef(hfit1, matrix=TRUE)[1,], educ=0, male=0)
 dimnames(i2) <- list(c("(Intercept)", "educ", "male"), colnames(hfit1$cmap))
 i2["educ", "1:3"] <- .1
@@ -177,7 +182,9 @@ missmat <- rbind(temp[c(1,2,3,4)], temp[c(2, 1, 4,3)],
                  temp[c(3,4,1,2)], temp[c(4, 3, 2, 1)])
 missmat <- cbind(missmat, 0)
 missmat <- rbind(missmat, c(0,0,0,.1,.9))
-dimnames(missmat) <- list(true= 1:5, obs=sname[1:5])
+missmat <- cbind(rbind(missmat,0),0)
+missmat[6,6] <- 1
+dimnames(missmat) <- list(true= sname, obs=sname)
 
 # For icmsh death is always part of Surv, the marker variable(s) for
 #  other states treat it as missing.
@@ -185,32 +192,30 @@ test1b$death <- 1*(test1b$state=="death")
 dx <- with(test1b, ifelse(state=="death", NA, state))
 test1b$dx <- factor(dx, 2:6, sname[1:5])
 
-alias <- data.frame( state=sname, truedx= 1:6)
 # treat initial state as random from 1-4
 iprob <- c(1,1,1,1,0,0)/4
 hfit3 <- icmsh(list(Surv(age,death) ~1, 
                   1:3 ~ educ, 1:6+ 2:6 ~ male), scale=FALSE,
                mc.cores=1,
                data= test1b, id= id, qmatrix= qmat, iprob= iprob,
-               statedata= alias,  center=FALSE, iter=0, init=i2,
-               marker= truedx(1:5):dx ~0 /discrete(init=missmat))
-
-# For msm, missmat needs to be 6x6, ditto for the byhand function
-missmat2 <- rbind(cbind(missmat, death=0), death= 0)
-missmat2[6,6] <- 1
+               center=FALSE, iter=0, init=i2,
+               marker= state:dx ~0 /discrete(init=missmat[1:5,1:5]))
 
 eta3 <- model.matrix(hfit3) %*% coef(hfit3, matrix=TRUE)
-true3 <- byhand(test1b, eta3, missmat=missmat2, p0=iprob)
+true3 <- byhand(test1b, eta3, missmat=missmat, p0=iprob)
 aeq(hfit3$log, sum(log(rowSums(true3))))
 
 mfit3 <- msm(istate ~ age, data=test1, subject= id, 
              qmatrix = qmat, fixedpar=TRUE, death=6,
-             ematrix=missmat2, initprob=c(1,1,1,1,0,0)/4,
+             ematrix=missmat, initprob=c(1,1,1,1,0,0)/4,
              covariates= list("1-3"= ~educ,  "1-6"= ~male, "2-6"= ~male),
              covinits= list(educ=.1, male=c(.2, .3)))
 eta3m <- model.matrix(mfit3) %*% coef(hfit3, matrix=TRUE)
 aeq(eta3m, eta3)  # verifies that test1b is properly centered
 aeq(hfit3$log, mfit3$minus2loglik/ -2)
+
+
+
 
 # These models use the cav data set from the msm package
 Qm <- rbind(c(0, .148, 0, .0171),
