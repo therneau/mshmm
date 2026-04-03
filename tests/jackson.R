@@ -23,6 +23,8 @@ qmat[-6,6] <- 1
 icoef <- rbind(c(.05, .05, .06, .07, .05, .15, rep(c(.05,.07, .15), c(3,1,1))),
                c(rep(0,6), 1:5/10))
 row.names(icoef) <- c("(Intercept)", "male")
+icoef[1,] <- log(icoef[1,])
+
 
 # icoef has the 11 intercepts for the 11 transitions, and the 5 age
 #   coefs for death.  The ordering of the vector form, is, I have to admit,
@@ -206,7 +208,7 @@ true3 <- byhand(test1b, eta3, missmat=missmat, p0=iprob)
 aeq(hfit3$log, sum(log(rowSums(true3))))
 
 mfit3 <- msm(istate ~ age, data=test1, subject= id, 
-             qmatrix = qmat, fixedpar=TRUE, death=6,
+             qmatrix = mqmat, fixedpar=TRUE, death=6,
              ematrix=missmat, initprob=c(1,1,1,1,0,0)/4,
              covariates= list("1-3"= ~educ,  "1-6"= ~male, "2-6"= ~male),
              covinits= list(educ=.1, male=c(.2, .3)))

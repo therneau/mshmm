@@ -51,9 +51,9 @@ msh.fit <- function(id, ytime, ystate, X, iprob, B,
     temp1 <- (ystate %in% iexact) & duplicated(id)
     if (nmarker >0 ) {
         temp3 <- rowSums(sapply(ymarker, function(x) !is.na(x))) >0
-        browser()
-        if (any(temp3 & ystate>0))
-            warning("marker variables present for an obs with known state")
+         # this, it turns out, complains too much
+#        if (any(temp3 & ystate>0))
+#            warning("marker variables present for an obs with known state")
     } else temp3 <- 0
     otype <- ifelse(temp1, 2L,
                     ifelse(ystate>0, 1L, 3L*temp3))

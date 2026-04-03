@@ -315,7 +315,7 @@ discrete <- function(stateinfo, mlevel, init, pattern, static) {
         dimnames(emap) <- list(paste0(stateinfo$sname, stateinfo$levels),
                                marker=mlevel)
         # why match rather than emap>0?  I don't want duplicates
-        pname <- outer(rownames(emap), colnames(emap),sep='_')[match(uval, emap)]
+        pname <- outer(rownames(emap), colnames(emap), paste, sep='_')[match(uval, emap)]
     } else if (!static) {
         # Assume the fully parameterized missclassification matrix
         uval <- seq.int(1, ngroup *(nlevel-1))
@@ -323,7 +323,7 @@ discrete <- function(stateinfo, mlevel, init, pattern, static) {
         emap <- cbind(-1, temp) # first state is reference group
         dimnames(emap) <- list(paste0(stateinfo$sname, stateinfo$levels),
                                marker=mlevel)
-        pname <- outer(rownames(emap), colnames(emap),sep='_')[match(uval, emap)]
+        pname <- outer(rownames(emap), colnames(emap), paste, sep='_')[match(uval, emap)]
     }  
 
     if (!missing(init)) {
@@ -348,6 +348,7 @@ discrete <- function(stateinfo, mlevel, init, pattern, static) {
         if (nrow(init) != nstate) {
             # assume missing rows are states for which the marker is irrelevant
             i2 <- matrix(0, nstate, ncol(init))
+            if (is.null(rownames(init))) k <- 1:nrow(init) # assume first rows
             i2[k,] <- init
             init <- i2
         }

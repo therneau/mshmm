@@ -89,7 +89,7 @@ markerpair <- function(x, statemap) {
                 # if there were 5 states it would mean that 2 and 4 map to
                 # nothing
                 index <- eval(state)
-                if (is.numeric(index) && index== as.integer(index) &&
+                if (is.numeric(index) && all(index== as.integer(index)) &&
                     all(index>0) && all(index <= nstate)) {
                     temp <- rep(0L, nstate)
                     temp[index] <- seq(along=length(index))
