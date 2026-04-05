@@ -375,11 +375,6 @@ cmsh <- function(formula, data, subset, weights,
     Xmean <-  rep(0, ncol(X)) # don't scale
     Xscale <- rep(1, ncol(X))
     if ((control$scale || control$center) && ncol(X) >1) {
-        if (control$scale & !control$center) {
-            warning("scale=TRUE implies center=TRUE")
-            doscale <- docenter <- TRUE
-            control$center <- TRUE
-        }
         rvar <- 2:ncol(X) # don't scale the intercept!
         Xmean <-  rep(0, ncol(X))
         Xscale <- rep(1, ncol(X))

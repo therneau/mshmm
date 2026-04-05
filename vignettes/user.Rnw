@@ -83,7 +83,7 @@ For a study with regular follow-up, such as a clinical trial,
 we will see that the results of a \code{coxph} and \code{cmsh} fit
 are often nearly identical.
 A more interesting case is a study of metabolic dysfunction-associated
-steatotic liver disease (MAsLD),
+steatotic liver disease (MASLD),
 whose states are shown in Figure \ref{fig:nafld}, which is found as an example
 of multistate models in the survival package (data set nafld).
 All adult subject subjects with a diagnosss of MAFLD from 1997 to 2012,
@@ -177,7 +177,7 @@ states, $Y$ the observed values and $f(Y|X)$ as the emission probability
 (or $P(Y\in A|X)$ for discrete $Y$).
 In our models we often have all three types of states
 \begin{enumerate}
- \item Observed transtions, where both the exact state and the time of
+ \item Transtions where both the exact state and the time of
    entry to the state are known, e.g., the death state.
  \item Known states, where for a visit at time $t$ the current state can be
    assessed acurrately, but the time of entry to that state is not known.
@@ -257,7 +257,7 @@ The multistate format for the survival package evolved out of simple survival
 and so retains that instance as a special case, i.e., one line per subject
 for the simple cases of alive/dead or competing risks.
 
-This second observation is that a timeline dataset will have many missing 
+A second observation is that a timeline dataset will have many missing 
 values, e.g., blood pressure would not normally be known on the day of death,
  especially if death date is obtained from other sources.
 One consequence is that the usual first step of other modeling functions such
@@ -473,7 +473,7 @@ abline(h=max(loglik) +2, lty=3)
 Per reference 1 in the help file for the data, patients were
 assessed for progression every 8 weeks for the first year, every 4 months for
 the second year, and every 6 months for years 3 to 5.  To properly analyse
-this data using interval censored methods data rows for each of these 
+this data using interval censored methods, data rows for each of these 
 intermediate visits should be included in the study data, but this data is
 not available to us.
 An interesting exercise is to add psuedo observations that match
@@ -492,6 +492,73 @@ the visit schedule, and observe how the estimate behaves.
     The analyis will reflect that.
 \end{itemize}    
 
+\subsection{NAFLD example}
+ Metabolic dysfunction-associated fatty liver disease (previously known as
+NAFLD) is characterized by fat accumulation in the liver, and is linked to 
+metabolic dysfunction, such as obesity, type 2 diabetes, or other signs of 
+metabolic dysregulation. 
+Allen \cite{Allen18} collected information on
+all adult subject subjects with a diagnosss of MAFLD from 1997 to 2012,
+along with 4 potential controls for each case, were followed forward from
+that point for the occurence of any of 3 metabolic comorbidities (MC):
+diabetes, hypertension, and hyperlipidemia.
+A reprise of that analysis, based on the multistate model below,
+is found in the survival package. 
+
+<<nafld1b>>=
+states <- c("0MC", "1MC", "2MC", "3MC", "death")
+nmat <- matrix(0, 5, 5, dimnames=list(states, states))
+nmat[1,2] <- nmat[2,3] <- nmat[4,5] <- 1
+nmat[1:4,5] <- 1
+nmat[1,3] <- nmat[1,4] <- nmat[2,4] <- 0.7
+statefig(rbind(4,1), nmat, alty=c(1,2,1, 2,2,1,1,1,1))
+@
+
+<<echo=FALSE>>=
+# for the sentences below
+i1 <- duplicated(nafld2$id, fromLast=TRUE)
+i2 <- duplicated(nafld2$id)
+interval <- nafld2$days[i2] - nafld2$days[i1]
+interval <- interval[interval >7]  # don't count two test on the same visit
+qq <- round(quantile(interval, c(0, .2, .5, .8,1))/30.5, 1)
+@ 
+
+If measured continuously, subjects would progress via the solid arrows from 0 
+to 1 to 2 to 3 comorbidities.
+(We assume that no one progresses on two of the markers at the 
+\emph{exact} same instant.)
+However, the interval between clinical visits varies considerably from
+subject to subject and visit to visit, with 20, 50 and 80 percentiles
+of 3, 9, and 18 months (max 245).
+In the observed data, there will be subjects who are in the 0MC
+state at one visit, and in the 2MC state at their next visit; as that following
+visit might be several years later.  Such visit pairs lead to the dashed
+line transtions in Figure \ref{fig:nafld}.
+If there are systematic differences in visit frequency, e.g., if women saw
+their physician more often on average than men,
+this can introduce a bias in the coxph analysis.
+The cmsh approach may be more appropriate.
+(Footnote: since comorbidities in the study were defined as 
+``history of diabetes'', 
+``history of dyslipidemia'', and ``history of hypertension''
+no arrows go backwards.)
+
+Like the colon cancer example above we need to include intermediate
+visits. The survival package data consists of 3 data sets, baseline information
+with one row per subject (\code{nafld1}), outcome information with a row for
+the first instance of each MC, and laboratory data with values for each visit.
+
+To do: work out the example (my initial code neglected to fill in intermediate
+visits).
+\begin{itemize}
+  \item Most of the work: build and check the data set.  Age is the most 
+    important factor, expand to yearly age? Yes.
+  \item Fit one: age only, requires sensible starting values, fit2 add 
+    sex*nafld, fit 3 use coxph (and challenges).
+  \item Compare. My expectation is minor changes in hazard ratios, some in 
+    absolute.  Also much slower.
+  \item Important distinction between a visit date and alive/dead
+\end{itemize}
 
 \subsection{CAV example}
 Data from a study that monitors the progression of coronary allograft
@@ -547,8 +614,8 @@ ideath <- cav2$cstate[i2]=="death" # did the interval end in death?
 #between visits
 hist(interval[!ideath], nclass=50, main=NULL,
      xlab="Time between consecutive visits (years)")
-hist(interval[ideath], nclass=30, main=NULL,
-     xlab="Years between last visit and death")
+#hist(interval[ideath], nclass=30, main=NULL,
+#     xlab="Years between last visit and death")
 @
 
 For interval censored data we need to specifiy the set of
@@ -572,7 +639,7 @@ Death is the most common exact state.
 One can also have multiple exact states, one of the more common examples 
 is cause of death, e.g., states of `death due to cancer' and `other death'
 had been separated by the user.
-The status variable in the Surv call will be a factor with censored as the
+The status variable in the Surv call is a factor with censored as the
 first level, followed by the states, in the same order as the $Q$ matrix.
 Now add covariates.
 
@@ -582,7 +649,14 @@ cfit1 <- cmsh(list(Surv(years, cstate) ~ 1,
              data=cav2, id= ptnum, init= cfit0,
              qmatrix= cqmat)
 cfit1  # msm vignette, 2.7, model 2a
+@
 
+The code allows the use of a prior model for the initial values.
+Interestingly, the number of iterations needed to estimate the initial
+intercept was larger than for \code{cfit1}. This is not uncommon, in
+our experience.
+
+<<cav2b>>=
 cfit2 <- cmsh(list(Surv(years, cstate) ~ dage, 
                   1:2 + 2:3 ~ sex / common,
                   2:1 + 3:2 ~ sex / common,
@@ -616,103 +690,6 @@ covariates, linear predictors, and coefficients.
 The final fit has 17 unique coefficients, the linear predictor for the 3:4
 (severe:death) transition for example makes use of coefficients 16, 17 and 13.
 
-
-\subsection{NAFLD example}
- Metabolic dysfunction-associated fatty liver disease (previously known as
-NAFLD) is characterized by fat accumulation in the liver, and is linked to 
-metabolic dysfunction, such as obesity, type 2 diabetes, or other signs of 
-metabolic dysregulation. 
-The \code{nafld1}, \code{nafld2} and \code{nafld3} data sets contain
-baseline, repeated laboratory, and outcome data, respectively from a 2018 
-study by Allen.
-
-An analysis using the state space below is found in the vignettes for
-the survival package.
-See there for creating the counting process data using \code{tmerge}.
-The states are the count of three metabolic comorbities (MC) for each
-subject at a given visit: diabetes, dislipidemia, and hypertension.
-
-<<nafld1b>>=
-states <- c("0MC", "1MC", "2MC", "3MC", "death")
-nmat <- matrix(0, 5, 5, dimnames=list(states, states))
-nmat[1,2] <- nmat[2,3] <- nmat[4,5] <- 1
-nmat[1:4,5] <- 1
-nmat[1,3] <- nmat[1,4] <- nmat[2,4] <- 0.7
-statefig(rbind(4,1), nmat, alty=c(1,2,1, 2,2,1,1,1,1))
-@
-
-Now create the timeline data set.
-For illustration we have done this using only the functions in base R, 
-but many other, more sophisticated tools can be used.
-
-<<naflddata>>=
-temp1 <- subset(nafld1, select=c(id, age, male, case.id))  #baseline
-temp1$days <- 0
-temp1$nafld <- 1*(temp1$id== temp1$case.id)  # marker of nafld at baseline
-temp1$case.id <- NULL  # no longer needed
-temp2 <- subset(nafld3, event== "diabetes") # first diabetes
-temp2$days <- pmax(0, temp2$days)  # diabetes which began before enrollment 
-temp3 <- subset(nafld3, event== "dyslipidemia")
-temp3$days <- pmax(0, temp3$days)
-temp4 <- subset(nafld3, event== "htn")       # first hypertension
-temp4$days <- pmax(0, temp4$days)
-
-# create the cumulative count, recognizing that two outcomes might be
-#  discovered at the same follow-up visit
-temp5 <- rbind(temp1[,c(1,4)], temp2[,1:2], temp3[,1:2], temp4[,1:2])
-temp5 <- temp5[order(temp5$id, temp5$days),]
-temp5$count <- 1:nrow(temp5) - (1:nrow(temp5))[match(temp5$id, temp5$id)]
-temp5 <- temp5[!duplicated(temp5[,1:2], fromLast=TRUE),]
-
-lfu <- subset(nafld1, select= c(id, futime, status)) # death
-names(lfu)[2] <- "days"
-
-ndata <- merge(temp1, temp5, by=c("id", "days"), all=TRUE) 
-ndata <- merge(ndata, lfu,   by=c("id", "days"), all=TRUE) 
-ndata <- merge(ndata, nafld, by=c("id", "days"), all=TRUE) 
-
-# 3 cases: death, fu after last visit, clinic visit
-tstate <- with(ndata, ifelse(!is.na(status) & status==1, 5,
-                           ifelse(!is.na(count), count, 4)))
-ndata$state <- factor(tstate, c(4,0:3, 5),
-                      c("censor", "0MC", "1MC", "2MC", "3MC", "death"))
-
-# table of first visit
-with(ndata, table(state[!duplicated(id)]))
-
-# table of transitions
-with(ndata, table(from= state[duplicated(id, fromLast=TRUE)],
-                   to = state[duplicated(id)]))
-@ 
-
-The first table above shows the state at entry, about 45\% of the
-\Sexpr{nrow(nafld1)} subjects start in the 0MC state.
-The second table shows observed transtions.
-Since comorbidities were defined as ``any history of'', subjects
-can not go backwards. 
-A few subjects have a censored visit in the midst of their state
-transitions, e.g., censor to 1MC. These correspond to a NAFLD diagnosis
-that was not at the same visit as as a new MC addition.
-For the semiparametric counting process analysis using \code{coxph}
-we need to account for all of the observed transitions.
-This includes the dashed lines in the figure, which arise from a visit
-where 2 or 3 MC are observed that were not present at the prior visit.
-Biologically, no subject will have gained two new MC at exactly the same
-moment, and the interval censored analysis can will eliminate the dashed
-lines: an observed transtion from 0MC to 2MC is actually two transitions
-of 0MC:1MC and 1MC:2MC, but at unknown times.
-
-<<nafld2>>=
-states <- c("0MC", "1MC", "2MC", "3MC", "death")
-qmat <- matrix(0, 5, 5, dimnames=list(from= states, to =states))
-qmat[1,2] <- qmat[2,3] <- qmat[3,4] <- 1
-qmat[1:4,5] <- 1
-qmat
-if (FALSE) { #there is a bug 
-nfit <- cmsh(Surv(days, state) ~ age + male + nafld, data= ndata,
-            id = id, qmatrix= qmat)
-}
-@ 
 
 
 \section{Theory, pass 1}
@@ -762,8 +739,8 @@ for each trial solution of $\hat\beta$ and every $x$.
 
 The computation of a likelihood in cmsh is a sum over subjects, 
 and each subject can be computed independently.  (We take advantage of this
-and use parallel computation if possible, either set mc.cores as an
-option or include it in the cmsh call.)
+and use parallel computation if possible, either set mc.cores using 
+\code{options}  or include it in the cmsh call.)
 The algorithm for the likelihood of each subject alternates two steps.  
 First step forward to a new
 time point using the matrix exponential as in equation \eqref{simplehmm}.

@@ -43,7 +43,6 @@ hmmloglik <- function(param, logfun) {
         words <- words[words!=""]
         stop(words[1])
     }
-
     tpar <- c(param)  # used for constraints
     loglik <- sum(unlist(mcfit)) # mcfit returns a single number
     if (!is.null(penmat)) loglik <- loglik - sum(tpar * (penmat %*% tpar))/2

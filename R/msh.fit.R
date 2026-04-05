@@ -129,8 +129,7 @@ msh.fit <- function(id, ytime, ystate, X, iprob, B,
     }
     # get the initial loglik and penalty
     initial.loglik <- hmmloglikx(param, logfun=hmm1x)
-
-    if (length(initial.loglik) ==0) 
+    if (is.na(initial.loglik) || length(initial.loglik) ==0) 
         stop("unable to evaluate at the intial parameters")
 
     if (!is.null(penmat))

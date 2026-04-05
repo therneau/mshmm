@@ -87,7 +87,7 @@ eps <- 1e-8
 nbeta <- sum(hfit1$cmap >0)
 deriv <- double(nbeta)
 for (i in 1:nbeta) {
-    i2 <- icoef[icoef>0] #treat init as a vector
+    i2 <- icoef[icoef!=0] #treat init as a vector
     i2[i] <- i2[i]+ eps
     tfit <- cmsh(list(Surv(age,state) ~1, 0:6 ~ male), center=FALSE,
                 data=test1, id=id, qmatrix=qmat, init=i2, iter=0)

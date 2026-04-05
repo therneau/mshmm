@@ -48,7 +48,7 @@ hmm1 <- function(who, B) {
         Pmat <- array(0, dim=c(nstate, nstate, r2-1))
         if (any(abs(eta[-r2,]) > .Machine$double.max.exp/2)) {
             # such a bad estimate that it may blow up the matrix exp
-            if (control$debug >1) cat("underflow "); browser()
+            if (control$debug >1) {cat("underflow "); browser()}
             return("underflow")
         }
         rmat <- matrix(0, nstate, nstate)
