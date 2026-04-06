@@ -14,12 +14,13 @@
 %\VignetteEncoding{UTF-8}
 
 <<setup, echo=FALSE>>=
-library(survival)
-library(mshmm)
+suppressMessages(library(mshmm)) # suppress message about Matrix and survival
 library(msm)
 library(knitr)
-opts_chunk$set(tidy=FALSE, fig.keep='none',
-               fig.path='compete',fig.width=6,fig.height=4)
+opts_chunk$set(tidy=FALSE, comment=NA, highlight=FALSE,
+               fig.path='figures/',fig.width=7,fig.height=5.5,
+               out.width="\\textwidth", out.height="!", device="pdf",
+               background="#FFFFFF", warnings=FALSE)
 
 options(continue="  ", width=60)
 pdf.options(pointsize=10) #text in graph about the same as regular text
@@ -62,8 +63,8 @@ and implicitly assumes we know when those transitions happened,
 while the latter on modeling the \emph{observed state} at selected times.
 Consider Figure \ref{simpleprog}, for instance, in a cancer clinical trial
 where patients are followed up every 8 weeks.  
-We could think of cmsh as providing
-a model for the time to progression and coxph a model for the time to detection
+We could think of cmsh as providing a model for the time to \emph{actual}
+progression and coxph a model for the time to \emph{detection}
 of progression.
 
 \begin{figure}
@@ -81,55 +82,31 @@ metabolid comorbidites.}
 \end{figure}
 
 For a study with regular follow-up, such as a clinical trial, 
-we will see that the results of a \code{coxph} and \code{cmsh} fit
-are often nearly identical.
+we have found that the results of a \code{coxph} and \code{cmsh} fit
+are often nearly identical, particularly with respect to covariates.
+If treatment decreases the rate of progression by 30\% it will do the
+same to the rate of detection.
+
 A more interesting case is a study of metabolic dysfunction-associated
-steatotic liver disease (MASLD),
-whose states are shown in Figure \ref{fig:nafld}, which is found as an example
-of multistate models in the survival package (data set nafld).
+steatotic liver disease (MASLD), found in section \ref{sect:nafld}.
 All adult subject subjects with a diagnosss of MAFLD from 1997 to 2012,
-along with 4 potential controls for each case, were followed forward from
-that point for the occurence of any of 3 metabolic comorbidities (MC):
+along with 4 potential controls for each case, matched on age, sex, and
+year of office visit, were followed forward from that date forward
+the occurence of any of 3 metabolic comorbidities (MC):
 diabetes, hypertension, and hyperlipidemia.
-If measured continuously, subjects would progress via the solid arrows from 0 
-to 1 to 2 to 3 comorbidities.
-(We assume that no one progresses on two of the markers at the 
-\emph{exact} same instant.)
-
-<<nafld0, echo=FALSE>>=
-# values for the sentence below
-i1 <- duplicated(nafld2$id, fromLast=TRUE)
-i2 <- duplicated(nafld2$id)
-interval <- nafld2$days[i2] - nafld2$days[i1]
-interval <- interval[interval >30]  # ignore multiple visits in the same month
-qq <- quantile(interval/30.5, c(.2, .5, .8, .95))
-@ 
-
-However, the interval between clinical visits varies considerably from
-subject to subject and visit to visit, with 20, 50, 80 and 95th percentiles
-of 3, 10, 19 and 50 months.
-In the observed data, there will be subjects who are in the 0MC
-state at one visit, and in the 2MC state at their next visit; as that following
-visit might be several years later.  Such visit pairs lead to the dashed
-line transtions in Figure \ref{fig:nafld}.
+The follow-up visits are in the course of standard clinical care, and have
+wide differences in within and between subject spacing,
+with 20, 50, 80 and 95th percentiles of 3, 10, 19 and 50 months.
 If there are systematic differences in visit frequency, e.g., if women saw
 their physician more often on average than men,
-this can introduce a bias in the coxph analysis.
-The cmsh approach may be more appropriate.
+this can introduce a bias in the coxph analysis; the interval censored
+likelihood accounts for this variable spacing.
+
 (Footnote: since comorbidities in the study were defined as 
 ``history of diabetes'', 
 ``history of dyslipidemia'', and ``history of hypertension''
 no arrows go backwards.)
 
-Say that subject X was seen at age 55, 58.2 and 61.4 with their first
-MC of diabetes at the second visit.
-The coxph fit assumes that a 0MC:1MC transition has occured at exactly age
-58.2, while the IC model assumes that there was a 0MC:1MC transtion at some 
-unknown time betwee 55 and 58.2.
-Interval censored data is also known as panel data, from studies where
-the particpants come back at a regular interal and each visit involves
-a panel of tests. The state at each visit is known, but not the
-state transitions had occured.
 
 The perceptive user will notice that a call to csmh looks remarkably
 like a call to coxph.  This is on purpose, but there are some important
@@ -140,6 +117,10 @@ is shown below,
 and corresponds to the solid arrows in figure \ref{fig:nafld}.
 The computer won't know that a direct 0MC to 2MC transition is impossible
 without being told.
+(Since comorbidities in the study were defined as 
+``history of diabetes'', 
+``history of dyslipidemia'', and ``history of hypertension''
+no arrows go backwards.)
 
 <<qmatrix>>=
 states <- c("0MC", "1MC", "2MC", "3MC", "death")
@@ -162,10 +143,9 @@ function.
 This overlapping acroyom of multi-state hazard (MSH) and hidden Markov
 models (HMM) is the origin of the package name mshmm.
 
-For a multistate hidden Markov model the assumption is that the internal
-states (other than death) are not observed directly. Instead we observe
-one or more imperfect biomarkers of each state.
-We might label stages of cerebral vascular damage as C0, C1, C2 and C3
+For some set of states we might observe only a set of
+one or more imperfect biomarkers.  For instance,
+we might label stages of cerebral vascular damage as C0, C1, C2 and C3
 for instance, where C0 is normal and C3 is severe.  
 MRI based measures such as white matter hyperintensity (WMH) or fractional
 aniostropy can give partial insight into the current state, with  
@@ -175,7 +155,8 @@ An MSH model where all the state measures are indirect is known as a hidden
 Markov model: since the true state is never directly observed, the states are
  ``hidden''. 
 In the wikipedia entry on HMM for instance, refers to $X$ as the
-states, $Y$ the observed values and $f(Y|X)$ as the emission probability
+states, $Y$ the observed values and the density $f(Y|X)$ as the emission 
+probability
 (or $P(Y\in A|X)$ for discrete $Y$).
 In our models we often have all three types of states
 \begin{enumerate}
@@ -189,9 +170,9 @@ In our models we often have all three types of states
 Since the majority of our models have been hybrids of the above, what one might
 call a semi-hidden Markov model, we have used cmsh (censored MSH) as the
 name of the primary fitting function rather than hmm. 
-We use states to refer to true states, some of which may be 
-latent, markers for variables that are indirect measures of those states,
-covariates for measured variables, e.g., sex, age,
+We use `states' to refer to true states, some of which may be 
+latent, `markers' for variables that are indirect measures of those states,
+`covariates' for measured variables, e.g., sex, age,
 that affect either the transition rates from state to state, 
 the relationship between a marker and states, or initial state for each
 subject, and last a matrix of coefficients $\beta$.
@@ -494,15 +475,17 @@ the visit schedule, and observe how the estimate behaves.
     The analyis will reflect that.
 \end{itemize}    
 
-\subsection{NAFLD example}
+\subsection{Fatty liver disease}
+\label{sect:nafld}
  Metabolic dysfunction-associated fatty liver disease (previously known as
 NAFLD) is characterized by fat accumulation in the liver, and is linked to 
 metabolic dysfunction, such as obesity, type 2 diabetes, or other signs of 
 metabolic dysregulation. 
 Allen \cite{Allen18} collected information on
 all adult subject subjects with a diagnosss of MASLD from 1997 to 2012,
-along with 4 potential controls for each case, were followed forward from
-that point for the occurence of any of 3 metabolic comorbidities (MC):
+along with 4 potential controls for each case, matched on age, sex, and year
+of vist.  These were followed forward through the medical history 
+for the occurence of any of 3 metabolic comorbidities (MC):
 diabetes, hypertension, and hyperlipidemia.
 A reprise of that analysis, based on the multistate mode found in 
 Figure \ref{MASLD}, is found in the survival package. 
@@ -770,7 +753,7 @@ state.
 The exponential of a matrix, e.g. $\exp(R)$, is dealt with at length in the
 mathematics vignette. Suffice it to say that compuation of this quantity, and
 of its derivative, is more complex than the exponential of a single value
-\cite{Moler78, Moler03, Mohey09}.
+\cite{Moler78, Moler03, Mohy09}.
 
 In the semiparametric MSH first the parameter estimates $\hat\beta$ are 
 computed based on a partial likelihood, predictions $p(t;z)$ for any chosen

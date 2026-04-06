@@ -138,9 +138,11 @@ cmsh <- function(formula, data, subset, weights,
             attr(terms.formula(x), "term.labels")}))
         tlab <- c(tlab, mlab, marker1$marker) #markers last
     }
-    newform <- reformulate(unique(tlab), dformula[[2]])
-    environment(newform) <- environment(dformula)
-    formula <- newform  # used for model.frame, not reported to user
+    if (length(tlab) >0) {
+        newform <- reformulate(unique(tlab), dformula[[2]])
+        environment(newform) <- environment(dformula)
+        formula <- newform  # used for model.frame, not reported to user
+    }
 
     # Evaluate the expanded formula to create the model frame
     tform$formula <- formula
