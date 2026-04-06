@@ -8,6 +8,7 @@
 #include <Rmath.h>
 #include <R_ext/BLAS.h>
 #include <R_ext/Lapack.h>
+#include <stdbool.h>
 
 static SEXP unscramble(const double* imaginary, int n,
 		       const double* vecs)
