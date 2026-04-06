@@ -4,7 +4,7 @@
 \description{Predictions for an cmsh model}
 \usage{
 \method{predict}{cmsh}(object, newdata, type = c("link", "rate",
-"pstate"), se.fit = FALSE, times, \dots)
+"pstate"), se.fit = FALSE, times, absorb, \dots)
 }
 \arguments{
   \item{object}{the result of an \code{cmsh} fit}
@@ -12,6 +12,7 @@
   \item{type}{the type of predicted value}
   \item{se.fit}{should standard errors of the predicted values be given}
   \item{times}{a vector of times, required for type = pstate}
+  \item{absorb}{treat selected states as absorbing}
   \item{\dots}{required of a predict method}
 }
 \details{

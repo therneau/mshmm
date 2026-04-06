@@ -56,8 +56,8 @@ print.cmsh <- function(x, digits=max(options()$digits - 4, 3), ...) {
    
      B <- coef(x, matrix=TRUE, fixed=TRUE)
      printCoefmat(B, has.Pvalue=FALSE)
-     cat(" States: ", paste(paste(seq(along.with=x$states), x$states, sep='= '),
-                            collapse=", "), '\n')
+     cat("\n States: ", paste(paste(seq(along.with=x$states), x$states, 
+                                    sep='= '), collapse=", "), '\n')
      cat("\n")
      loglik <- round(x$loglik, 2)
      if (length(loglik)==1)

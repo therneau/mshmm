@@ -216,58 +216,39 @@ eta3m <- model.matrix(mfit3) %*% coef(hfit3, matrix=TRUE)
 aeq(eta3m, eta3)  # verifies that test1b is properly centered
 aeq(hfit3$log, mfit3$minus2loglik/ -2)
 
-
-
-
 # These models use the cav data set from the msm package
+cstate <- c("none", "mild/mod", "severe", "death")
 Qm <- rbind(c(0, .148, 0, .0171),
             c(0,  0,  .202, .081),
             c(0,  0,   0,  .126),
             c(0,  0,   0,   0))  #page 38, msm manual
+dimnames(Qm) <- list(from=cstate, to=cstate)
+Qm
 
 ematrix <- rbind(c(.8, .2, 0, 0),
                  c(.1, .8, .1, 0),
                  c(0, 0.3, .7, 0),
                  c(0, 0,    0, 1))
+dimnames(ematrix) <- list(true=cstate, obs=1:4)
 
 
 mfit4a <- msm(state ~ years, subject=PTNUM, data=cav,
             qmatrix=Qm, ematrix=ematrix, death=4,
             obstrue= firstobs, fixedpar=TRUE)
 
-cinit <- function(nstate, ...) {
-    init <- rep(0.0, nstate)
-    init[1] <- 1   # everyone starts in state 1
-    init
-}
+cav2 <- cav  # my version
+names(cav2) <- casefold(names(cav))  # I dislike upper case
+# death and first obs are known states (all start in 'none')
+temp <- with(cav2, ifelse(!duplicated(ptnum) | state==4, state, 0))
+cav2$known <- factor(temp, 0:4, c("alive", cstate))
+cav2$istate <- cav2$state # integer state
+cav2$mark  <- factor(cav2$istate)
 
-otype <- with(cav, ifelse(state==4, 2, 1))
-first <- !duplicated(cav$PTNUM)
-otype[first] <- 0   # the first state is exact, so no response function.
+hfit4a <- cmsh(Surv(years, known) ~ 1, cav2, id=ptnum,
+               qmatrix=Qm, mc.cores=1, iter=0,
+               marker= state:mark ~0 /discrete(init=ematrix))
 
-efun <- function(y, nstate, eta, ...) {
-    ptemp <- exp(eta[1,])
-    emat <- diag(4)
-    emat[1,2] <- ptemp[2]    # fill in by column
-    emat[2,1] <- ptemp[1]
-    emat[2,3] <- ptemp[4]
-    emat[3,2] <- ptemp[3]
-    emat <- emat/rowSums(emat)
-    emat[,y, drop=FALSE]
-}
-
-rcoef <- data.frame(lp=1:4, term=0, coef=1:4, 
-                    init= log(c(1/8, 2/8, 3/7, 1/8)))
-
-# Verify that I have it set up correctly
-# On the linear predictor scale each element is log(e[i,j]/e[i,i])
-all.equal(ematrix, efun(1:4, 4, matrix(rcoef$init, 1)))
-
-
-hfit4a <- hmm(cbind(years, state) ~ 1, data=cav, mc.cores=1,
-            id = PTNUM, qmatrix=Qm, rfun=efun, pfun=cinit,
-            death=4, otype=otype,  rcoef=rcoef, mfun= hmmtest)
-aeq(-2*hfit4a$loglik[2], mfit4a$minus2loglik)
+aeq(-2*hfit4a$loglik, mfit4a$minus2loglik)
 
 
 # Now with covariates

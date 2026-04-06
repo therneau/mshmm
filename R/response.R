@@ -361,7 +361,8 @@ discrete <- function(stateinfo, mlevel, init, pattern, static) {
         j <- stateinfo$index
         missmat[j>0,] <- init[j,]
         colnames(missmat) <- mlevel
-        rfun <- function(y, missclass= missmat, deriv=FALSE) missclass[,y]
+        rfun <- function(y, missclass= missmat, deriv=FALSE) 
+            missclass[,y, drop=FALSE]
         return(list(name="discrete", rfun=rfun, pname=NULL))
     }
         

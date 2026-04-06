@@ -5,7 +5,7 @@
   Compute the matrix exponential and its derivatives
 }
 \usage{
-survexpm(R, time = 1, deriv = FALSE, tol=1e-8, method=c("eigen", "pade"))
+survexpm(R, time = 1, deriv = FALSE, tol=1e-10 method=c("eigen", "pade"))
 }
 \arguments{
   \item{R}{the transition rate matrix R for a multistate hazard model}
@@ -47,7 +47,7 @@ survexpm(R, time = 1, deriv = FALSE, tol=1e-8, method=c("eigen", "pade"))
   the R function, but returns the left eigenvectors also.
   If the returned eigenvector matrix is deemed to be singular, i.e. an
   approximate condition number greater than \code{1/tol}, or
-  \code{method = 'pade') then a Pade approximation is used that is parallel
+  \code{method = 'pade'} then a Pade approximation is used that is parallel
   to the Ward method found in \code{expm:expm}.
   See the code vignette for mathematical details.
 

@@ -11,7 +11,7 @@
 # tol:  if the inverse condition number of the eigenmatrix is < tol, use the
 #  pade method
 #
-survexpm <- function(R, time=1.0, deriv=0, tol=1e-10, 
+survexpm <- function(R, time=1.0, deriv=FALSE, tol=1e-10, 
                      method=c("eigen", "pade")) {
     method <- match.arg(method)
 

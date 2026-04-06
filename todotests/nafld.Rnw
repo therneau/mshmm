@@ -1,0 +1,107 @@
+This was originally in the user guide, but I finally realized it was wrong.
+The issue is the same as the simple colon example -- we need to insert the
+visits where the outcome didn't change.  In the nafld3 data set, outcomes
+like diabetes only appear once, at first instance.  But the nafld2 data set
+we have all the blood pressures, which we can take as a surrogate for a
+real visit.
+
+
+
+
+\subsection{NAFLD example}
+ Metabolic dysfunction-associated fatty liver disease (previously known as
+NAFLD) is characterized by fat accumulation in the liver, and is linked to 
+metabolic dysfunction, such as obesity, type 2 diabetes, or other signs of 
+metabolic dysregulation. 
+The \code{nafld1}, \code{nafld2} and \code{nafld3} data sets contain
+baseline, repeated laboratory, and outcome data, respectively from a 2018 
+study by Allen.
+
+An analysis using the state space below is found in the vignettes for
+the survival package.
+See there for creating the counting process data using \code{tmerge}.
+The states are the count of three metabolic comorbities (MC) for each
+subject at a given visit: diabetes, dislipidemia, and hypertension.
+
+<<nafld1b>>=
+states <- c("0MC", "1MC", "2MC", "3MC", "death")
+nmat <- matrix(0, 5, 5, dimnames=list(states, states))
+nmat[1,2] <- nmat[2,3] <- nmat[4,5] <- 1
+nmat[1:4,5] <- 1
+nmat[1,3] <- nmat[1,4] <- nmat[2,4] <- 0.7
+statefig(rbind(4,1), nmat, alty=c(1,2,1, 2,2,1,1,1,1))
+@
+
+Now create the timeline data set.
+For illustration we have done this using only the functions in base R, 
+but several other, more sophisticated tools can be used.
+
+<<naflddata>>=
+temp1 <- subset(nafld1, select=c(id, age, male, case.id))  #baseline
+temp1$days <- 0
+temp1$nafld <- 1*(temp1$id== temp1$case.id)  # marker of nafld at baseline
+temp1$case.id <- NULL  # no longer needed
+temp2 <- subset(nafld3, event== "diabetes") # first diabetes
+temp2$days <- pmax(0, temp2$days)  # diabetes which began before enrollment 
+temp3 <- subset(nafld3, event== "dyslipidemia")
+temp3$days <- pmax(0, temp3$days)
+temp4 <- subset(nafld3, event== "htn")       # first hypertension
+temp4$days <- pmax(0, temp4$days)
+
+# create the cumulative count, recognizing that two outcomes might be
+#  discovered at the same follow-up visit
+temp5 <- rbind(temp1[,c(1,4)], temp2[,1:2], temp3[,1:2], temp4[,1:2])
+temp5 <- temp5[order(temp5$id, temp5$days),]
+temp5$count <- 1:nrow(temp5) - (1:nrow(temp5))[match(temp5$id, temp5$id)]
+temp5 <- temp5[!duplicated(temp5[,1:2], fromLast=TRUE),]
+
+lfu <- subset(nafld1, select= c(id, futime, status)) # death
+names(lfu)[2] <- "days"
+
+ndata <- merge(temp1, temp5, by=c("id", "days"), all=TRUE) 
+ndata <- merge(ndata, lfu,   by=c("id", "days"), all=TRUE) 
+
+# 3 cases: death, fu after last visit, clinic visit
+tstate <- with(ndata, ifelse(!is.na(status) & status==1, 5,
+                           ifelse(!is.na(count), count, 4)))
+ndata$state <- factor(tstate, c(4,0:3, 5),
+                      c("alive", "0MC", "1MC", "2MC", "3MC", "death"))
+
+# table of first visit
+with(ndata, table(state[!duplicated(id)]))
+
+# table of transitions
+with(ndata, table(from= state[duplicated(id, fromLast=TRUE)],
+                   to = state[duplicated(id)]))
+@ 
+
+The first table above shows the state at entry, about 45\% of the
+\Sexpr{nrow(nafld1)} subjects start in the 0MC state.
+The second table shows observed transtions.
+Since comorbidities were defined as ``any history of'', subjects
+can not go backwards. 
+For the semiparametric counting process analysis using \code{coxph}
+we need to account for all of the observed transitions.
+This includes the dashed lines in the figure, which arise from a visit
+where 2 or 3 MC are observed that were not present at the prior visit.
+Biologically, no subject will have gained two new MC at exactly the same
+moment, and the interval censored analysis can will eliminate the dashed
+lines: an observed transtion from 0MC to 2MC is actually two transitions
+of 0MC:1MC and 1MC:2MC, but at unknown times.
+
+<<nafld2>>=
+states <- c("0MC", "1MC", "2MC", "3MC", "death")
+qmat <- matrix(0, 5, 5, dimnames=list(from= states, to =states))
+qmat[1,2] <- qmat[2,3] <- qmat[3,4] <- 1
+qmat[1:4,5] <- 1
+qmat
+
+lastrow <- subset(ndata, !duplicated(id, fromLast=TRUE))
+drate <- sum(lastrow$state=="death")/sum(lastrow$days)
+icoef <- rbind(rep(log(drate), 7), 0, 0, 0) # intercepts of the right magnitude
+nfit1 <- cmsh(Surv(days, state) ~ age + male + nafld, data= ndata,
+            id = id, qmatrix= qmat, init= icoef)
+nfit2 <- coxph(Surv2(days, state)~ age + male + nafld, data= ndata,
+            id = id)
+}
+@ 

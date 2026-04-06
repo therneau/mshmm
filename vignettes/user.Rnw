@@ -7,6 +7,7 @@
 \addtolength{\oddsidemargin}{-.5in}
 \setlength{\evensidemargin}{\oddsidemargin}
 \newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\comment}[1]{{\color{blue} #1}} 
 
 %\VignetteIndexEntry{Censored multistate hazard (MSH) models}
 %\VignetteEngine{knitr::knitr}
@@ -97,15 +98,16 @@ to 1 to 2 to 3 comorbidities.
 
 <<nafld0, echo=FALSE>>=
 # values for the sentence below
-i1 <- duplicated(nafld3$id, fromLast=TRUE)
-i2 <- duplicated(nafld3$id)
-interval <- nafld3$days[i2] - nafld3$days[i1]
-qq <- quantile(interval/30.5, c(.2, .5, .8))
+i1 <- duplicated(nafld2$id, fromLast=TRUE)
+i2 <- duplicated(nafld2$id)
+interval <- nafld2$days[i2] - nafld2$days[i1]
+interval <- interval[interval >30]  # ignore multiple visits in the same month
+qq <- quantile(interval/30.5, c(.2, .5, .8, .95))
 @ 
 
 However, the interval between clinical visits varies considerably from
-subject to subject and visit to visit, with 20, 50 and 80th percentiles
-of 2.5, 24, and 70 months.
+subject to subject and visit to visit, with 20, 50, 80 and 95th percentiles
+of 3, 10, 19 and 50 months.
 In the observed data, there will be subjects who are in the 0MC
 state at one visit, and in the 2MC state at their next visit; as that following
 visit might be several years later.  Such visit pairs lead to the dashed
@@ -498,21 +500,25 @@ NAFLD) is characterized by fat accumulation in the liver, and is linked to
 metabolic dysfunction, such as obesity, type 2 diabetes, or other signs of 
 metabolic dysregulation. 
 Allen \cite{Allen18} collected information on
-all adult subject subjects with a diagnosss of MAFLD from 1997 to 2012,
+all adult subject subjects with a diagnosss of MASLD from 1997 to 2012,
 along with 4 potential controls for each case, were followed forward from
 that point for the occurence of any of 3 metabolic comorbidities (MC):
 diabetes, hypertension, and hyperlipidemia.
-A reprise of that analysis, based on the multistate model below,
-is found in the survival package. 
+A reprise of that analysis, based on the multistate mode found in 
+Figure \ref{MASLD}, is found in the survival package. 
 
-<<nafld1b>>=
+\begin{figure}
+<<nafld1b, echo=FALSE>>=
 states <- c("0MC", "1MC", "2MC", "3MC", "death")
 nmat <- matrix(0, 5, 5, dimnames=list(states, states))
-nmat[1,2] <- nmat[2,3] <- nmat[4,5] <- 1
+nmat[1,2] <- nmat[2,3] <- nmat[3,4] <- 1
 nmat[1:4,5] <- 1
 nmat[1,3] <- nmat[1,4] <- nmat[2,4] <- 0.7
 statefig(rbind(4,1), nmat, alty=c(1,2,1, 2,2,1,1,1,1))
 @
+ \caption{Observed state space for the MASLD data}
+ \label{MASLD}
+\end{figure}
 
 <<echo=FALSE>>=
 # for the sentences below
@@ -546,19 +552,320 @@ no arrows go backwards.)
 Like the colon cancer example above we need to include intermediate
 visits. The survival package data consists of 3 data sets, baseline information
 with one row per subject (\code{nafld1}), outcome information with a row for
-the first instance of each MC, and laboratory data with values for each visit.
+the first instance of each MC, and a third with selected office and/or 
+laboratory values for each visit.
+In order to construct the interval censored data we will assume that each
+office visit represents a potential observation time for progression of
+the comorbidities, followed.  The comorbidity status a subsequent 
+death/last known alive date is not known, however.
 
-To do: work out the example (my initial code neglected to fill in intermediate
-visits).
+Now create the timeline data set.
+For illustration we have done this using only the functions in base R, 
+but several other, more sophisticated tools can be used.
+
+<<nafld2>>=
+temp1 <- subset(nafld1, select=c(id, age, male, case.id))  #baseline
+temp1$days <- 0
+temp1$nafld <- with(temp1, 1*(!is.na(case.id) & id==case.id)) #nafld at baseline
+temp1$case.id <- NULL  # no longer needed
+
+# times <=0 in nafld3 are conditions found at or before enrollment date
+# create the "number of comborbidities so far" variable
+temp2 <- subset(nafld3, event %in% c("diabetes", "dyslipidemia", "htn"),
+                c(id, days))      # only events of interest
+temp2$days <- pmax(0, temp2$days) # set prior events to day 0
+#cumulative count, including entry row
+temp3 <- rbind(temp1[,c("id", "days")], temp2)
+temp3 <- temp3[order(temp3$id, temp3$days),]
+temp3$mc <- 1:nrow(temp3) - (1:nrow(temp3))[match(temp3$id, temp3$id)]
+# keep the last of any rows that are tied on id and days (2 MC on same visit) 
+temp3 <- temp3[!duplicated(temp3[,1:2], fromLast=TRUE),]
+
+lfu <- subset(nafld1, select= c(id, futime, status)) # death or last fu
+names(lfu)[2] <- "days"
+
+ndata1 <- merge(temp1, temp3, by=c("id", "days"), all=TRUE) # other variables
+ndata1 <- merge(ndata1, lfu,   by=c("id", "days"), all=TRUE)# add futime
+#create the state variable, a factor 
+temp <- with(ndata1, ifelse(!is.na(mc), mc+1,
+                    ifelse(!is.na(status) & status==1, 5, 0)))
+ndata1$state <-factor(temp, 0:5, 
+                      c("alive", "0MC", "1MC", "2MC", "3MC", "death"))
+ndata1$mc <- ndata1$status <- NULL  # no longer needed
+
+# print out the transition matrix
+i1 <- duplicated(ndata1$id, fromLast=TRUE)
+i2 <- duplicated(ndata1$id)
+table2(from=ndata1$state[i1], to=ndata1$state[i2])
+
+# Add in the office visits. There will occassionally be labs on sequential
+#  days for the same visit, but it isn't worth removing the "duplicate" visit.
+# But do remove two tests on the same day.
+office <- subset(nafld2, days>0, c(id,days))
+office <- office[!duplicated(office),]   # tests on the same day
+ndata2 <- merge(ndata1, office, by=c("id", "days"), all=TRUE)
+ndata2$state <- lvcf(ndata2$id, ndata2$state)
+
+# The new transition table
+i1 <- duplicated(ndata2$id, fromLast=TRUE)
+i2 <- duplicated(ndata2$id)
+table2(from=ndata2$state[i1], to=ndata2$state[i2])
+@ 
+
+We see that data set \code{ndata1} has the exact same off-diagonal counts
+as the expanded data set \code{ndata2}, this is as it should be.
+The second data frame adds 0MC:0MC, 1MC:2MC, 2MC:2MC and 
+3MC:3MC transitions, all of which serve to narrow the time range over
+which a given transition between states will have occured. 
+A printout for id 1 shows 0MC visits at 0, 183, 2030, 3578 and 5420 days.
+Because there are no backwards transitions we could delete the middle rows, as
+0MC at day 0 and at day 5420 implies 0MC throughout the interim.
+The likelihood will be the same without these middle rows, and computation a
+smidge faster.  This would however not be the case if both 0MC:1MC and
+1MC:0MC transitions were possible.  Think hard before thinning a data set.
+
+As is often the case, the above seemingly simple section of code to create
+the analysis data set required
+more time and effort than the analysis that appears below.
+It is imperitative to create the table of transtions, look at it, and think
+about it. The row for death for instance should always be 0.
+(Make sure to include missings in the table, we defined a \code{table2}
+function at the start of this vignette to avoid having to type the
+\code{useNA= 'ifany'} option again and again.)
+Print out and examine the final data for 3 or more subjects as well. 
+
+One more step is needed, which is to add current age as a time-dependent
+covariate. The underlying rate of MC rises very rapidly with age, and this
+data set covers a wide range.  The figure below shows the distributions initial
+age and years of follow-up. 
+Using only baseline age as a covariate would imply that for two subjects, both
+currently age 85, one who entered the study at age 70 and the other at age 80,
+that the current death rate is lower for the earlier recruit.
+(One can more or less get away with this if all follow-up is short, however.)
+
+
+<<nafldyrs, echo=FALSE>>= 
+opar <- par(mfrow=c(1,2), mar=c(5,5,1,1))
+hist(nafld1$age, nclass=25, main=NULL, xlab="Starting age")
+hist(nafld1$futime/365.25, nclass=25, main=NULL, xlab="Years of FU")
+par(opar)
+@
+
+<<nafld3>>=
+# create a dummy data set with integer ages
+# (pretend they had shown up each birthday, but we only recorded "alive")
+acount <- floor(nafld1$futime/365.25) # number of extra ages to add
+itemp <- unlist(lapply(acount, function(i) 0:i))
+dummy <- data.frame(id= rep(nafld1$id, 1+ acount), days=round(itemp*365.25),
+                    iage = itemp) 
+# merge it in
+ndata3 <- merge(ndata2, dummy, by=c("id", "days"), all=TRUE)
+ndata3$state[is.na(ndata3$state)] <- "alive"
+ndata3$age <- lvcf(ndata3$id, ndata3$age)
+ndata3$iage<- lvcf(ndata3$id, ndata3$age + ndata3$iage)
+subset(ndata3, id==4)
+@
+
+The resulting data set has rows for both the visits, which have a state of
+0MC--MC3, rows for each age change, which have the generic state ``alive''
+since the state was not observed then, and rows for the deaths.
+Current age is a time-dependent covariate. We will discuss issues with 
+general time-dependent covariates later, but age and time since enrollment
+are much simpler than others, since their value at any time is known
+without requiring a patient visit. 
+The reason for integer age will appear at the first theory discussion.
+
+Without further ado, let's finally fit the model.
+It is important to have initial values of the intercept coefficients
+be of approximately the right magnitude, in order to avoid overflow and/or
+underflow of the exp function during the first few iterations.
+Covariates other than the intercept are temporarily recentered during the
+computation, which avoids this issue, but we cannot recenter an intercept 
+column.  The transition matrix does not have the dashed lines of figure xxx.
+
+<<nafldfit1>>=
+ndata3$years <- ndata3$days/365.25
+ndata1$years <- ndata1$days/365.25
+ajfit <- survfit(Surv2(years, state) ~ 1, ndata1, id=id)
+plot(ajfit, cumhaz=c(1,3,6:10), col=1:7, lty=rep(1:2, 3:4),
+     xlab="Years", ylab="Cumulative hazard")
+legend("topleft", c("0MC:1MC", "1MC:2MC", "2MC:3MC",
+                    paste0(0:3, ":death")), col=1:7, lwd=2, 
+       lty=rep(1:2, 3:4), bty='n')
+
+drate <- survexp.mn[60, 1, "2000"]*365.25  # Minnesota death rate, per year
+round(drate,3)
+
+icoef <- log(rep(c(.03, .01), 3:4))
+nmat2 <- nmat
+nmat2[1, 3:4] <- nmat2[2,4] <- 0
+nmat2
+
+nfit0 <- cmsh(Surv(years, state) ~ 1, ndata3, id= id,
+              qmatrix= nmat2, init= icoef)
+nfit0
+
+nfit1 <- cmsh(list(Surv(years, state) ~ age + male + nafld,
+                   0:5 ~ male + nafld/common), 
+              ndata3, id=id, qmatrix=nmat2, init=nfit0)
+nfit1
+
+# For Surv2 we have to fill in missing covariates
+indx <- match(ndata1$id, ndata1$id)  # matches each to the first
+ndata1$age <-  with(ndata1, age[indx] + years)
+ndata1$male <- ndata1$male[indx]
+ndata1$male <- ndata1$male[indx]
+ndata1$nafld <-ndata1$nafld[indx]
+
+nfit2 <- coxph(list(Surv2(age, state) ~ male + nafld,
+                    0:5 ~ male+ nafld/common,
+                    1:2 + 1:3 + 1:4 ~ male+nafld/common,
+                    2:3 + 2:4 ~ male + nafld/common),
+               ndata1, id=id)
+nfit2
+@
+
+Yet to do:
 \begin{itemize}
-  \item Most of the work: build and check the data set.  Age is the most 
-    important factor, expand to yearly age? Yes.
-  \item Fit one: age only, requires sensible starting values, fit2 add 
-    sex*nafld, fit 3 use coxph (and challenges).
-  \item Compare. My expectation is minor changes in hazard ratios, some in 
-    absolute.  Also much slower.
-  \item Important distinction between a visit date and alive/dead
+  \item Note that nfit0 can be slow: initial estimates are hard
+  \item Should I have added age to nfit0. Is my goal to get a baseline
+    hazard, or just the numeric one of getting intial intercepts
+  \item Compare the results of nfit1 and nfit2. Plot with HR + CI for both?
+    Compare predicted p(t) and E(time in state) estimates
+  \item Come to some conclusions
 \end{itemize}
+
+
+\comment{Everything from here one is a only a first draft.}
+
+
+\section{Theory, pass 1}
+A big difference between coxph and cmsh is how the likelihood is constructed.
+The semiparametric MSH (coxph) is a model for observed \emph{transitions}, 
+while the interval censored (cmsh) approach is a model for observed
+\emph{states}.
+The semiparametric model assumes that we see all of the transitions, up to
+the point they are censored.  It uses those transition and their timings,
+via risk sets, to construct estimated rates. 
+These rates can the be used to compte probability in state curves $p(t)$.
+
+Let $R(t)$ be the multistate rate matrix at time $t$.
+Off diagonal element $R_{ij}(t;x) = \hat\lambda{ij}(t;x)$ contains the estimate 
+transition rate between state $i$ and state $j$, at time $t$, for a subject
+with covariate vector $x$.  
+To normalize $R$ set its diagonal element such that row sums are 0. 
+(This is just what has to be done to compute the matrix exponential, no serious
+theory is involved wrt the normalization step.)
+If we assume a set of time points 
+$t_0, t_1, t_2, ...$ such that the transition rates are constant over each
+interval $t_i \le t < t_{i+1}$ the the probability in estimate satisfies
+\begin{equation}
+ p(t_i; x) = p(t_0) e^{(t_1-t_0)R(t_0;x)} e^{(t_2-t_1)R(t_1;x)} \ldots 
+ e^{(t_i-t_{i-1})R(t_{i-1};x)} \label{simplehmm}
+\end{equation}
+where $p(t)$ is a vector with one element per state, $p_k(t)$ the probability of
+being in state $k$, and $p(t_0)$ is the probability vector for the starting
+state, normally all zeros with a single ``1'' corresponding to the starting 
+state.
+The exponential of a matrix, e.g. $\exp(R)$, is dealt with at length in the
+mathematics vignette. Suffice it to say that compuation of this quantity, and
+of its derivative, is more complex than the exponential of a single value
+\cite{Moler78, Moler03, Mohey09}.
+
+In the semiparametric MSH first the parameter estimates $\hat\beta$ are 
+computed based on a partial likelihood, predictions $p(t;z)$ for any chosen
+covariate vector $z$ are computed at the very end.
+In the interval censored MSH $p(t;x)$ is computed during maximization, that is,
+for each trial solution of $\hat\beta$ and every $x$.
+\begin{enumerate}
+  \item Compute the predicted curve $p(t;x_i)$ for each subject $i$
+  \item Compare the prediction to the observed state for subject $i$, at each
+    observation time $t_{ij}$ for that subject.
+  \item Use this to compute an updated $\hat\beta$.
+\end{enumerate}
+
+The computation of a likelihood in cmsh is a sum over subjects, 
+and each subject can be computed independently.  (We take advantage of this
+and use parallel computation if possible, either set mc.cores using 
+\code{options}  or include it in the cmsh call.)
+The algorithm for the likelihood of each subject alternates two steps.  
+First step forward to a new
+time point using the matrix exponential as in equation \eqref{simplehmm}.
+Whenever a subject is observed, restrict their $p(t)$ by setting to 0 all of the
+``states where they ain't'', i.e., all elements of $p$ except the 
+observed state.
+The mathematics vignette has more formal details.
+
+\section{Partially observed states}
+\begin{figure}
+<<mcsa1, echo=FALSE>>=
+mstate <- c("CU", "MCI", "dementia", "death")
+mmat <- matrix(0, 4, 4, dimnames=list(mstate, mstate))
+mmat[1,2] <- mmat[2,3] <- 1
+mmat[1:3,4] <- 1
+statefig(rbind(3,1), mmat)
+@  
+ \caption{State space model for the dementia data.}
+ \label{mcsastate}
+\end{figure}
+
+The simplest extension of the simple interval censored model, and the simplest
+hidden Markov model, involves a partially observed state.
+An example appears in the Mayo Clinic Study of Aging, a blinded subset of which
+is present in the \code{dementia} data set.
+Per protocol, enrolled subjects have return visits every 15 months, at each
+visit they are diagnosed as being the cognitively unimpaired (CU), mild
+cognitive impairment (MCI), or dementia state, leading to the multi-state
+model shown in figure \ref{mcsastate}.
+
+Subjects who have not returned in 36 months or more are flagged for a record
+review and their medical history is retrieved. (Due to the resources of the
+Rochester Epidemiolgy Project, we have access to the medical records of all
+participants in the county, across all providers of care.) 
+From that review a status, at their most recent physician visit, 
+of demented vs non-demented (ND) can be ascertained, 
+but CU versus MCI cannot be distinguished.
+Study visits include additional cognitive testing, which will not have been
+part of a standard office visit.
+
+The modification of the likelihood is simple.  At such a visit, if the
+diagnosis is ``dementia'', then all elements of $p(t)$ for that subject, except
+state 3 (dementia) are set to 0.  For a non-demented diagnosis, elements 3
+and 4 (dementia and death) are set to 0, the other two are unchanged.
+We treat the off study diagnosis as a \emph{marker}, our
+label for an imperfect assessment of the underlying state.
+The data will have three distinct outcome variables: death, observed state
+at a study visit, and partial state at an ordinary office visit. 
+
+<<dement1>>=
+states <- c("CU", "MCI", "dementia", "death")
+dqmat <- matrix(0, 4, 4, dimnames=list(from= states, to=states))
+dqmat[1,2] <- dqmat[2,3] <- 1
+dqmat[1:3, 4] <- 1
+dqmat
+# statefig(rbind(3,1), dqmat)  # generate the state figure
+
+table2 <- function(...) table(..., useNA= "ifany")  # show NA in tables
+with(dementia, table2(studydx, offdx))
+
+# Create a missclassification table for the off study diagnosis
+vmiss <- cbind(c(1,1,0), c(0,0,1))
+dimnames(vmiss) <- list(state= states[1:3], visit=c("ND", "dementia"))
+
+# create a state variable for death + on study visits
+temp <- with(dementia, ifelse(is.na(studydx), 4*death, as.numeric(studydx)))
+# At this time, don't allow backward transitions, we'll get to that later
+temp <- unlist(tapply(temp, dementia$ptnum, cummax))
+dstate <- factor(temp, 0:4, c("censor", "CU", "MCI", "dementia", "death"))
+
+if (FALSE){
+dfit1 <- cmsh(Surv(age, dstate) ~ apoepos + male, qmatrix= dqmat,
+             data= dementia, id = ptnum,
+             marker= list(state:offdx ~0 /discrete(init=vmiss)))
+}
+@ 
+
+The above is not yet finished.
 
 \subsection{CAV example}
 Data from a study that monitors the progression of coronary allograft
@@ -567,7 +874,7 @@ CAV is a post-transplant deterioration of the aterial walls in patients who
 have recieved a heart transplant. 
 Make a few changes to
 the data set to set it up for the cmsh function, and show some summaries. 
-This fit treats the CAV outcome as interval censored. 
+First fit CAV outcome as interval censored. 
 
 <<newcav>>=
 library(msm)
@@ -691,129 +998,6 @@ The final fit has 17 unique coefficients, the linear predictor for the 3:4
 (severe:death) transition for example makes use of coefficients 16, 17 and 13.
 
 
-
-\section{Theory, pass 1}
-A big difference between coxph and cmsh is how the likelihood is constructed.
-The semiparametric MSH (coxph) is a model for observed \emph{transitions}, 
-while the interval censored (cmsh) approach is a model for observed
-\emph{states}.
-The semiparametric model assumes that we see all of the transitions, up to
-the point they are censored.  It uses those transition and their timings,
-via risk sets, to construct estimated rates. 
-These rates can the be used to compte probability in state curves $p(t)$.
-
-Let $R(t)$ be the multistate rate matrix at time $t$.
-Off diagonal element $R_{ij}(t;x) = \hat\lambda{ij}(t;x)$ contains the estimate 
-transition rate between state $i$ and state $j$, at time $t$, for a subject
-with covariate vector $x$.  
-To normalize $R$ set its diagonal element such that row sums are 0. 
-(This is just what has to be done to compute the matrix exponential, no serious
-theory is involved wrt the normalization step.)
-If we assume a set of time points 
-$t_0, t_1, t_2, ...$ such that the transition rates are constant over each
-interval $t_i \le t < t_{i+1}$ the the probability in estimate satisfies
-\begin{equation}
- p(t_i; x) = p(t_0) e^{(t_1-t_0)R(t_0;x)} e^{(t_2-t_1)R(t_1;x)} \ldots 
- e^{(t_i-t_{i-1})R(t_{i-1};x)} \label{simplehmm}
-\end{equation}
-where $p(t)$ is a vector with one element per state, $p_k(t)$ the probability of
-being in state $k$, and $p(t_0)$ is the probability vector for the starting
-state, normally all zeros with a single ``1'' corresponding to the starting 
-state.
-The exponential of a matrix, e.g. $\exp(R)$, is dealt with at length in the
-mathematics vignette. Suffice it to say that compuation of this quantity, and
-of its derivative, is more complex than the exponential of a single value
-\cite{Moler78, Moler03, Mohey09}.
-
-In the semiparametric MSH first the parameter estimates $\hat\beta$ are 
-computed based on a partial likelihood, predictions $p(t;z)$ for any chosen
-covariate vector $z$ are computed at the very end.
-In the interval censored MSH $p(t;x)$ is computed during maximization, that is,
-for each trial solution of $\hat\beta$ and every $x$.
-\begin{enumerate}
-  \item Compute the predicted curve $p(t;x_i)$ for each subject $i$
-  \item Compare the prediction to the observed state for subject $i$, at each
-    observation time $t_{ij}$ for that subject.
-  \item Use this to compute an updated $\hat\beta$.
-\end{enumerate}
-
-The computation of a likelihood in cmsh is a sum over subjects, 
-and each subject can be computed independently.  (We take advantage of this
-and use parallel computation if possible, either set mc.cores using 
-\code{options}  or include it in the cmsh call.)
-The algorithm for the likelihood of each subject alternates two steps.  
-First step forward to a new
-time point using the matrix exponential as in equation \eqref{simplehmm}.
-Whenever a subject is observed, restrict their $p(t)$ by setting to 0 all of the
-``states where they ain't'', i.e., all elements of $p$ except the 
-observed state.
-The mathematics vignette has more formal details.
-
-\section{Partially observed states}
-\begin{figure}
-<<mcsa1, echo=FALSE>>=
-mstate <- c("CU", "MCI", "dementia", "death")
-mmat <- matrix(0, 4, 4, dimnames=list(mstate, mstate))
-mmat[1,2] <- mmat[2,3] <- 1
-mmat[1:3,4] <- 1
-statefig(rbind(3,1), mmat)
-@  
- \caption{State space model for the dementia data.}
- \label{mcsastate}
-\end{figure}
-
-The simplest extension of the simple interval censored model, and the simplest
-hidden Markov model, involves a partially observed state.
-An example appears in the Mayo Clinic Study of Aging, a blinded subset of which
-is present in the \code{dementia} data set.
-Per protocol, enrolled subjects have return visits every 15 months, at each
-visit they are diagnosed as being the cognitively unimpaired (CU), mild
-cognitive impairment (MCI), or dementia state, leading to the multi-state
-model shown in figure \ref{mcsastate}.
-
-Subjects who have not returned in 36 months or more are flagged for a record
-review and their medical history is retrieved. (Due to the resources of the
-Rochester Epidemiolgy Project, we have access to the medical records of all
-participants in the county, across all providers of care.) 
-From that review a status, at their most recent physician visit, 
-of demented vs non-demented (ND) can be ascertained, 
-but CU versus MCI cannot be distinguished.
-Study visits include additional cognitive testing, which will not have been
-part of a standard office visit.
-
-The modification of the likelihood is simple.  At such a visit, if the
-diagnosis is ``dementia'', then all elements of $p(t)$ for that subject, except
-state 3 (dementia) are set to 0.  For a non-demented diagnosis, elements 3
-and 4 (dementia and death) are set to 0, the other two are unchanged.
-We treat the off study diagnosis as a \emph{marker}, our
-label for an imperfect assessment of the underlying state.
-The data will have three distinct outcome variables: death, observed state
-at a study visit, and partial state at an ordinary office visit. 
-
-<<dement1>>=
-states <- c("CU", "MCI", "dementia", "death")
-dqmat <- matrix(0, 4, 4, dimnames=list(from= states, to=states))
-dqmat[1,2] <- dqmat[2,3] <- 1
-dqmat[1:3, 4] <- 1
-dqmat
-# statefig(rbind(3,1), dqmat)  # generate the state figure
-
-table2 <- function(...) table(..., useNA= "ifany")  # show NA in tables
-with(dementia, table2(studydx, offdx))
-
-# Create a missclassification table for the off study diagnosis
-vmiss <- cbind(c(1,1,0), c(0,0,1))
-dimnames(vmiss) <- list(state= states[1:3], visit=c("ND", "dementia"))
-
-# create a state variable for death + on study
-temp <- with(dementia, ifelse(is.na(studydx), 4*death, as.numeric(studydx)))
-dstate <- factor(temp, 0:4, c("censor", "CU", "MCI", "dementia", "death"))
-
-
-dfit1 <- cmsh(Surv(age, dstate) ~ apoepos + male, qmatrix= dqmat,
-             data= dementia, id = ptnum,
-             marker= list(state:offdx ~0 /discrete(init=vmiss)))
-@ 
 
 \section{What is a hidden Markov model (HMM)?}
 The answer to this is that HMM is a general technique, and we see the
@@ -1164,389 +1348,6 @@ reference level.
 The dementia data set included in the package is modeled on the actual MCSA
 data, results will not match any analyses using the actual MCSA sample but
 will often be similar in magnitude.  
-
-<<counting>>=
-state1 <- c("ND", "dementia", "death")
-smat1 <- matrix(0, 3,3, dimnames= list(state1, state1))
-smat1[1:2,3] <- smat1[1,2] <- 1
-statefig(rbind(2,1), smat1)
-
-# The dementia data is in timeline form, our first task is to create a
-#  counting process version suitable for an MSH model (coxph).
-# Create rows for years since enrollment (fake data set)
-first <- subset(dementia, !duplicated(ptnum),c(ptnum, age, male, educ, apoepos))
-yrdummy <- data.frame(ptnum = rep(first$ptnum, 3),
-                      age= c(outer(first$age, c(0,1, 4), '+')),
-                      years= rep(c(0,1,4), each= nrow(first)))
-                    
-
-# first row of data, along with fixed covariates
-last  <- subset(dementia, !duplicated(ptnum, fromLast= TRUE))
-last$age1 <- first$age
-cdata <- tmerge(first[,-2], last, id=ptnum, tstart=age1, tstop=age,
-                death= event(age, death), 
-                options= list(tstartname="age1", tstopname="age2"))
-# full counting process form
-cdata <- tmerge(cdata, dementia, id= ptnum,
-                dementia= cumevent(age, dx=="dementia"),
-                centiloid= tdc(age, centiloid),
-                cmc = tdc(age, cmc))
-c("timeline"= nrow(dementia), "unique id"= length(unique(dementia$ptnum)),
-  "counting process"= nrow(cdata))
-
-# Add in years since enrollment as a time-dependent covariate
-cdata <- tmerge(cdata, yrdummy, id=ptnum,
-                yearc = tdc(age, years))
-cdata$yearc <- factor(cdata$yearc, c(4,0,1), c("4+", "0-1", "1-4"))
-
-# create the event variable
-temp <- with(cdata, ifelse(death, 2, ifelse(dementia==1, 1, 0)))
-cdata$event <- factor(temp, 0:2, c("censor", "dementia", "death"))
-
-check <- survcheck(Surv(age1, age2, event) ~ 1, data=cdata, id = ptnum)
-check
-@
-
-Of note:
-\begin{itemize}
-  \item The timeline data set has one more row per subject than the 
-    counting process data set.
-  \item There are participants in the data set who have multiple office visits
-    in the demented state.
-    For the MSH model, we don't want to count these as separate instances of a
-    new dementia, i.e., as a transition.  Hence the use of
-    \code{cumevent}, and setting the event variable to ``dementia'' only for
-    the first instance.
-  \item Several participants have a diagnosis of dementia followed by a later
-    MCI diagnosis, then dementia again; a few flip multiple times.
-    Clearly the clinical categorization is imperfect, and our working diagnosis
-    of ``first dementia'' may be biased early.  We will 
-    discuss this later with HMM models.
-  \item CMC and centiloid will be used as predictors of the hazard rates in
-    the model, and as such need to have missing values filled in using last
-    value carried forward (LVCF), which is done automatically by the tdc()
-    operator.
-\end{itemize}
-
-The results of survcheck show that 543 subjects had a dementia diagnosis of 
-which 469 were followed to death, another 1002 died without dementia. 
-(All subjects in the data start in either CU or MCI.)
-The row of zeros shows than no one had dementia after death, a second death,
-or further follow-up after death, all useful checks that the data set was
-correctly created.
-
-A more interesting question is why we did not include MCI as a state. The reason
-is that the study has informative drop out --- those who are beginning to
-experience cognitive decline, perhaps not yet diagnosed as such, are more
-likely to leave the study.  However, we have access to the ongoing medical
-records of those who choose to cease active participation, and a diagnosis
-of dementia can be made from review of the physician notes and diagnoses that
-are part of their their standard care.
-Thus, with respect to death and dementia there is not 
-informative loss and \code{cfit1} below is valid.  
-Accurate diagnosis of mild cognitive impairment (MCI), however, requires formal
-cognitive tests, which only occur for on-study visits.
-We will return to this with the HMM model.
-
-Here is a MSH hazard model fit, results are similar to the original study.
-We have categorized amyloid similarly to that paper (clgp = centiloid group).
-
-<<mshfit>>=
-atemp <- with(cdata, ifelse(is.na(centiloid),4,
-                            as.numeric(cut(centiloid, c(-100, 20, 68, 500)))))
-cdata$clgp <- factor(atemp, 1:4, c("low", "med", "high", "missing"))
-cdata$istate <- factor(as.numeric(check$istate), 1:2, c("ND", "dementia"))
-cdata$edu4 <- cdata$educ/4  # a more useful coefficient
-cfit1 <- coxph(list(Surv(age1, age2, event) ~ male + apoepos + clgp + edu4 +cmc,
-                    1:2 ~ male * (apoepos + clgp), 1:3 ~ yearc),
-               data=cdata, istate=istate, id= ptnum)
-print(cfit1, digits=2)
-@ 
-
-It is easier to see the results as a plot.
-The result is shown in figure \ref{fig:mshplot}.
-For the 12 groups created by the
-interacting covariates, sex * apoe * centiloid group we find it easier to 
-visualize these by comparing each to an overall average effect rather than 
-choosing one as a reference.
-
-\begin{itemize}
-  \item With respect to the rate of dementia, the primary question of interest
-    in the study
-    \begin{itemize}
-      \item One or more $\epsilon{4}$ alleles in the APOE gene confer a higher
-        risk of dementia, and this increase is larger for females than males.
-      \item There is gradation of risk across low/moderate/high amyloid levels;
-        however, males do not particpate in the lowest tranche of risk.
-        Low centiloid + APOE- is the largest subset of patients, so the marginal
-        effect is a higher average dementia hazard for males.
-      \item Each CMC condition increases the hazard ratio by about 12\%.
-    \end{itemize}
-    \item For transitions to death, 
-      \begin{itemize}
-        \item APOE and amyloid no longer play an important role.
-        \item Male sex and CMC are important predictors of death, both with and
-          without dementia.
-        \item Education lowers the ND:death rate by 9\%, but appears to
-          increase the dementia:death hazard by 13\%. The decrease in ND:dementia
-          rate (though not ``significant'') along with an increase in the 
-          dementia:death rate aligns with
-          the popular hypothesis that those with higher education can better 
-          mask early cognitive decline, making them appear to enter dementia 
-          later but progress faster.
-        \item The age ajusted death rate in the first year after enrollment
-        is only 1/2 the rate found in year 4+.
-      \end{itemize}
-\end{itemize}
-
-We have found a lower death rate in the first year of enrollment to be common
-for any study that involves informed consent.  A simple explanation for this
-would be that subjects who are in extremis do not sign up for research studies.
-
-The more important estimates in a multi-state model are absolute risks:
-\begin{itemize}
-  \item $p_k(t; x(a), s(a))$, the probability of being in state $k$ at 
-     future time $t>a$, given the covariates and starting state at age $a$.
-  \item $E(N_k(t); x(a), s(a))$, the expected number of visits to state $k$ up
-    through time $t$, given the initial covariates and state.
-  \item ${\rm sojourn}_k(t;  x(a), s(a))$, the expected sojourn time in 
-    state $k$, through time $t$, given the initial covariates and state.
-\end{itemize}
-Though these are straightforward compuations when all the covariates $X$ are 
-fixed, this
-is much more difficult in the presence of time-varying covariates such as 
-amyloid and will be taken up in section \ref{tdcov}.
-
-<<contrast, echo=FALSE>>=
-# This is a helper function, to compute a marginal effect
-contrast <- function(fit, data, global=FALSE, weight, transition=1,
-                     tol=sqrt(.Machine$double.eps)) {
-    newx <- model.matrix(fit, data= data)
-    if (global)  # test for all differences =0
-        newx <- scale(newx[-1,], center=newx[1,], scale=FALSE)
-    else {    
-        if (missing(weight))  # subtract first row
-            newx <- scale(newx, center=newx[1,], scale=FALSE) 
-        else  { # use a weighted average
-            wt <- weight/sum(weight)# use a weighted average
-            if (length(wt) != nrow(newx)) stop("wrong length for weight")
-            newx <- scale(newx, center= wt %*% newx , scale=FALSE)
-        }
-    }
-    
-    if (inherits(fit, 'coxphms')) { 
-        # multistate model
-        indx <- fit$cmap[,transition]
-        beta <- coef(fit, matrix=TRUE)[,transition]
-        vmat <- matrix(0, length(indx), length(indx))
-        vmat[indx>0, indx>0] <- vcov(fit)[indx, indx]
-        # vmat and beta are the coef and variance matrix for this transition
-    } else {
-        beta <-coef(fit)
-        vmat <- vcov(fit)
-    }
-        
-    test <- drop(newx %*% beta)
-    V    <- newx %*% vmat %*% t(newx)
-    if (global) {
-        stemp <- svd(V)
-        nonzero <- (stemp$d > tol)
-        ctemp <- test %*% stemp$u[,nonzero]
-        chi <- ctemp %*% diag(1/stemp$d[nonzero]) %*% c(ctemp)
-        c(chisq= drop(chi), df= sum(nonzero))
-    }
-    else {
-        std <- sqrt(diag(V))
-        z <- ifelse(std==0, 0, test/std)
-        cbind(estimate=test, std.err=std, z= z)
-    }
-}
-@ 
-
-\begin{figure}
-<<mshplot>>=
-dummy <- expand.grid(apoepos=0:1, 
-                     clgp=c("low", "med", "high"), 
-                     male=0:1, cmc=2, edu4= 3, yearc="4+")
-count <- with(cdata, table(apoepos, clgp, male))[,-4,]
-con1  <- contrast(cfit1, dummy, weight= count, transition=1)
-hr1 <- con1[,1] + outer(con1[,2], c(0, -1.96, 1.96), '*')
-temp <- summary(cfit1)$coefficients
-cmcrow <- grepl("cmc", row.names(temp))
-temp[cmcrow,c(1,3,4)] <- temp[cmcrow, c(1,3, 4)] *2  # display 2 points of cmc
-hr2 <- temp[,1] + outer(temp[,3], c(0, -1.96, 1.96), '*')
-hr <- exp(rbind(hr1, hr2[c(6,7, 12:15, 17:24, 26:27),]))
-yy <- 31- c(1:14, 16:23, 25:30)
-opar <- par(mar=c(5,7,1,1))
-matplot(hr, yy, type='n', log='x', yaxt='n', xlab="Hazard ratio", ylab="")
-points(hr[,1], yy, pch=19, col=rep(1:3, c(14, 8, 6)))
-segments(hr[,2], yy, hr[,3], yy,  col=rep(1:3, c(14, 8, 6)))
-abline(h=c(16, 7), lty=2)
-abline(v=1, lty=3)
-ylab <- c("F- low", "F+ low", "F- mod", "F+ mod", "F- high", "F+ high",
-          "M- low", "M+ low", "M- mod", "M+ mod", "M- high", "M+ high",
-          "+4 educ", "+2 CMC", "male", "APOE+", "amyl mod", "amyl high",
-          "+4 educ", "+2 CMC", "year 0-1", "year 1-4", "male", "APOE+",
-          "amyl mod", "amyl high", "+4 educ", "+2 CMC")
-axis(2, yy, ylab, las=1, cex.axis=.7)
-text(c(.4,4,4), c(24,12, 3), c( "ND: dementia", "ND:death", "dementia:death"),
-     col=1:3)
-par(opar)
-@ 
-  \caption{Hazard ratos and confidence limits for the predictors in an MSH fit.}
-  \label{mshplot}
-\end{figure}
-
-
-\section{HMM fitter}
-\subsection{data}
-The \code{cmsh} function allows for interval censored data and for latent
-states. The combination of these allows us to accomdate the MCI state.
-The data set itself needs to be in timeline format: each row has an
-identifier plus a timestamp, along with all the covariates measured or
-known at that time point, other covariates are NA.  
-
-The cmsh model uses a parametric baseline hazard for each transition, i.e., 
-intercept, age, sex, apoe etc. appear as covariates.
-Age is the most important term, which we will model as a spline for dementia
-rates and (log) linear for age; like a Cox model each rate is modeled as
-exp(linear predictor) as a way to constrain rates to be non-negative.
-A key part of the computation is transition probability matrix
-$P(s,t)$ over the time window between two visits at time $s$ and $t$, 
-$\exp[(t-s)R]$ where $R$ is the matrix of rates.
-If rates are constant over the time window from $s$ to $t$ this
-compuataion is feasable, $P(s,t)= exp[(t-s)R]$ where exp is the matrix
-exponential; if the rates vary over the window the computation is intractable
-(a numerical integration that would take forever).
-As a consequence our first task is to create an expanded data set with
-time-dependent covariate \code{iage}, the integer ''birthday age'' for each
-subject, which is the covariate that will be used as the age predictor.
-Treating death and dementia rates as a step function over age is similar to how
-population rate tables are organized, see for instance the human mortality
-data base (www.mortality.org); 
-experience in that domain has shown that it is sometimes necessary to subdivide
-the first year of life, but single years suffice from there on.
-One could argue for using 2 or even 5 year increments in the dementia data, 
-as a way to speed
-up the computation, but we have chosen the more conservative route.
-It will more than double the size of the data set.
-
-<<expanddementia>>=
-# Create a dummy data set of all birthdays for all subjects.
-# There are almost certainly more clever ways to do this, but the
-#  brute force method below is clear and not all that slow
-# Create rows for ages that are strictly between first age +1 and last age.
-#  I know that all the ages are in tenths of a year.
-first <- subset(dementia, !duplicated(ptnum), c(ptnum, age))
-last  <- subset(dementia, !duplicated(ptnum, fromLast=TRUE), c(ptnum, age))
-temp  <- lapply(which((first$age+1) < (last$age-.01)), function(i) {
-    data.frame(ptnum= first$ptnum[i], 
-               age= seq(from= 1+ first$age[i], to= last$age[i]- .01, by=1),
-               death=0)
-})
-temp2 <- do.call(rbind, temp)
-c("Original rows"= nrow(dementia), "Added rows"= nrow(temp2))
-
-# Now merge it in
-dement2 <- merge(dementia, temp2, all=TRUE)
-dement2$iage <- floor(dement2$age)  
-# also add the 'years on study' category             
-tyear <- with(dement2, age - age[match(ptnum, ptnum)]) #years on study
-dement2$cyear <- factor(as.numeric(cut(tyear, c(-1, 1, 4, 100))),
-                                   c(3,1,2), c(">4", "0-1", "1-4"))
-@ 
-
-We now have to make a choice. Variables in the data set that will act as
-markers for a hidden or latent state should be non-missing only when they
-are actually observed, as the likelihood involves a probabiliy(observed marker, 
-given the true state) term.
-Variables that will be used as covariates in the transition rate need to be
-available at all times, just as they do for the multi-state hazard model
-\code{cfit1} above. For an interval censored version of \code{cfit1} missing
-amyloid and CMC values will need to be filled in using most recent value
-seen.  Create this version as data set \code{dement2b}.
-
-<<dement2b>>=
-dement2b <- dement2
-dement2b$centiloid <- with(dement2, lvcf(ptnum, centiloid))
-dement2b$cmc       <- with(dement2, lvcf(ptnum, cmc))
-# create the categorical centiloid, with missing as a category
-atemp <- with(dement2b, ifelse(is.na(centiloid), 4,
-                               as.numeric(cut(centiloid, c(-100, 20, 68, 500)))))
-dement2b$clgp <- factor(atemp, 1:4, c("low", "med", "high", "missing"))
-
-# the 3 level outcome based on first dementia or death
-dtemp <- with(dement2, ifelse(is.na(dx), 0, 1*(dx=="dementia")))
-firstdem <- unlist(tapply(dtemp, dement2$ptnum, pmax))
-temp <- ifelse(dement2b$death==1, 2, firstdem)
-dement2b$state3 <- factor(temp, 0:2, c("censor", "dementia", "death"))
-@ 
-
-As the next part of the setup we need to describe the state space and the allowed
-transitions, e.g., see the matrix \code{qmat} below, 
-as this can not be deduced simply from the data.
-The values of qmat are 0 for transitions that can not occur, and 1 for those
-that can.
-For instance, the dementia data contains many subjects that were
-categorized as cognitively unimpaired on one visit and as dementia at the
-next study visit (see counts below), but biologically we know that those 
-subjects 
-must have passed through the MCI state during the intervening period.
-The cmsh function itself does not know any biology, so it is necessary to
-inform it that a direct CU:dementia transition is not possible.
-
-<<dstate>>=
-state2 <- c("CU", "MCI", "dementia", "death")
-qmat <- matrix(0, 4,4, dimnames= list(state2, state2))
-qmat[1:3,4] <- qmat[1,2] <- qmat[2,3] <- 1
-statefig(rbind(3,1), qmat)
-
-# All the observed transitions, for all subjects
-indx <- which(duplicated(dementia$ptnum))
-table(from=dementia$dx[indx-1], to=dementia$dx[indx])
-@ 
-
-The fact that there are observed MCI to CU pairs in the data shows that
-the measurment of CU/MCI/dementia is imperfect. To deal with this
-define a set of latent states C0/C1/C2 corresponding to the true cognitive
-state, and treat the clinical measurment of CU/MCI/dementia as an imperfect
-biomarker of the true state. 
-The underlying probability model is 
-$$ y = f(state) $$
-i.e., a probability distribution 
-of observed values corresponding to each true state.
-Since the clinical measurement is categorical, this leads to a set of
-3 multinomial distributions shown in the rows of table \ref{tabmulti}.  
-We have made an assumption that CU and dementia diagnoses are not confused.
-
-\begin{table} \centering
-  \begin{tabular}{ccccc}
-    & \multicolumn{4}{c}{Observed biomarker} \\
- True & CU & MCI & dementa & ND \\
-  C0  & $p_1$ & $1-p_1$ & 0 &  1  \\
-  C1  & $p_2$ & $1-(p_2 + p_3)$ &$ p_3 $& $1-p_3$ \\
-  C2  &  0  & $p_4$  & $1-p_4$ & $p_4$
- \end{tabular}
- \caption{Multinomial distributions for the dementia data. At an in-person
-   study visit CU/MCI/dementia is recorded, 
-   a record review yeilds ND/dementia.}
-  \label{tabmulti}
-\end{table}
-
-A common error is to think in terms of  state = g(observed) as the model, e.g.,
-if MCI is observed the probability of CU/MCI/dementia is a,b,c;
-but the statistical model goes the other direction.
- After the fit is finished one can compute the relevant
-posteriors at a fixed time $t$, which will of course depend on prevalence at
-time $t$.
-
-(Note that there are no observed transitions from ND to dementia in the
-data, this is structural. 
-Medical record reviews were undertaken for subjects who were not yet demented
-and had no study visit or prior review within approx 3 years, someone found to
-be not demented is coded as ND, as CU and MCI cannot be distinguished in this
-instance. However, the data entry screen for this task retains only the most
-recent ND/dementia date and the ND/dementia status as of that date.)
 
 
 \bibliographystyle{plain}
