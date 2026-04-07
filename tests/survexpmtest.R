@@ -1,6 +1,6 @@
 # Checks of the survexpm routine
 #
-library(icmsh)
+library(mshmm)
 q1 <- matrix(0, 5, 5)  # the simple model of the NAFLD data
 q1[1,2] <- q1[2,3] <- q1[3,4] <- 1
 q1[1:4,5] <- 1
