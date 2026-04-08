@@ -118,3 +118,20 @@ all.equal(p1, test$P)
 
 # The expm eigen has a more forgiving cutoff before switching to Pade
 all.equal(expm(tied), expm(tied, method="R_Eigen"))
+
+#
+# Another check of Pade, with another matrix that has tied eigenvalues
+#
+R <- matrix(0, 6, 6)
+R[1,2:3] <- 1
+R[2:3, 4] <- 1
+R[3:4, 5] <- 1
+R[-6,6] <- 1
+R[R>0] <- c(.05, .05, .06, .07, .05, .15, rep(c(.05,.07, .15), c(3,1,1)))
+diag(R) <- -rowSums(R)
+
+q1 <- expm(R* 1.3)
+q2 <- pade(R* 1.3)
+q3 <- survexpm(R, 1.3, deriv=FALSE)
+aeq(q1, q2)
+aeq(q1, q3)

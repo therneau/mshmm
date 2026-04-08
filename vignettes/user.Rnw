@@ -680,8 +680,11 @@ drate <- survexp.mn[60, 1, "2000"]*365.25  # Minnesota death rate, per year
 round(drate,3)
 
 icoef <- log(rep(c(.03, .01), 3:4))
-nmat2 <- nmat
-nmat2[1, 3:4] <- nmat2[2,4] <- 0
+
+states <- c(paste0(0:3, "MC"), "death")
+nmat2 <- matrix(0,5,5, dimnames= list(states, states))
+nmat2[1,2] <- nmat2[2,3] <- nmat2[3,4] <- 1
+nmat2[1:4,5] <- 1
 nmat2
 
 nfit0 <- cmsh(Surv(years, state) ~ 1, ndata3, id= id,

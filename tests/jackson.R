@@ -38,7 +38,7 @@ hfit1 <- cmsh(list(Surv(age,state) ~1, 0:6 ~ male),
                data=test1, id=id, qmatrix=qmat, init=icoef, iter=0)
 
 # do the computation by hand
-byhand <- function(data, eta, q=qmat, missmat, p0, msm=FALSE, debug=FALSE){
+byhand <- function(data, eta, q=qmat, missmat, p0, firstobs=FALSE,debug=FALSE){
     idlist <- unique(data$id)
     nid <- length(idlist)
     phat <- matrix(0, nid, 6)  # n subjects, 4 states
@@ -49,10 +49,13 @@ byhand <- function(data, eta, q=qmat, missmat, p0, msm=FALSE, debug=FALSE){
         e2 <- eta[data$id==idlist[i],]
         if (missing(p0)) phat[i, tdata$istate[1]] <- 1 #observed state
         else phat[i,] <- p0
-        # a difference in philosphy
+
         if (debug) browser()
-        if (!msm && !missing(missmat)) 
+        if (!firstobs && !missing(missmat)) {
+            # if the initial state was estimated and there is a missmat
+            #   apply that missmat at time 0
             phat[i,] <- phat[i,]* missmat[, tdata$istate[1]]
+            }
         delta <- diff(tdata$age)
         for (j in 1:(n-1)) {
             # go forward
@@ -216,54 +219,109 @@ eta3m <- model.matrix(mfit3) %*% coef(hfit3, matrix=TRUE)
 aeq(eta3m, eta3)  # verifies that test1b is properly centered
 aeq(hfit3$log, mfit3$minus2loglik/ -2)
 
-# These models use the cav data set from the msm package
-cstate <- c("none", "mild/mod", "severe", "death")
-Qm <- rbind(c(0, .148, 0, .0171),
-            c(0,  0,  .202, .081),
-            c(0,  0,   0,  .126),
-            c(0,  0,   0,   0))  #page 38, msm manual
-dimnames(Qm) <- list(from=cstate, to=cstate)
-Qm
 
-ematrix <- rbind(c(.8, .2, 0, 0),
-                 c(.1, .8, .1, 0),
-                 c(0, 0.3, .7, 0),
-                 c(0, 0,    0, 1))
-dimnames(ematrix) <- list(true=cstate, obs=1:4)
+# Now treat the initial state as known, initprobs still has to be set
+#  though it isn't used
+test1$firstobs <- 1*(!duplicated(test1$id))
+mfit4 <- msm(istate ~ age, data=test1, subject= id, 
+             qmatrix = mqmat, fixedpar=TRUE, death=6,
+             ematrix=missmat, obstrue=firstobs,
+             initprob=c(1,1,1,1,0,0)/4, 
+             covariates= list("1-3"= ~educ,  "1-6"= ~male, "2-6"= ~male),
+             covinits= list(educ=.1, male=c(.2, .3)))
+test <- byhand(test1b, eta3, missmat=missmat)
 
+# create the necessary status for cmsh, first obs and death have a state,
+#  others unknown
+keep <- test1$state=="death" | !duplicated(test1$id)
+temp <- ifelse(keep, as.numeric(test1$state), 1)
+test1b$fstate <- factor(temp, 1:7, levels(test1$state))
 
-mfit4a <- msm(state ~ years, subject=PTNUM, data=cav,
-            qmatrix=Qm, ematrix=ematrix, death=4,
-            obstrue= firstobs, fixedpar=TRUE)
+hfit4 <- cmsh(list(Surv(age, fstate) ~1, 
+                  1:3 ~ educ, 1:6+ 2:6 ~ male), scale=FALSE,
+               mc.cores=1,
+               data= test1b, id= id, qmatrix= qmat,
+               center=FALSE, iter=0, init=i2,
+               marker= state:dx ~0 /discrete(init=missmat[1:5,1:5]))
+true4 <- byhand(test1b, eta3, missmat=missmat, firstobs=TRUE)
+aeq(hfit4$log, sum(log(rowSums(true4))))
+aeq(-2*hfit4$loglik, mfit4$minus2loglik)
+# for the above, I haven't yet figured out exactly what msm is doing
 
-cav2 <- cav  # my version
-names(cav2) <- casefold(names(cav))  # I dislike upper case
-# death and first obs are known states (all start in 'none')
-temp <- with(cav2, ifelse(!duplicated(ptnum) | state==4, state, 0))
-cav2$known <- factor(temp, 0:4, c("alive", cstate))
-cav2$istate <- cav2$state # integer state
-cav2$mark  <- factor(cav2$istate)
+if (FALSE) {
+    # if we do a subset, the x means change for msm, so drop covariates
+    mfit4x <- msm(istate ~ age, data=test1[1:2,], subject= id, 
+             qmatrix = mqmat, fixedpar=TRUE, death=6,
+             ematrix=missmat, obstrue=firstobs,
+             initprob=c(1,1,1,1,0,0)/4)
 
-hfit4a <- cmsh(Surv(years, known) ~ 1, cav2, id=ptnum,
-               qmatrix=Qm, mc.cores=1, iter=0,
-               marker= state:mark ~0 /discrete(init=ematrix))
+    hfit4x <- cmsh(Surv(age, fstate) ~1, scale=FALSE,
+               mc.cores=1, 
+               data= test1b[1:2,], id= id, qmatrix= qmat,
+               center=FALSE, iter=0, init=i2[1,],
+               marker= state:dx ~0 /discrete(init=missmat[1:5,1:5]))
 
-aeq(-2*hfit4a$loglik, mfit4a$minus2loglik)
+    # double check that coefs are the same
+    t1 <- qmat
+    t1[qmat>0] <- coef(hfit4x)
+    aeq(t1, mfit4x$Qmatrices$logbaseline)
 
+    Rmat <- mqmat
+    diag(Rmat) <- -rowSums(Rmat)
+    P1 <- expm(Rmat * diff(test1$age)[1])
+    alpha1 <- c(0,0,0,1,0,0) %*% P1
+    alpha2 <- alpha1 * missmat[,4]
+    all.equal(log(sum(alpha2)), hfit4x$log)
 
-# Now with covariates
-mfit4b  <- msm(state ~ years, subject=PTNUM, data=cav,
-               qmatrix=Qm, ematrix=ematrix, death=4, 
-               obstrue= firstobs, covariates=list("1-2"= ~sex, "1-4"= ~sex),
-               fixedpar=TRUE, covinits=list(sex=c(1.1, 2.1)))
+    jprob <- exp(mfit4x$minus2loglik/ -2)
+    c("alpha from cmsh"= sum(alpha2), "alpha from msm" = jprob)
+    # I've sent an email to Chris Jackson
+}
+if (FALSE){
+# the code for Chris
+if (FALSE){
+library(msm)
+library(survival)  # for statefig
+library(Matrix)    # for expm
 
-qcoef <- data.frame(state1=c(1,1), state2=c(2,4), 
-                    term =1, coef=1:2, init=c(1.1, 2.1))
-mcenter <- attr(mfit4b$data$mm.cov, "means")
+test <- data.frame(id= c(1,1), age=c(86.1, 87.4), state=rep("A+N+",2),
+                   istate=c(4,4), firstobs= c(4,0))
+states <- c("A-N-", "A+N-", "A-N+", "A+N+", "dementia", "death")
+qmat <- matrix(0, 6,6, dimnames= list(from= states, to= states))
+qmat[1,2:3] <- 1
+qmat[2:3, 4] <- 1
+qmat[3:4, 5] <- 1
+qmat[-6,6] <- 1
+statefig(c(1,2,2,1), qmat)  # draw it: 11 transitions!
 
-hfit4b <- hmm(cbind(years, state) ~ I(sex-mcenter), data=cav, mc.cores=1,
-              id = PTNUM, qmatrix=Qm, rfun=efun, pfun=cinit,
-              death=4, otype=otype,  rcoef=rcoef, mfun= hmmtest,
-              qcoef=qcoef, scale=FALSE)
-aeq(-2*hfit4b$loglik[2], mfit4b$minus2loglik)
+icoef <- c(.05, .05, .06, .07, .05, .15, rep(c(.05,.07, .15), c(3,1,1)))
+q2 <- qmat
+q2[q2>0] <- icoef
 
+e1 <- .12  # an A- as A+ or vice versa
+e2 <- .2   # an N- as N+ or vice versa
+temp <- outer(c("Acorrect"= (1-e1), "Afalse"= e1), 
+              c("Ncorrect"=(1-e2), "Nfalse"= e2), '*')
+
+missmat <- rbind(temp[c(1,2,3,4)], temp[c(2, 1, 4,3)],
+                 temp[c(3,4,1,2)], temp[c(4, 3, 2, 1)])
+missmat <- cbind(missmat, 0)
+missmat <- rbind(missmat, c(0,0,0,.1,.9))
+missmat <- cbind(rbind(missmat,0),0)
+missmat[6,6] <- 1
+dimnames(missmat) <- list(true= states, obs= states)
+
+mfit4 <- msm(istate ~ age, data=test, subject= id, 
+             qmatrix = q2, fixedpar=TRUE, death=6,
+             ematrix=missmat, obstrue=firstobs,
+             initprob=c(1,1,1,1,0,0)/4)
+-.5* mfit4$minus2loglik
+
+# now do it by hand
+R <- q2
+diag(R) <- -rowSums(R)
+alpha1 <- c(0,0,0,1,0,0) %*% expm(R* 1.3)
+alpha2 <- alpha1 * missmat[,4]
+loglik <- log(sum(alpha2))
+loglik
+}

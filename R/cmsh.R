@@ -296,7 +296,10 @@ cmsh <- function(formula, data, subset, weights,
     # 
     B <- 0*cmap
     indx <- match(1:nparam, cmap)  # nparam = number of unique coefs
-    beta.names <- paste(rownames(cmap)[indx], colnames(cmap)[indx], sep='.')
+    if (nrow(cmap) ==1) 
+        beta.names <- colnames(cmap)[indx]
+    else 
+        beta.names <- paste(rownames(cmap)[indx], colnames(cmap)[indx], sep='.')
     param <- rep(0, nparam)
     if (!missing(init)) {
         if (inherits(init, "cmsh")) { # a prior hmm model
@@ -325,7 +328,7 @@ cmsh <- function(formula, data, subset, weights,
             if (!is.null(names(init))) {
                 index <- match(names(init), beta.names)
                 if (any(is.na(index)))
-                    stop("init has an coefficient not found in the model: ",
+                    stop("init has a coefficient not found in the model: ",
                          (names(init)[is.na(index)])[1])
                 else param[index] <- init
             } else {
