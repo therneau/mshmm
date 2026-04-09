@@ -6,7 +6,7 @@ library(mshmm)
 parsecovar1 <- mshmm:::parsecovar1
 parsecovar2 <- mshmm:::parsecovar2
 parsemarker1 <- mshmm:::parsemarker1
-parsemarker2 <- mshmm:::parsemerker2
+parsemarker2 <- mshmm:::parsemarker2
 
 states <- c("A0N0", "A1N0", "A0N1", "A1N1", "A0N2","A1N2", "death")
 qmat <- matrix(0, 7,7, dimnames=list(states, states))

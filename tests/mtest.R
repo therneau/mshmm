@@ -1,7 +1,8 @@
 library(hmm)
 #
 # Test the mlogit function
-#
+#  This is an internal function, not exported
+mlogit <- hmm::mlogit
 # First a simple vector
 eta <- matrix(c(-1, -2, .1), nrow=1)
 
