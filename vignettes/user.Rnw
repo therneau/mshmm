@@ -46,6 +46,7 @@ MSH model fits.
 The primary fitting function of this package, \code{cmsh}, deals with
 (interval) censored multi-state hazard models.
 
+\subsection{Colon cancer}
 \begin{figure}
 <<simpleprog, echo=FALSE>>=
 pstate <- c("Entry", "Progression", "Death")
@@ -67,6 +68,15 @@ We could think of cmsh as providing a model for the time to \emph{actual}
 progression and coxph a model for the time to \emph{detection}
 of progression.
 
+
+For a study with regular follow-up, such as a clinical trial, 
+we have found that the results of a \code{coxph} and \code{cmsh} fit
+are often nearly identical, particularly with respect to covariates.
+If treatment decreases the rate of progression by 30\% it will do the
+same to the rate of detection.
+
+\subsection{Fatty liver disease}
+
 \begin{figure}
 <<nafld, echo=FALSE>>=
 states <- c("0MC", "1MC", "2MC", "3MC", "death")
@@ -81,19 +91,19 @@ metabolid comorbidites.}
  \label{fig:nafld}
 \end{figure}
 
-For a study with regular follow-up, such as a clinical trial, 
-we have found that the results of a \code{coxph} and \code{cmsh} fit
-are often nearly identical, particularly with respect to covariates.
-If treatment decreases the rate of progression by 30\% it will do the
-same to the rate of detection.
-
 A more interesting case is a study of metabolic dysfunction-associated
-steatotic liver disease (MASLD), found in section \ref{sect:nafld}.
+steatotic liver disease (MASLD), which we will use below
+in section \ref{sect:nafld}.
 All adult subject subjects with a diagnosss of MAFLD from 1997 to 2012,
 along with 4 potential controls for each case, matched on age, sex, and
-year of office visit, were followed forward from that date forward
+year of office visit, were followed forward for
 the occurence of any of 3 metabolic comorbidities (MC):
 diabetes, hypertension, and hyperlipidemia.
+A state space is shown in Figure \ref{fig:nafld}.
+(Since comorbidities in the study were defined as 
+``history of diabetes'', 
+``history of dyslipidemia'', and ``history of hypertension''
+no arrows go backwards.)
 The follow-up visits are in the course of standard clinical care, and have
 wide differences in within and between subject spacing,
 with 20, 50, 80 and 95th percentiles of 3, 10, 19 and 50 months.
@@ -102,32 +112,51 @@ their physician more often on average than men,
 this can introduce a bias in the coxph analysis; the interval censored
 likelihood accounts for this variable spacing.
 
-(Footnote: since comorbidities in the study were defined as 
-``history of diabetes'', 
-``history of dyslipidemia'', and ``history of hypertension''
-no arrows go backwards.)
+\subsection{Mayo Clinic Study of Aging}
 
+The \code{dementia} data set is based on a subset of data as of 2021 from
+the Mayo Clinic Study of Aging.
+Starting in 2004, an age and sex stratified sample of subjects aged 70--89
+was recruited from Olmsted County, Minnesota.  
+Subjects are scheduled to return at 15 month intervals, at each visit they
+are assessed with respect to cognitive status along with an array of other
+covariates.  At regular intervals the cohort has been refreshed with new
+waves of recruitement, targeting a wider age range.
+The \code{dementia} data set is a constructed data set based on a 2021
+version of the MCSA data, with the same covariate, outcome, and visit 
+distrbution. 
+The research needs of this study have been the motivation for most of
+the features in the package, and we will fit a variety of models
+using the dementia data.  One simple example is shown in Figure
+\ref{mcsafig1}.
 
-The perceptive user will notice that a call to csmh looks remarkably
-like a call to coxph.  This is on purpose, but there are some important
-differences between the calls.
-The first is that cmsh requires
-a matrix of valid transions $Q$.  The $Q$ matrix for the MAFLD data  
-is shown below,
-and corresponds to the solid arrows in figure \ref{fig:nafld}.
-The computer won't know that a direct 0MC to 2MC transition is impossible
-without being told.
-(Since comorbidities in the study were defined as 
-``history of diabetes'', 
-``history of dyslipidemia'', and ``history of hypertension''
-no arrows go backwards.)
+\begin{figure}
+<<mcsafig1, echo=FALSE>>=
+mstate <- c("CU", "MCI", "dementia", "death")
+mmat <- matrix(0,4,4, dimnames=list(mstate, mstate))
+mmat[1,2] <- mmat[2,3] <- 1
+mmat[1:3,4] <- 1
+statefig(rbind(3,1), mmat)
+@ 
+ \caption{State space for progression of cognitive decline: states of
+   cognitively unimpaired (CU), mild cognitive impairment (MCI),
+   dementia and death.}
+ \label{mcsafig1}
+\end{figure}
 
-<<qmatrix>>=
-states <- c("0MC", "1MC", "2MC", "3MC", "death")
-qmat <- matrix(0, 5,5, dimnames=list(from=states, to=states))
-qmat[1,2] <- qmat[2,3] <- qmat[3,4] <- 1
-qmat[1:4, 5] <- 1
-qmat
+\subsection{Model and notation}
+
+One requirement for cmsh fits will be a transition matrix, e.g., the
+one below for the NAFLD study.
+It contains a positive value for any possible transition (usually 1), and
+0 for transitions that are not.
+In the NAFLD data for instance, there are subjects whose have no
+comorbidities on their first visit and 2 on the next, which might be several
+years later. We know, biologically, that this subject had to pass
+through the 1MC state, but the program will not unless we tell it so.
+
+<<nstatex, echo=FALSE>>=
+smat
 @ 
 
 A second difference is that the cmsh routine uses a parametric baseline
@@ -714,16 +743,12 @@ nfit2
 Yet to do:
 \begin{itemize}
   \item Note that nfit0 can be slow: initial estimates are hard
-  \item Should I have added age to nfit0. Is my goal to get a baseline
+  \item Should I have added age to nfit0? Is my goal to get a baseline
     hazard, or just the numeric one of getting intial intercepts
   \item Compare the results of nfit1 and nfit2. Plot with HR + CI for both?
     Compare predicted p(t) and E(time in state) estimates
   \item Come to some conclusions
 \end{itemize}
-
-
-\comment{Everything from here one is a only a first draft.}
-
 
 \section{Theory, pass 1}
 A big difference between coxph and cmsh is how the likelihood is constructed.
@@ -762,9 +787,11 @@ In the semiparametric MSH first the parameter estimates $\hat\beta$ are
 computed based on a partial likelihood, predictions $p(t;z)$ for any chosen
 covariate vector $z$ are computed at the very end.
 In the interval censored MSH $p(t;x)$ is computed during maximization, that is,
-for each trial solution of $\hat\beta$ and every $x$.
+for each trial solution of $\hat\beta$ and each subject $i$
 \begin{enumerate}
-  \item Compute the predicted curve $p(t;x_i)$ for each subject $i$
+  \item Compute the predicted curve $p(t;x_i)$ for the subject. For the moment
+    assume the covariate $x_i(t)$ is not time-dependent.  That will be a later
+    topic.
   \item Compare the prediction to the observed state for subject $i$, at each
     observation time $t_{ij}$ for that subject.
   \item Use this to compute an updated $\hat\beta$.
@@ -772,7 +799,7 @@ for each trial solution of $\hat\beta$ and every $x$.
 
 The computation of a likelihood in cmsh is a sum over subjects, 
 and each subject can be computed independently.  (We take advantage of this
-and use parallel computation if possible, either set mc.cores using 
+and use parallel computation if possible, either set \code{mc.cores using 
 \code{options}  or include it in the cmsh call.)
 The algorithm for the likelihood of each subject alternates two steps.  
 First step forward to a new

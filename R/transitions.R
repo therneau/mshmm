@@ -4,7 +4,7 @@
 transitions <- function(id, time, state) {
     idx <- match(id, unique(id))
     oo <- order(idx, time)
-    if (all(diff(oo) ==1) { # ordered data
+    if (all(diff(oo) ==1)) { # ordered data
         id1 <- duplicated(id, fromLast=TRUE)
         id2 <- duplicated(id)
         table(from=state[id1], to=state[id2], useNA="ifany")

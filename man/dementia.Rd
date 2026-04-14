@@ -5,7 +5,7 @@
 Cognitive change over time.
 }
 \description{
-  This is a manufactured data set based on a subset of subjects
+  This is a constructed data set based on a subset of subjects
   from the Mayo Clinic Study of Aging.  It replicates many important
   aspects of that data such as age distribution, covariate distrbutions
   and correlations, and number of visits.
@@ -20,29 +20,24 @@ Cognitive change over time.
     \item{\code{age}}{age at this observation}
     \item{\code{male}}{0= female, 1= male}
     \item{\code{educ}}{years of education, less than 8 coded as 8}
-    \item{\code{apoepos}}{1= one or more e4 alleles in the
+    \item{\code{any.e4}}{1= one or more e4 alleles in the
       apolipoprotein E (APOE) gene, 0= no e4 alleles}
     \item{\code{cmc}}{cardiovascular and metabolic conditions (CMC)
       score, the sum of seven conditions proposed by the US Department of
       Heath and Human services as indicators of vacular health:
       hypertension, hyperlipidemia, cardiac arrhythmias, coronary artery
       disease, congestive heart failure, diabetes mellitus, and stroke}
+     \item{\code{dx}}{diagnosis at this visit, a factor with levels of
+       alive, CU (cogitively unimpaired), MCI (mild cognitive
+       impairment), dementia, nondem (not demented), off-dem (dementia
+       diagnosed off study) and death.
      \item{\code{centiloid}}{PET measurment of amyloid level in the brain using
        Pittsburgh compound B (PiB), expressed in centiloid units}
-     \item{\code{tau}}{PET measurement of tau level in the brain using
-       flortaucipir, expressed in SUVR units}
      \item{\code{p.tau181}}{assay value of phosphorolated tau-181}
-     \item{\code{dx}}{diagnosis at this visit, one of CU, MCI, ND or dementia;
-       a factor variable; cognitively unimpaired, mild cognitive
-       impairment, not demented (CU or MCI) and dementia}
      \item{\code{memory}}{a scaled memory score, based on a battery of
        cognitive tests}
-     \item{\code{studydx}}{diagnosis at a study visit, one of CU
-       (cognitively unimpaired), MCI (mild cognitive impairment) or dementia}
-       a factor variable; cognitively unimpaired, mild cognitive
-       \item{\code{offdx}}{diagnosis from a off-study office visit, one of
-	 ND (not demented) or dementia}
-     \item{\code{death}}{0=alive, 1=dead}
+     \item{\code{global}}{a global congition score, an amalgam of memory,
+       executive function, visual, and language domains}
   }
 }
 \details{
@@ -65,7 +60,7 @@ Epidemiology project; thus with respect to the death and dementia endpoints
 informative censoring is not be an issue. For visits that are not in
 person, which includes phone or spouse interview and off study record
 review, the cognitively unimpaired (CU) vs. mild cognitive impairment
-(MCI) states cannot be distinguished, but non-demented (ND) vs. dementia can
+(MCI) states cannot be distinguished, but non-demented vs. dementia can
 be ascertained.
 
 Participation in the imaging portion of the study (MRI, amyloid PET,
@@ -83,16 +78,21 @@ a subset of those who elected to participate in imagine will be missing
 PET for their first visits.
 For further details see Jack (2022) and the references therein.
 
+The \code{dx} variable is a composite: for an on study visit the
+diagnosis will be one of CU, MCI or dementia, an off study visit will be
+either nondemented or demented (nondem or off-dem), and simple status as
+either alive or dead.  None of these 3 occur on the same day. 
+
 The data set is laid out in \emph{timeline} form.
-Each row of data contains an identifier, a time, and covariate values
+Each row of data contains the subject identifier, a time, and covariate values
 that were measured at that time point, with missing values for those that
-were not. Rows where death=1, for
+were not. Rows where diagnosis= death, for
 instance, will normally be missing all the continuous variables.
 The exception is fixed covariates
 such as sex and APOE genetic status, which are copied forward across all
 data rows. (Although the variable will not have been formally re-measured
 at each visit its value at that time is nevertheless known.)
-The seven carido-metabolic conditions are coded as
+The seven carido-metabolic conditions were coded as
 "any history of" and thus the CMC count can only increase.
 }
 \references{
@@ -103,7 +103,7 @@ The seven carido-metabolic conditions are coded as
     Brain Communications, doi:10.1093/braincomms/fcac017
 }
 \examples{
-data(dementia)
 table(table(dementia$ptnum))  # number of rows per subject
+with(dementia, transitions(ptnum, age, dx))
 }
 \keyword{datasets}
