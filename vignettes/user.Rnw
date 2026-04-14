@@ -799,7 +799,7 @@ The simplest extension of the simple interval censored model, and the simplest
 hidden Markov model, involves a partially observed state.
 An example appears in the Mayo Clinic Study of Aging, a blinded subset of which
 is present in the \code{dementia} data set.
-Per protocol, enrolled subjects have return visits every 15 months, at each
+Per protocol, enrolled subjects are scheduled to return every 15 months, at each
 visit they are diagnosed as being the cognitively unimpaired (CU), mild
 cognitive impairment (MCI), or dementia state, leading to the multi-state
 model shown in figure \ref{mcsastate}.
@@ -809,8 +809,8 @@ review and their medical history is retrieved. (Due to the resources of the
 Rochester Epidemiolgy Project, we have access to the medical records of all
 participants in the county, across all providers of care.) 
 From that review a status, at their most recent physician visit, 
-of demented vs non-demented (ND) can be ascertained, 
-but CU versus MCI cannot be distinguished.
+of demented vs non-demented (ND) can be ascertained; however,
+CU versus MCI cannot be distinguished.
 Study visits include additional cognitive testing, which will not have been
 part of a standard office visit.
 
@@ -824,6 +824,10 @@ The data will have three distinct outcome variables: death, observed state
 at a study visit, and partial state at an ordinary office visit. 
 
 <<dement1>>=
+id1 <- duplicated(dementia$id, fromLast=TRUE)
+
+
+
 states <- c("CU", "MCI", "dementia", "death")
 dqmat <- matrix(0, 4, 4, dimnames=list(from= states, to=states))
 dqmat[1,2] <- dqmat[2,3] <- 1

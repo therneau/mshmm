@@ -276,52 +276,5 @@ if (FALSE) {
     jprob <- exp(mfit4x$minus2loglik/ -2)
     c("alpha from cmsh"= sum(alpha2), "alpha from msm" = jprob)
     # I've sent an email to Chris Jackson
-}
-if (FALSE){
-# the code for Chris
-if (FALSE){
-library(msm)
-library(survival)  # for statefig
-library(Matrix)    # for expm
-
-test <- data.frame(id= c(1,1), age=c(86.1, 87.4), state=rep("A+N+",2),
-                   istate=c(4,4), firstobs= c(4,0))
-states <- c("A-N-", "A+N-", "A-N+", "A+N+", "dementia", "death")
-qmat <- matrix(0, 6,6, dimnames= list(from= states, to= states))
-qmat[1,2:3] <- 1
-qmat[2:3, 4] <- 1
-qmat[3:4, 5] <- 1
-qmat[-6,6] <- 1
-statefig(c(1,2,2,1), qmat)  # draw it: 11 transitions!
-
-icoef <- c(.05, .05, .06, .07, .05, .15, rep(c(.05,.07, .15), c(3,1,1)))
-q2 <- qmat
-q2[q2>0] <- icoef
-
-e1 <- .12  # an A- as A+ or vice versa
-e2 <- .2   # an N- as N+ or vice versa
-temp <- outer(c("Acorrect"= (1-e1), "Afalse"= e1), 
-              c("Ncorrect"=(1-e2), "Nfalse"= e2), '*')
-
-missmat <- rbind(temp[c(1,2,3,4)], temp[c(2, 1, 4,3)],
-                 temp[c(3,4,1,2)], temp[c(4, 3, 2, 1)])
-missmat <- cbind(missmat, 0)
-missmat <- rbind(missmat, c(0,0,0,.1,.9))
-missmat <- cbind(rbind(missmat,0),0)
-missmat[6,6] <- 1
-dimnames(missmat) <- list(true= states, obs= states)
-
-mfit4 <- msm(istate ~ age, data=test, subject= id, 
-             qmatrix = q2, fixedpar=TRUE, death=6,
-             ematrix=missmat, obstrue=firstobs,
-             initprob=c(1,1,1,1,0,0)/4)
--.5* mfit4$minus2loglik
-
-# now do it by hand
-R <- q2
-diag(R) <- -rowSums(R)
-alpha1 <- c(0,0,0,1,0,0) %*% expm(R* 1.3)
-alpha2 <- alpha1 * missmat[,4]
-loglik <- log(sum(alpha2))
-loglik
+    # Per response on 4/10/26, it was a bug in MSM.  He has now fixed it.
 }

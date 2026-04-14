@@ -238,7 +238,7 @@ parsecovar2 <- function(parse1, statedata, dformula, Terms, qmatrix,
     tran.id <- paste(from, to, sep=':') # col labels for tmap and cmap
     ntran <- length(from)
     if (Xassign[1] != 0) {
-        # I am not sure that this can every happen, nevetheless
+        # I am not sure that this can ever happen, nevetheless
         # make sure that our versions of tmap and cmap have an intercept row
         # If it turns out to be all zeros, we can remove it at the end
         # 
@@ -284,6 +284,8 @@ parsecovar2 <- function(parse1, statedata, dformula, Terms, qmatrix,
     # Discover whether each formula contains an explicit +1.  The way that I
     #  have found is to paste an explicit "-1 +" to the front, and see if
     #  if the resulting intercept attribute is 0 or 1
+    # I think that a common intercept will be a uniformly bad idea, but someone
+    #  might disagree and have 1/common.
     has1 <- sapply(parse1$rhs, function(x) {
         tform <- ~ -1 +zed     # dummy formula
         tform[[2]][[3]] <- x   # replace 'zed' with the element of parse1$rhs
@@ -310,6 +312,7 @@ parsecovar2 <- function(parse1, statedata, dformula, Terms, qmatrix,
             stop("invalid transtion(s): ", paste(id, collapse=', '))
         indx[!is.na(indx)]
     })
+    browser()
 
     # Process each formula in turn, there might be none (rare)
     for (k in seq(along.with= parse1$lhs)) {

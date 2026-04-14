@@ -8,6 +8,7 @@ parsecovar2 <- mshmm:::parsecovar2
 parsemarker1 <- mshmm:::parsemarker1
 parsemarker2 <- mshmm:::parsemarker2
 
+# This is a complex model, on purpose
 states <- c("A0N0", "A1N0", "A0N1", "A1N1", "A0N2","A1N2", "death")
 qmat <- matrix(0, 7,7, dimnames=list(states, states))
 qmat[1,2] <- qmat[3,4] <- qmat[5,6] <- 1  # A0 to A1
@@ -31,9 +32,16 @@ tform <- list(Surv(time, status) ~ age,
               A0N0: c('A0N1', "A1N0") ~ x4)
 dform <- tform[[1]]  # the default formula
 
-# Build the new right hand side, in the way that hmm does, icvol will come
-# from the markers, below
 test1 <- parsecovar1(tform[-1])
+# This should be all the left hand sides, the right hand sides and the
+#  options, for all but the default formula
+all.equal(test1$lhs, lapply(tform[-1], function(x) x[[2]]))
+all.equal(test1$rhs, list(~sex, ~x1, ~-age + x2, ~x3, ~x4))
+all.equal(test1$options, list(NULL, as.name("common"), NULL, 
+                              quote(init(2)), NULL))
+
+# get all mentioned variables, plus markers (ivcol), and create a temporary
+#  formula that has it all.  Used to invoke model.frame.
 tlab <- lapply(test1$rhs, function(x) {
               attr(terms(x), "term.labels")
           })
@@ -42,7 +50,7 @@ newform <- reformulate(c(attr(terms(dform), 'term.labels'), unlist(tlab),
 
 # For testing, assume that x1 was a factor with 4 levels of A, B, C, D
 #  This is what the column names and assign values would be. The icvol term
-#  shows up in the markder
+#  shows up in the marker
 Xname <- c("(Intercept)", "age", "sex", "x1B", "x1C", "x1D", "x2", "x3", "x4",
            "icvol")
 Xassign <- c(0,1,2,3,3,3,4,5,6,7)
