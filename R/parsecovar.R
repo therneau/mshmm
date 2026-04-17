@@ -312,7 +312,6 @@ parsecovar2 <- function(parse1, statedata, dformula, Terms, qmatrix,
             stop("invalid transtion(s): ", paste(id, collapse=', '))
         indx[!is.na(indx)]
     })
-    browser()
 
     # Process each formula in turn, there might be none (rare)
     for (k in seq(along.with= parse1$lhs)) {

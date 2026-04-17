@@ -53,15 +53,16 @@ random sample of subjects from Olmsted County, Minnesota.
 Enrolled subjects are scheduled for return visits every 15 months.
 This subset was based on those who were enrolled at age 50 or greater,
 not demented at enrollment, who had at least one post-enrollment visit.
-Patients who cease active particpation are followed passively through
-their medical records, this further followup is available on all
+Patients who have not been assessed for 36 months, and are not yet demented,
+are marked for passive assessment through their medical record; i.e., a
+review for, among other things, a dementia diagnosis at any office visit.
+This further followup is available on all
 subjects through the infrastructure provided by the Rochester
 Epidemiology project; thus with respect to the death and dementia endpoints
-informative censoring is not be an issue. For visits that are not in
-person, which includes phone or spouse interview and off study record
-review, the cognitively unimpaired (CU) vs. mild cognitive impairment
-(MCI) states cannot be distinguished, but non-demented vs. dementia can
-be ascertained.
+informative censoring is not be an issue.
+A medical record review can ascertain the presence of dementia at an
+office visit, but the cognitively unimpaired (CU) vs. mild cognitive impairment
+(MCI) states cannot be distinguished.
 
 Participation in the imaging portion of the study (MRI, amyloid PET,
 tau PET, optional FDG PET) requires a second patient visit of
@@ -81,7 +82,12 @@ For further details see Jack (2022) and the references therein.
 The \code{dx} variable is a composite: for an on study visit the
 diagnosis will be one of CU, MCI or dementia, an off study visit will be
 either nondemented or demented (nondem or off-dem), and simple status as
-either alive or dead.  None of these 3 occur on the same day. 
+either alive or dead.  Formally, these could be instead be represented
+as three covariates corresponding to a study visit, an off-study office
+visit where demented/not can be ascertained, and simple alive/dead
+information, e.g., a death record, vaccination visit, patient
+correspondence, etc.
+In analysis this separation will sometimes be necessary.
 
 The data set is laid out in \emph{timeline} form.
 Each row of data contains the subject identifier, a time, and covariate values
