@@ -30,7 +30,7 @@ Cognitive change over time.
      \item{\code{dx}}{diagnosis at this visit, a factor with levels of
        alive, CU (cogitively unimpaired), MCI (mild cognitive
        impairment), dementia, nondem (not demented), off-dem (dementia
-       diagnosed off study) and death.
+       diagnosed off study) and death.}
      \item{\code{centiloid}}{PET measurment of amyloid level in the brain using
        Pittsburgh compound B (PiB), expressed in centiloid units}
      \item{\code{p.tau181}}{assay value of phosphorolated tau-181}
