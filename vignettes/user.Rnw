@@ -795,7 +795,7 @@ for each trial solution of $\hat\beta$ and each subject $i$
 
 The computation of a likelihood in cmsh is a sum over subjects, 
 and each subject can be computed independently.  (We take advantage of this
-and use parallel computation if possible, either set \code{mc.cores using 
+and use parallel computation if possible, either set \code{mc.cores} using 
 \code{options}  or include it in the cmsh call.)
 The algorithm for the likelihood of each subject alternates two steps.  
 First step forward to a new
@@ -822,7 +822,7 @@ The simplest extension of the simple interval censored model, and the simplest
 hidden Markov model, involves a partially observed state.
 An example appears in the Mayo Clinic Study of Aging, represented in the
 \code{dementia} data set.
-Jack et al \cite{Jack2025} looked at a simple model of time to detection of
+Jack et al \cite{Jack25} looked at a simple model of time to detection of
 of MCI and/or dementia, as shown in figure \ref{mcsastate}.
 However, for some visits the formal cognitive testing necessary to distinguish
 mild cognitive impairment (MCI) is not available, at those visits subjects
@@ -985,7 +985,7 @@ There is a lot to unpack in the above example.
     modify the formulas for one or more of those five.  1:2 stands for the
     transition from state 1 to state 2, numbers correspond to the rows/cols
     of the transition matrix \code{mmat},
-    \verbx'CU':'MCI''x is equivalent to 1:2.
+    \verb+'CU':'MCI''+ is equivalent to 1:2.
     0:5 is shorthand for ``any state'':5, in this case all
     3 transtions to death have male sex as a covariate, and all share the
     same coefficient. 
@@ -1452,7 +1452,7 @@ matrix.
 We will use the included \code{dementia} data set as a running example for
 the remainder of the vignette.  This data set is a simulant, based on data
 from the Mayo Clinic Study of Aging which was used in the analyses of 
-\cite{Jack2022} and \cite{Jack2025}.
+\cite{Jack22} and \cite{Jack25}.
 The MCSA is an age and sex stratified sample of subject from Olmsted County,
 Minnesota.  After recruitment, subjects are invited to return for a study
 visit every 15 months, with the goal of understanding the evolution of
@@ -1475,7 +1475,7 @@ Death is a competing risk for both processes.
 We first fit a multi-state hazard (MSH) model, using functions from the
 survival package. This will help make the data clearer, along with the
 differences between MSH, interval censored and HMM models.
-The MSH fit will partially reprise the analysis in \cite{Jack2022}, 
+The MSH fit will partially reprise the analysis in \cite{Jack22}, 
 which fits the simple
 3 state model of not demented (ND)/dementia/death on age scale, with sex,
  amyloid, CMC, and APOE positivity as covariates.
