@@ -343,8 +343,8 @@ discrete <- function(stateinfo, mlevel, init, pattern, static) {
             if (any(is.na(k)) || any(duplicated(k)))
                 stop("rows of init should match levels of", stateinfo$sname)
         }
-        if (!all(rowSums(init) ==1))
-            stop("row sums of init matrix must be 1")
+        # The rows of init do not need to add to 1. We make use of this for
+        #  a static missclass matrix
         if (nrow(init) != nstate) {
             # assume missing rows are states for which the marker is irrelevant
             i2 <- matrix(0, nstate, ncol(init))
@@ -355,7 +355,7 @@ discrete <- function(stateinfo, mlevel, init, pattern, static) {
     }
 
     if (static) { # no parameters
-        if (missing(init)) stop("init argument is needed discrete")
+        if (missing(init)) stop("init argument is needed for ~0 / discrete")
         # expand rows to one per state
         missmat <- matrix(0, nrow=nstate, ncol= nlevel)
         j <- stateinfo$index
