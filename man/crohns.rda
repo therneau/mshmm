@@ -16,14 +16,14 @@ Followup of patients with Crohn's Disease
 \format{
   A data frame with 1173 observations on the following 6 variables.
   \describe{
-    \item{\code{id}}{an integer code identifying individual subjects}
+    \item{\code{pid}}{an integer code identifying individual subjects}
+    \item{\code{year}}{year of diagnosis}
+    \item{\code{age}}{age at diagnosis}
+    \item{\code{male}}{0: female, 1: male}
     \item{\code{time}}{time since enrollment, in days}
     \item{\code{state}}{a factor with level of disease at that time
       point}
-	\code{censor} \code{remission} \code{mild} \code{drug responsive} \code{drug dependent} \code{refractory} \code{surgery} \code{death}}
-    \item{\code{dxyr}}{year of diagnosis}
-    \item{\code{dxage}}{age at diagnosis}
-    \item{\code{male}}{0: female, 1: male}
+	\code{censor} \code{remission} \code{mild} \code{treat1} \code{treat2} \code{treat3} \code{surgery} \code{death}}
   }
 }
 \details{
@@ -34,12 +34,12 @@ Followup of patients with Crohn's Disease
       antidiarrheals)}
     \item{\code{mild}}{treatment with first line agents such as
       sulfasalazine}
-    \item{\code{drug responsive}}{treatment with oral corticosteroids or
+    \item{\code{treat1}}{drug responsive: treatment with oral corticosteroids or
       immunosuppression with documented improvment}
-    \item{\code{drug dependent}}{treament with oral corticosterois or
+    \item{\code{treat2}}{drug dependent: treament with oral corticosterois or
 	immunosuppressive therapy lasting more than 6 months, with
 	documented improvement}
-    \item{\code{refractory}}{treatment with oral corticosteroids or
+    \item{\code{treat3}}{drug refractory: treatment with oral corticosteroids or
       immunosupperssive therapy with no or imcomplete improvement}
     \item{\code{surgery}}{inpatient surgical procedures for Crohn's
       disease. The surgery state includes the entire hospital admission
@@ -62,6 +62,10 @@ Marc D Silverstein, Edward V Loftus, Jr., William J Sandborn, William
   Cox model. Springer-Verlag 2000, chapter 8.6.2.
 }
 \examples{
-survcheck(Surv2(time, state) ~1, data=crohns, id=id)
+survcheck(Surv2(time, state) ~1, data=crohns, id= pid)
+# Note that survcheck(Surv2(... first transforms the data to counting process
+# format, which will have 1 less row per subject, so the "observations" value
+# will not match, but all other values are identical for the two forms of data.
+dim(crohns)
 }
 \keyword{datasets}
