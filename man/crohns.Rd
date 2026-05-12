@@ -2,34 +2,70 @@
 \alias{crohns}
 \docType{data}
 \title{
-A Capitalized Title for the Data Set
+Followup of patients with Crohn's Disease
 }
 \description{
-%%  ~~ A concise (1-5 lines) description of the dataset. ~~
-}
-\usage{data("crohns")}
+  Crohn's disease is a chronic idopathic disease of the gut
+  characterized by transmural inflammation and ulceration.  Managment
+  may require immunosuppressive drugs and surgical interventions.
+  This data follows an inception cohort of 174 residents from 1970
+  through 1993, with a median follow-up of 10 years. 
+  The waxing and waning nature of the disease makes it challenging to
+  analyse. 
+\usage{chrons}
 \format{
   A data frame with 1173 observations on the following 6 variables.
   \describe{
-    \item{\code{id}}{a numeric vector}
-    \item{\code{time}}{a numeric vector}
-    \item{\code{state}}{a factor with levels \code{censor} \code{remission} \code{mild} \code{drug responsive} \code{drug dependent} \code{refractory} \code{surgery} \code{death}}
-    \item{\code{dxyr}}{a numeric vector}
-    \item{\code{dxage}}{a numeric vector}
-    \item{\code{male}}{a numeric vector}
+    \item{\code{pid}}{an integer code identifying individual subjects}
+    \item{\code{year}}{year of diagnosis}
+    \item{\code{age}}{age at diagnosis}
+    \item{\code{male}}{0: female, 1: male}
+    \item{\code{time}}{time since enrollment, in days}
+    \item{\code{state}}{a factor with level of disease at that time
+      point}
+	\code{censor} \code{remission} \code{mild} \code{treat1} \code{treat2} \code{treat3} \code{surgery} \code{death}}
   }
 }
 \details{
-%%  ~~ If necessary, more details than the __description__ above ~~
+  The current state is defined as
+  \describe{
+    \item{\code{censor}}{patient is only known to be alive at this time}
+    \item{\code{remission}}{no medication for the disease (excluding
+      antidiarrheals)}
+    \item{\code{mild}}{treatment with first line agents such as
+      sulfasalazine}
+    \item{\code{treat1}}{drug responsive: treatment with oral corticosteroids or
+      immunosuppression with documented improvment}
+    \item{\code{treat2}}{drug dependent: treament with oral corticosterois or
+	immunosuppressive therapy lasting more than 6 months, with
+	documented improvement}
+    \item{\code{treat3}}{drug refractory: treatment with oral corticosteroids or
+      immunosupperssive therapy with no or imcomplete improvement}
+    \item{\code{surgery}}{inpatient surgical procedures for Crohn's
+      disease. The surgery state includes the entire hospital admission
+      and posthospitalization convalescence.}
+    \item{\code{death}}{death from any cause}
+  }
+
+  The primary reference for the study is Silverstein et al. (1999).  The data
+  was also used fof illustration in Therneau and Grambsh (2000).
 }
-\source{
-%%  ~~ reference to a publication or URL from which the data were obtained ~~
-}
+\source{ The authors of the study.}
 \references{
-%%  ~~ possibly secondary sources and usages ~~
+Marc D Silverstein, Edward V Loftus, Jr., William J Sandborn, William
+  Tremaine, Brian G. Feagan, Paul J. Nietert, W. Scott Harmsen and Alan
+  R. Zinsmeister, Clincal course and costs of care for Crohn's
+  Disease: Markov model analysis of a population
+  cohort. Gastroenterology 1999; 117L 49-57.
+
+  T. M. Therneau and P. M. Grambsh. Modeling survival data: extending the
+  Cox model. Springer-Verlag 2000, chapter 8.6.2.
 }
 \examples{
-data(crohns)
-## maybe str(crohns) ; plot(crohns) ...
+survcheck(Surv2(time, state) ~1, data=crohns, id= pid)
+# Note that survcheck(Surv2(... first transforms the data to counting process
+# format, which will have 1 less row per subject, so the "observations" value
+# will not match, but all other values are identical for the two forms of data.
+dim(crohns)
 }
 \keyword{datasets}
