@@ -192,8 +192,8 @@ beta <- function(stateinfo, markerlevel, param) {
             yprob[map==i,] <- rep(f, each= mcount[i])
             if (gradient) {
                 #see the derivation in the code vignette
-                dga <- psi(a + b) - psi(a)
-                dgb <- psi(a + b) - psi(b)
+                dga <- digamma(a + b) - digamma(a)
+                dgb <- digamma(a + b) - digamma(b)
                 g <- gamma(a+b)/(gamma(a)* gamma(b))
                 dha <- (a-1)*y^(a-2)* (1-y)^(b-1)
                 dhb <- -(y^(a-1) * (b-1)*(1-y)^(b-2))
@@ -361,8 +361,8 @@ discrete <- function(stateinfo, mlevel, init, pattern, static) {
         j <- stateinfo$index
         missmat[j>0,] <- init[j,]
         colnames(missmat) <- mlevel
-        rfun <- function(y, missclass= missmat, deriv=FALSE) 
-            missclass[,y, drop=FALSE]
+        rfun <- function(y, error= missmat, gradient=FALSE) 
+            error[,y, drop=FALSE]  
         return(list(name="discrete", rfun=rfun, pname=NULL))
     }
         

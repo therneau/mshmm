@@ -97,7 +97,7 @@ survexpm <- function(R, time=1.0, deriv=FALSE, tol=1e-10,
 # This is largely for testing
 #
 hmmeigen <- function(x) {
-    if (!is.matrix(x) || !nrow(R)== ncol(x) || !is.numeric(x))
+    if (!is.matrix(x) || !nrow(x)== ncol(x) || !is.numeric(x))
         stop("argument must be a square numeric matrix")
     storage.mode(x) <- "double"
     .Call("hmmeigen", x)

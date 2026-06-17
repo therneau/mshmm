@@ -11,7 +11,7 @@ Followup of patients with Crohn's Disease
   This data follows an inception cohort of 174 residents from 1970
   through 1993, with a median follow-up of 10 years. 
   The waxing and waning nature of the disease makes it challenging to
-  analyse. 
+  analyse. }
 \usage{chrons}
 \format{
   A data frame with 1173 observations on the following 6 variables.
@@ -24,7 +24,6 @@ Followup of patients with Crohn's Disease
     \item{\code{state}}{a factor with level of disease at that time
       point}
 	\code{censor} \code{remission} \code{mild} \code{treat1} \code{treat2} \code{treat3} \code{surgery} \code{death}}
-  }
 }
 \details{
   The current state is defined as

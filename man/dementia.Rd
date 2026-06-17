@@ -34,6 +34,7 @@ Cognitive change over time.
      \item{\code{centiloid}}{PET measurment of amyloid level in the brain using
        Pittsburgh compound B (PiB), expressed in centiloid units}
      \item{\code{p.tau181}}{assay value of phosphorolated tau-181}
+     \item{\code{hpvol}}{hippcampal volume}
      \item{\code{memory}}{a scaled memory score, based on a battery of
        cognitive tests}
      \item{\code{global}}{a global congition score, an amalgam of memory,
@@ -102,7 +103,7 @@ The seven carido-metabolic conditions were coded as
 "any history of" and thus the CMC count can only increase.
 }
 \references{
- Clifford R. Jack Jr., Terry M. Therneau, et.al (2022)
+ Clifford R. Jack Jr., Terry M. Therneau, et.al (2022).
     Long-term associations between amyloid positron emission tomography,
          sex, apolipoprotein E and incident dementia and mortality among 
          individuals without dementia: hazard ratios and absolute risk,
@@ -110,6 +111,8 @@ The seven carido-metabolic conditions were coded as
 }
 \examples{
 table(table(dementia$ptnum))  # number of rows per subject
-with(dementia, transitions(ptnum, age, dx))
+id1 <- duplicated(dementia$id, fromLast=TRUE)
+id2 <- duplicated(demnetia$id)
+table(from= dementia$dx[id1], to= dementia$dx[id2]) #observed transitions
 }
 \keyword{datasets}

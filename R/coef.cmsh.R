@@ -55,15 +55,20 @@ print.cmsh <- function(x, digits=max(options()$digits - 4, 3), ...) {
 	}
    
      B <- coef(x, matrix=TRUE, fixed=TRUE)
-     printCoefmat(B, has.Pvalue=FALSE)
+     printCoefmat(B, has.Pvalue=FALSE, digits=digits)
      cat("\n States: ", paste(paste(seq(along.with=x$states), x$states, 
                                     sep='= '), collapse=", "), '\n')
      cat("\n")
      loglik <- round(x$loglik, 2)
      if (length(loglik)==1)
          cat("Log-likelihood: ", format(x$loglik[1]), "\n")
-     else cat("Log-likelihood: initial=", format(x$loglik[1]), 
-              " final=", format(x$loglik[2]), "\n")
+     else {
+         ldiff <- diff(x$loglik)
+         df <- length(unique(x$cmap[x$cmap!=0]))
+         cat("Log-likelihood: (", paste(format(x$loglik), collapse=", "),
+             "), 2*diff:",
+             round(ldiff,1), "on", df, "df\n")
+     }
 
      cat(x$n[1], "observations", x$n[2], "subjects\n")
      if (length(x$na.action)) {

@@ -7,7 +7,7 @@
   functions underlying the \code{cmsh} function.
 }
 \usage{
-cmsh.control(smallpos = 0.001, debug = FALSE, center=TRUE, scale=FALSE,
+cmsh.control(smallpos = 0.001, debug = 0, center=TRUE, scale=FALSE,
              makecluster = .Platform$OS.type == "windows", detail=FALSE)
 }
 \arguments{

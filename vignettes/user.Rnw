@@ -14,20 +14,21 @@
 %\VignetteEncoding{UTF-8}
 
 <<setup, echo=FALSE>>=
-library(mshmm) # suppress message about Matrix and survival
+suppressMessages(library(mshmm)) # suppress message about Matrix and survival
 library(msm)
 library(knitr)
+library(splines)
 opts_chunk$set(tidy=FALSE, comment=NA, highlight=FALSE,
                fig.path='figures/',fig.width=7,fig.height=5.5,
                out.width="\\textwidth", out.height="!", device="pdf",
-               background="#FFFFFF", warnings=FALSE)
+               background="#FFFFFF", cache=FALSE)
 
 options(continue="  ", width=60)
 pdf.options(pointsize=10) #text in graph about the same as regular text
 table2 <- function(...) table(..., useNA = "ifany")
 options(show.significant.stars = FALSE) # be statistically intelligent
 palette("Okabe-Ito")
-options(mc.cores= floor(parallel::detectCores()*.82))
+options(mc.cores= floor(parallel::detectCores()*.8)) #don't use them all
 @ 
 
 \begin{document}
@@ -43,8 +44,23 @@ a natural extension of the Cox model.
 The \code{survfit} routine produces both the KM and AJ estimates, and the
 \code{coxph} function estimates both the simple proportional hazards (Cox)
 MSH model fits.
+We can think of these are MSH models based on observed transitions.
+A basic premise of the underlying likelihood is that, over the time window
+of observation for a subject, we directly observe all of the transitions 
+made by that subject, i.e., what transitions and when.
+
 The primary fitting function of this package, \code{cmsh}, deals with
-(interval) censored multi-state hazard models.
+MSH models that are based on intermittently observed states. 
+In the simples case we will know that a particular transition must have occured
+between patient visit $k$ and $k+1$ but won't know exactly when within
+that interval; the transition time is interval censored. 
+In the most general case the current state at 
+a visit can only be assessed indirectly, leading to a multistate hidden
+Markov model (MSHMM), the title for the package.  
+(Footnote: we originally planned for two fitting functions, censored MSH =
+cmsh for the simple cases and mshmm for the more complex; but the arguments
+and computation for the two overlapped to such a great degree that one user
+level function now does both; we kept the simpler name.)
 
 \subsection{Colon cancer}
 \begin{figure}
@@ -58,7 +74,7 @@ statefig(1:2, pmat)
   \label{simpleprog}
 \end{figure}
 
-A primary differnce between models fit using \code{coxph} and \code{cmsh}
+A primary difference between models fit using \code{coxph} and \code{cmsh}
 is that the former is focused on modeling the \emph{observed transitions},
 and implicitly assumes we know when those transitions happened,
 while the latter on modeling the \emph{observed state} at selected times.
@@ -72,8 +88,8 @@ of progression.
 For a study with regular follow-up, such as a clinical trial, 
 we have found that the results of a \code{coxph} and \code{cmsh} fit
 are often nearly identical, particularly with respect to covariates.
-If treatment decreases the rate of progression by 30\% it will do the
-same to the rate of detection.
+If treatment decreases the rate of true progression by 30\% it will do the
+same to the rate of detected progression.
 
 \subsection{Fatty liver disease}
 
@@ -162,18 +178,16 @@ A second difference is that the cmsh routine uses a parametric baseline
 hazard for each state to state transition, most often a spline function
 of age or time.  As a consequence the rates include an intercept term.
 
-A third, a probobally the most profound difference is that \code{cmsh}
+A third, a probably the most profound difference is that \code{cmsh}
 can accomodate partially observed outcomes.
 It turns out that there is a close connection between the simple interval
 censored multi-state models discussed so far, and multi-state hidden
 Markov models, i.e., one can fit them both using the same underlying
 function.
-This overlapping acroyom of multi-state hazard (MSH) and hidden Markov
-models (HMM) is the origin of the package name mshmm.
 
 For some set of states we might observe only a set of
-one or more imperfect biomarkers.  For instance,
-we might label stages of cerebral vascular damage as C0, C1, C2 and C3
+one or more imperfect biomarkers.
+We might label stages of cerebral vascular damage as C0, C1, C2 and C3
 for instance, where C0 is normal and C3 is severe.  
 MRI based measures such as white matter hyperintensity (WMH) or fractional
 aniostropy can give partial insight into the current state, with  
@@ -188,8 +202,8 @@ probability
 (or $P(Y\in A|X)$ for discrete $Y$).
 In our models we often have all three types of states
 \begin{enumerate}
- \item Transtions where both the exact state and the time of
-   entry to the state are known, e.g., the death state.
+ \item Transtions where both the state and the time of
+   entry to the state are known, e.g., death.
  \item Known states, where for a visit at time $t$ the current state can be
    assessed acurrately, but the time of entry to that state is not known.
  \item Hidden (latent) states, which are measured only indirectly.
@@ -246,7 +260,7 @@ form:
     likewise for stratification variables, if present.
   \item Outcomes occur at the end of the interval.
 \end{itemize}
-The data for icmsh should be in \emph{timeline} form.
+The data for cmsh should be in \emph{timeline} form.
 \begin{itemize}
   \item Each line of the data has a subject id, along with a time value
   \item Other variables on the line are information that was measured or
@@ -259,7 +273,7 @@ It also may be easier to create, since one can use a wider variety of R tools.
 For ordinary survival, however, a Kaplan-Meier say,
 data in timeline form requires two rows of data per subject:
 the first observation at time 0 will have baseline covariates along with a
-status of alive, with a second
+status of alive; a second
 observation at the time of death or last follow-up will have the status at that
 time point (alive/dead).
 This is different than the traditional way that survival data is coded,
@@ -273,7 +287,7 @@ values, e.g., blood pressure would not normally be known on the day of death,
  especially if death date is obtained from other sources.
 One consequence is that the usual first step of other modeling functions such
 as \code{lm} or \code{coxph}, i.e., to remove any data row that contains missing
-values, is not taken by the icmsh function.  The handling of missings
+values, is not taken by the cmsh function.  The handling of missings
 is more nuanced.
 
 \begin{figure}
@@ -326,8 +340,8 @@ In an interval censored MSH, censoring means only ``not dead at this time''.
 A subject who is 1MC at year 3 and censored at 10 could be in any of the
 1MC, 2MC, or 3MC states at that later time.
 
-Formally, the cmsh code treats censored as ``not in any state which is both
-exact and absorbing''. 
+Formally, the cmsh code treats a status of censored as 
+``not in any state which is both exact and absorbing''. 
 An exact state is one for which the time of entry to the state is known
 precisely, i.e., not interval censored. The list of exact states is 
 provided by the \code{exact} argument; death is the most common example.
@@ -348,10 +362,10 @@ There is nothing wrong with this, per se: the author has for instance
 had studies where progression was discovered at autopsy, and one might
 reasonably expect an interval censored model to accomodate it.
 However, it has been our experience that ``observation'' of two states on the 
-same day is nearly always a data creation error, and the \code{icmsh} routine
+same day is more often a data creation error, and the \code{icmsh} routine
 currently flags it as such.
 To resolve the conflict we will shift those progressions one day earlier.
-(Or even .001 day if one wants to be fussy.)
+(Or even .001 day if one wants.)
 Also beware the two for whom their progression date is also their last 
 follow-up time, so as not to add a superfluous ``censoring'' row at the end.
 
@@ -401,7 +415,7 @@ than the basic R merge used above may well fill these in.
 
 As a first look compute the transition matrix.
 Then compute the probability in state and cumulative
-hazard curves. The survival routines can accept timeline data via
+hazard curves. Many of the survival routines can accept timeline data via
 the \code{Surv2} operator.
 
 <<coloncount>>=
@@ -422,7 +436,7 @@ In this study about 46\% (423/929) of the subjects had no transitions,
 i.e., were still in the stable state at last observation, 
 both death and progression was observed for 45\% (414/929).  
 Only a small number died without
-progression (38) or were still in the progression state at follow-up.
+progression (38) or were in the progression state at last follow-up.
 
 The cumulative hazards at 8 years are about .7, .1 and 4 for the transition
 rates of entry to progression, entry to death and progression to death,
@@ -430,6 +444,30 @@ which provide reasonable starting estimates for the baseline hazards of the
 interval censored fit. 
 Using years as the time scale will give more interpretable coefficients, so we
 add that variable.
+
+Let us start with a simple Cox model fit to serve as comparison.
+<<colonb>>=
+cfit0 <- coxph(Surv2(time, status) ~ rx, data=cdata, id=id)
+cfit0
+
+dummy <- data.frame(rx=c("Obs", "Lev+5FU"))
+surv0 <- survfit(cfit0, newdata= dummy, p0=c(1,0,0))
+dim(surv0)
+plot(surv0, lty=1:2, col=c(1,1,3,3,2,2), lwd=2, xscale=365.25,
+     xlab="Years post chemo", ylab="Probabilty in state")
+legend("topright", c("Stable, placebo", "Stable, 5FU+Lev", 
+                     "Progression, placebo", "Progresion, 5FU+Lev",
+                     "Death, placebo", "Death, 5fu+Lev"), 
+       lty=1:2, lwd=2, col=c(1,1,3,3,2,2),, bty='n')
+@
+
+The hazard ratios show that combined treatment is more effective than either
+Levamisole alone or placebo with respect to progression, 
+and the latter two are very similar.  The predicted probability in state
+curves bear this out, and have a shape similar to the Aalen-Johansen.
+Since probability in state curves have to add to 1, we often leave out the
+``still in initial state'' ones.
+Now create the fit and plot using interval censored.
 
 <<colon2>>=
 # create the transition matrix
@@ -447,40 +485,35 @@ uses non-integer values between 0 and 2 for drawing curved connections.)
 
 <<colon2b>>=
 # Crude transitions, as a starting estimate
-cdata$year <- cdata$time/365.25  # rates per year are more understandable
-crude <-  c(.7, .1, 4)/8
-cfit0 <- cmsh(Surv(year, status) ~ 1, id=id,  init=log(crude),
+crude <-  c(.7, .1, 4)/(8*365)
+cfit1 <- cmsh(Surv(time, status) ~ rx, id=id,  
+              init=rbind(log(crude),0,0),
              qmatrix= ctrans, exact="death", data= cdata,
              mc.cores=2)
-cfit0
+cfit1
+
+surv1 <- predict(cfit1, type="pstate", newdata=dummy, p0=c(1,0,0),
+                 time= c(1:45, seq(60, 8*365, by=60)))
+plot(surv1, lty=1:2, col=c(1,1,3,3,2,2), lwd=2, xscale=365.25,
+     xlab="Years from randomization", ylab="Probability in state")
+legend("topright", c("Stable, placebo", "Stable, 5FU+Lev", 
+                     "Progression, placebo", "Progresion, 5FU+Lev",
+                     "Death, placebo", "Death, 5fu+Lev"), 
+       lty=1:2, lwd=2, col=c(1,1,3,3,2,2),, bty='n')
 @
 
-The solution is not at all what we expected: it shows a transition rate from
-entry to progression of exp(3.97) = 53, which corresponds to a median time 
-to progression of log(2)/53 years or 5 days. 
+The cmsh solution is not at all what we expected. The estimated treatment
+coefficients are different than the Cox model and the predicted curves are
+\emph{very} different: P(stable) drops almost immediately to zero. 
 The issue is that we have no intermediate values in the data: there are no
-obserations of ``stable'' after entry, and so the best MLE estimate is to assume
-that subjects switch immediately to the progression state.
+observations of ``stable'' after entry, and so the best MLE estimate for an
+interval censored model is to assume that subjects switch 
+immediately to the progression state.
 The code iterates, increasing the stable:progression rate until the first 
-progression, at 8 days, has a large estimated Pr(progression). 
-The actual MLE is $\beta= \infty$, but the loglik doesn't change very much 
-for rates above 3,
-the figure below shows the profile likelihood, fixing the other two rates.
-
-<<highrate>>=
-beta <- matrix(0, nrow=51, ncol=3)
-beta[,1] <- seq(-1, 5, length=51)
-beta[,2] <- coef(cfit0)[2]
-beta[,3] <- coef(cfit0)[3]
-loglik <- double(51)
-for (i in 1:51) {
-    tfit <-  cmsh(Surv(year, status) ~ 1, id=id,  init=beta[i,],
-             qmatrix= ctrans, exact="death", data= cdata, iter=0)
-    loglik[i] <- tfit$loglik
-}
-plot(beta[,1], loglik, type='l', xlab="Coefficient 1", ylab="loglik")
-abline(h=max(loglik) +2, lty=3)
-@ 
+progression, at 8 days, has a sufficiently large estimated Pr(progression)
+to declare convergence of the log-likelihood. 
+This first progression on the 5FU+Lev arm, and that has the largest estimated
+1:2 transition rate.  
 
 Per reference 1 in the help file for the data, patients were
 assessed for progression every 8 weeks for the first year, every 4 months for
@@ -490,9 +523,75 @@ intermediate visits should be included in the study data, but this data is
 not available to us.
 An interesting exercise is to add psuedo observations that match
 the visit schedule, and observe how the estimate behaves. 
+Since subjects cannot revert from progression, it suffices to add a
+single pseudo visit prior each progression, e.g., id 1 had observed progression
+at 968 days = 31.7 months so assume a non-progression visit 6 months before
+at 786 days. (Or perhaps seven months, since people are more often late 
+than early).
+For progressions after 5 years we will assume yearly visits.
 
+However, that is not enough. The multistate Nelson-Aalen hazard estimate
+shown earlier does not look like constant hazard.  A somewhat ad hoc way
+to show the hazard instead of the cumulative hazard is to fit it using
+the smooth.spline and then plot the first derivative of the fit.
+
+<<smoothspline>>=
+xtime <- seq(0, 8*365, by=30)
+scurve <- sapply(1:3, function(i) {
+    smooth <- smooth.spline(aj1$time, aj1$cumhaz[,i], df=5)
+    predict(smooth, xtime, deriv=1)$y
+})
+matplot(xtime/365.25, scurve*36525, type='l', lwd=2, col=1:3, log='y', lty=1,
+        xlab="Years post randomization", ylab="Rate per 100 per year")
+legend(4,20, c("Entry:Prog", "Entry:Death", "Prog:Death"), lty=1, lwd=2, 
+       col=1:3, bty='n')
+@ 
+
+Since rates in the cmsh and coxph function are $\lambda(t) \exp(X\beta)$ we see 
+that using a linear term $\beta_0 + \beta_1 t$ for the baseline could suffice, 
+a spline would be more flexible. 
+This leads to an overall hazard of 
+$$
+\lambda(x,t) = \exp(\beta_0 +\beta_1 t + \beta_2I(trt=2) + \beta_3I(trt=3)
+$$
+In an mshmm fit the underlying hazard, as a function of time, is an explicit
+part of the model. This is unlike coxph where the baseline hazard function 
+is implicit, and estimated non-parametrically after solving for $\hat\beta$.
+For this data, treating the rate as a constant over time is not a 
+satisfactory fit. This was implicitly assumed in \code{cfit1} above, but that
+fit had bigger problems.
+
+Years post follow-up is a time-dependent variable which we will need to 
+explicitly manufacture and add to the data set.
+Yet to do...
+
+<<extravisit>>=
+# assume progression in the first 10 weeks had no prior 'clear' visit
+tdata <- subset(cdata, status=="progression" & time > 80)
+pgroup <- cut(tdata$time, c(0, 80, 365+56, 730+92, 5*365+ 182, max(tdata$time)))
+pgroup <- as.numeric(pgroup)
+add <- subset(tdata,, c(id, time, status))
+add$time <- add$time- c(0, 57, 125, 190, 370)[pgroup]
+add$status <- "stable"
+cdata2 <- merge(cdata, add, all=TRUE)
+
+cfit2 <- cmsh(Surv(time, status) ~ rx, id=id,  
+              init=rbind(log(crude),0,0),
+             qmatrix= ctrans, exact="death", data= cdata2,
+             mc.cores=2)
+surv2 <- predict(cfit2, type="pstate", newdata=dummy, p0=c(1,0,0),
+                  time=c(1:45, seq(60, 8*365, by=60)))
+plot(surv2, lty=1:2, col=c(1,1,3,3,2,2), lwd=2, xscale=365.25,
+     xlab="Years from randomization", ylab="Probability in state")
+legend("topright", c("Stable, placebo", "Stable, 5FU+Lev", 
+                     "Progression, placebo", "Progresion, 5FU+Lev",
+                     "Death, placebo", "Death, 5fu+Lev"), 
+       lty=1:2, lwd=2, col=c(1,1,3,3,2,2),, bty='n')
+@
+
+The remainder is not filled in yet (volunteers?)
 \begin{itemize}
-  \item Not yet filled in (volunteers?).  Based in the cumulative hazard plot
+  \item Based in the cumulative hazard plot
     the years on study effect may need to be nonlinear.
   \item Compare results and curves to a multistate Cox for the same data
   \item My expectation is almost no change in hazard ratio coefficients,
@@ -506,8 +605,9 @@ the visit schedule, and observe how the estimate behaves.
 
 \subsection{Fatty liver disease}
 \label{sect:nafld}
- Metabolic dysfunction-associated fatty liver disease (previously known as
-NAFLD) is characterized by fat accumulation in the liver, and is linked to 
+ Metabolic dysfunction-associated fatty liver disease or MASLD 
+(previously known as NAFLD) is characterized by fat accumulation in the liver, 
+and is linked to 
 metabolic dysfunction, such as obesity, type 2 diabetes, or other signs of 
 metabolic dysregulation. 
 Allen \cite{Allen18} collected information on
@@ -528,7 +628,7 @@ nmat[1:4,5] <- 1
 nmat[1,3] <- nmat[1,4] <- nmat[2,4] <- 0.7
 statefig(rbind(4,1), nmat, alty=c(1,2,1, 2,2,1,1,1,1))
 @
- \caption{Observed state space for the MASLD data}
+ \caption{Observed transitions for the MASLD data}
  \label{MASLD}
 \end{figure}
 
@@ -536,80 +636,97 @@ statefig(rbind(4,1), nmat, alty=c(1,2,1, 2,2,1,1,1,1))
 # for the sentences below
 i1 <- duplicated(nafld2$id, fromLast=TRUE)
 i2 <- duplicated(nafld2$id)
-interval <- nafld2$days[i2] - nafld2$days[i1]
-interval <- interval[interval >7]  # don't count two test on the same visit
-qq <- round(quantile(interval, c(0, .2, .5, .8,1))/30.5, 1)
+idata <- data.frame(id= nafld2$id[i1],
+                    interval= nafld2$days[i2] - nafld2$days[i1])
+idata <- subset(idata, interval >7) # don't count two test on the same visit
+qq <- quantile(idata$interval, c(.2, .5, .8, 1))/30.5
 @ 
 
 If measured continuously, subjects would progress via the solid arrows from 0 
-to 1 to 2 to 3 comorbidities.
-(We assume that no one progresses on two of the markers at the 
-\emph{exact} same instant.)
+to 1 to 2 to 3 comorbidities;
+we assume that no one progresses on two of the markers at the 
+\emph{exact} same instant.
 However, the interval between clinical visits varies considerably from
-subject to subject and visit to visit, with 20, 50 and 80 percentiles
+subject to subject and visit to visit, with 20, 50 and 80th percentiles
 of 3, 9, and 18 months (max 245).
-In the observed data, there will be subjects who are in the 0MC
-state at one visit, and in the 2MC state at their next visit; as that following
-visit might be several years later.  Such visit pairs lead to the dashed
-line transtions in Figure \ref{fig:nafld}.
 If there are systematic differences in visit frequency, e.g., if women saw
 their physician more often on average than men,
-this can introduce a bias in the coxph analysis.
-The cmsh approach may be more appropriate.
+this can introduce a bias in the coxph analysis and cmsh may be more
+appropriate for that reason alone.
+
+In the observed data, there will be subjects who are in the 0MC
+state at one visit, and in the 2MC state at their next visit; as that following
+visit might be several years later.  Such visit pairs are shown as dashed
+lines in Figure \ref{fig:nafld}.
+A fit based on observed transitions, using coxph, will model all observed
+transitions, including these jumps. 
+One based on the interval censored model will model only the solid arrows,
+i.e., the transitions that actually occur.
 (Footnote: since comorbidities in the study were defined as 
 ``history of diabetes'', 
 ``history of dyslipidemia'', and ``history of hypertension''
 no arrows go backwards.)
 
 Like the colon cancer example above we need to include intermediate
-visits. The survival package data consists of 3 data sets, baseline information
-with one row per subject (\code{nafld1}), outcome information with a row for
-the first instance of each MC, and a third with selected office and/or 
-laboratory values for each visit.
+visits. The survival package's NAFLD data consists of 3 data sets: 
+baseline information
+with one row per subject (\code{nafld1}), outcome information (\code{nalfd3}),
+and a third with selected office and/or laboratory values for each visit.
 In order to construct the interval censored data we will assume that each
 office visit represents a potential observation time for progression of
-the comorbidities, followed.  The comorbidity status a subsequent 
+the comorbidities.  The metabolic comorbidity status at a subsequent 
 death/last known alive date is not known, however.
 
 Now create the timeline data set.
 For illustration we have done this using only the functions in base R, 
 but several other, more sophisticated tools can be used.
-
+A couple of notes:
+\begin{itemize}
+  \item The code \code{index <- match(id, id)} is an old programming trick
+    in R (and in S-Plus and S before that). It creates an index that points
+    each row of data to the first row with that id value.
+  \item In general, in a timeline data set the first row for each subject
+    will have few if any missings.
+\end{itemize}
 <<nafld2>>=
-temp1 <- subset(nafld1, select=c(id, age, male, case.id))  #baseline
-temp1$days <- 0
-temp1$nafld <- with(temp1, 1*(!is.na(case.id) & id==case.id)) #nafld at baseline
-temp1$case.id <- NULL  # no longer needed
+# baseline visit
+base <- subset(nafld1, select=c(id, age, male, case.id))
+base$days <- 0
+base$nafld <- with(base, 1*(!is.na(case.id) & id==case.id)) #nafld at baseline
+base$case.id <- NULL  # no longer needed
 
+# cumulative MC count
 # times <=0 in nafld3 are conditions found at or before enrollment date
 # create the "number of comborbidities so far" variable
 temp2 <- subset(nafld3, event %in% c("diabetes", "dyslipidemia", "htn"),
                 c(id, days))      # only events of interest
 temp2$days <- pmax(0, temp2$days) # set prior events to day 0
-#cumulative count, including entry row
-temp3 <- rbind(temp1[,c("id", "days")], temp2)
-temp3 <- temp3[order(temp3$id, temp3$days),]
-temp3$mc <- 1:nrow(temp3) - (1:nrow(temp3))[match(temp3$id, temp3$id)]
+#cumulative count
+findex <- match(temp2$id, temp2$id)
+temp2$mc <- 1+ 1:nrow(temp2) - (1:nrow(temp2))[findex]
 # keep the last of any rows that are tied on id and days (2 MC on same visit) 
-temp3 <- temp3[!duplicated(temp3[,1:2], fromLast=TRUE),]
+temp2 <- temp2[!duplicated(temp2[,1:2], fromLast=TRUE),]
 
 lfu <- subset(nafld1, select= c(id, futime, status)) # death or last fu
 names(lfu)[2] <- "days"
 
-ndata1 <- merge(temp1, temp3, by=c("id", "days"), all=TRUE) # other variables
+ndata1 <- merge(base, temp2, by=c("id", "days"), all=TRUE) # other variables
 ndata1 <- merge(ndata1, lfu,   by=c("id", "days"), all=TRUE)# add futime
-#create the state variable, a factor 
+
+# everyone needs a starting MC state
+ndata1$mc[!duplicated(ndata1$id) & is.na(ndata1$mc)] <- 0
+# ndata1 is a timeline data
+# manufacture the state variable, as a factor suitable for Surv
 temp <- with(ndata1, ifelse(!is.na(mc), mc+1,
                     ifelse(!is.na(status) & status==1, 5, 0)))
 ndata1$state <-factor(temp, 0:5, 
-                      c("alive", "0MC", "1MC", "2MC", "3MC", "death"))
-ndata1$mc <- ndata1$status <- NULL  # no longer needed
+                      c("censor", "0MC", "1MC", "2MC", "3MC", "death"))
 
 # print out the transition matrix
 survcheck(Surv2(days, state) ~1, ndata1, id=id)$ transitions
 
 # Add in the office visits. There will occassionally be labs on sequential
-#  days for the same visit, but it isn't worth removing the "duplicate" visit.
+#  days for the same visit, but it isn't worth removing these "duplicate" visits.
 # But do remove two tests on the same day.
 office <- subset(nafld2, days>0, c(id,days))
 office <- office[!duplicated(office),]   # tests on the same day
@@ -621,36 +738,57 @@ survcheck(Surv2(days, state, repeated=TRUE) ~1, ndata2, id=id)$transitions
 @ 
 
 We see that data set \code{ndata1} has the exact same off-diagonal counts
-as the expanded data set \code{ndata2}, this is as it should be.
+nas the expanded data set \code{ndata2}, this is as it should be.
 The second data frame adds 0MC:0MC, 1MC:2MC, 2MC:2MC and 
 3MC:3MC transitions, all of which serve to narrow the time range over
 which a given transition between states will have occured. 
 A printout for id 1 shows 0MC visits at 0, 183, 2030, 3578 and 5420 days.
 Because there are no backwards transitions we could delete the middle rows, as
-0MC at day 0 and at day 5420 implies 0MC throughout the interim.
-The likelihood will be the same without these middle rows, and computation a
-smidge faster.  This would however not be the case if both 0MC:1MC and
+0MC at day 0 and 0MC at day 5420 implies 0MC throughout the interim.
+The likelihood will be the same without the middle rows, and computation a
+smidge faster.  Deletion is not valid, however, if 0MC:1MC and
 1MC:0MC transitions were possible.  Think hard before thinning a data set.
 
+<<duprow>>=
+# Actually, there are a lot of unneeded rows.  Since there are not any
+# TD covariates it is easy to count: the first row of a repeated pair adds
+# no further information (except the first row)
+isdup <- with(ndata2, diff(id)==0 & diff(as.numeric(state))==0)
+isdup <- c(isdup,FALSE) & duplicated(ndata2$id)
+table(isdup)
+ndata2 <- ndata2[!isdup,]
+@
+ 
 As is often the case, the above seemingly simple section of code to create
 the analysis data set required
 more time and effort than the analysis that appears below.
 It is imperitative to create the table of transtions, look at it, and think
 about it. The row for death for instance should always be 0.
-(Make sure to include missings in the table, we defined a \code{table2}
+(Make sure to include missings in any tables, we defined a \code{table2}
 function at the start of this vignette to avoid having to type the
 \code{useNA= 'ifany'} option again and again.)
-Print out and examine the final data for 3 or more subjects as well. 
+Print out final data for a half dozen subjects and READ it. 
 
 One more step is needed, which is to add current age as a time-dependent
 covariate. The underlying rate of MC rises very rapidly with age, and this
-data set covers a wide range.  The figure below shows the distributions initial
-age and years of follow-up. 
+data set covers a wide range.  The figure below shows the distributions of 
+initial age and years of follow-up. 
 Using only baseline age as a covariate would imply that for two subjects, both
 currently age 85, one who entered the study at age 70 and the other at age 80,
 that the current death rate is lower for the earlier recruit.
-(One can more or less get away with this if all follow-up is short, however.)
+For the coxph model we are able to use age as the time scale, which causes
+this careful matcing to happen silently behind the scenes, but the cmsh
+routine has a parametric baseline and needs an explicit
+current age variable.
 
+Why did we choose to make 1 year age intervals?
+Several centuries of experience with population rate tables, e.g., the 
+US death rates found in survival::survexp.us or more generally those
+available from the Human Mortality Database (www.mortality.org) have shown
+that, other than for infants, yearly event rates provide a sufficiently fine
+division of age. For this data a coarser grid would almost certainly
+be acceptable, e.g., every 5 years of age, but we have chosen the classic 
+strategy.
 
 <<nafldyrs, echo=FALSE>>= 
 opar <- par(mfrow=c(1,2), mar=c(5,5,1,1))
@@ -668,43 +806,88 @@ dummy <- data.frame(id= rep(nafld1$id, 1+ acount), days=round(itemp*365.25),
                     iage = itemp) 
 # merge it in
 ndata3 <- merge(ndata2, dummy, by=c("id", "days"), all=TRUE)
-ndata3$state[is.na(ndata3$state)] <- "alive"
+ndata3$state[is.na(ndata3$state)] <- "censor"
 ndata3$age <- lvcf(ndata3$id, ndata3$age)
 ndata3$iage<- lvcf(ndata3$id, ndata3$age + ndata3$iage)
 subset(ndata3, id==4)
 @
 
 The resulting data set has rows for both the visits, which have a state of
-0MC--MC3, rows for each age change, which have the generic state ``alive''
-since the state was not observed then, and rows for the deaths.
+0MC--MC3, rows for the deaths, 
+and rows for each age change, which have the generic state ``censor''
+since the true state was not observed at that point.
 Current age is a time-dependent covariate. We will discuss issues with 
 general time-dependent covariates later, but age and time since enrollment
-are much simpler than others, since their value at any time is known
-without requiring a patient visit. 
+are much simpler than others, since their value at any time is known a
+priori, without requiring measurement at a patient visit. 
 The reason for integer age will appear at the first theory discussion.
 
-Without further ado, let's finally fit the model.
-It is important to have initial values of the intercept coefficients
-be of approximately the right magnitude, in order to avoid overflow and/or
-underflow of the exp function during the first few iterations.
-Covariates other than the intercept are temporarily recentered during the
-computation, which avoids this issue, but we cannot recenter an intercept 
-column.  The transition matrix does not have the dashed lines of figure xxx.
+As a final check of the data set use it to create Aalen-Johansen curves.
+The Aalen-Johansen fit does not account for interval censoring, so can
+use Surv2 and \code{ndata1}, the data before adding the office visits or
+time-dependent age. Below is the code which generates figure \ref{nafldaj}.
+The resulting compuation will have hazards for both the solid and dashed line 
+transitions of Figure \ref{MASLD}, but we have chosen to display only the
+solid ones.  The right hand panel has a line for each state.
+The hazard plot shows higher transition rates for the MC transitions than for
+death, and rough linearity. 
+The $p(t)$ plot shows the gradual cascade through 0--3 MC. 
+As stated just above, a primary purpose at this point was as a data check.
 
 <<nafldfit1>>=
 ndata3$years <- ndata3$days/365.25
 ndata1$years <- ndata1$days/365.25
-ajfit <- survfit(Surv2(years, state) ~ 1, ndata1, id=id)
-plot(ajfit, cumhaz=c(1,3,6:10), col=1:7, lty=rep(1:2, 3:4),
+
+# create the current age variable
+index <- match(ndata1$id, ndata1$id)
+ndata1$age <- ndata1$age[index] + ndata1$years
+
+ajfit1 <- survfit(Surv2(years, state) ~ 1, ndata1, id=id)
+#age scale
+ajfit2 <- survfit(Surv2(age, state) ~1, ndata1, id=id, start.time=50,
+                  p0=c(1,0,0,0,0))
+@
+
+\begin{figure}
+<<nafldaj, echo=FALSE>>=
+opar <- par(mfrow=c(1,2), mar=c(5,5,1,1))
+plot(ajfit1, cumhaz=c(1,3,6:10), col=1:7, lty=rep(1:2, 3:4),
      xlab="Years", ylab="Cumulative hazard")
 legend("topleft", c("0MC:1MC", "1MC:2MC", "2MC:3MC",
                     paste0(0:3, ":death")), col=1:7, lwd=2, 
        lty=rep(1:2, 3:4), bty='n')
 
-drate <- survexp.mn[60, 1, "2000"]*365.25  # Minnesota death rate, per year
-round(drate,3)
+plot(ajfit2, col=1:6, lty=1, lwd=2,
+     xlab="Age", ylab="Probability in state")
+legend(61, 1, c(paste0(0:3, "MC"), "death"), col=1:6, lty=1, bty='n')
+par(opar)
+@
+ \caption{Left panel: estimates of the cumulative hazard for selected
+   transitions.  Right panel: estimated $p(t)$ for subject starting in
+   the 0MC state at age 50.}
+ \label{nafldaj}
+\end{figure}
 
-icoef <- log(rep(c(.03, .01), 3:4))
+For the actual model fit we need initial values for the parameters.
+I have found to my dismay that I don't do a very good job of picking initial
+coefficients when there are covariates.  The estimates
+actually don't need to be that good, just ``in the ballpark'', but 
+it is easy to create starting values that give crazy per-subject starting rates.
+A good idea appears to start with a model that has only the intercept, 
+or intercept + age, either of
+which might be thought of as the ``null model''.
+For the former we can use the slope of a cumulative hazard plot such
+as figure \ref{nafldaj}, for the latter a simple Poisson glm model for death
+has been effective. 
+
+<<nafldfit1b>>=
+gdata <- data.frame(ndata3,
+                    delta = diff(c(0, ndata3$years)))
+gdata <- subset(gdata, duplicated(id))
+glmfit <- glm(state=='death' ~ iage + offset(log(delta)), poisson, data=gdata)
+icoef <- outer(coef(glmfit), rep(1,7), '*')
+# optional refinement based on the figure, MC:MC rates are 3x death
+# icoef[1,1:3] <- icoef[1, 1:3] + log(3)
 
 states <- c(paste0(0:3, "MC"), "death")
 nmat2 <- matrix(0,5,5, dimnames= list(states, states))
@@ -712,37 +895,92 @@ nmat2[1,2] <- nmat2[2,3] <- nmat2[3,4] <- 1
 nmat2[1:4,5] <- 1
 nmat2
 
-nfit0 <- cmsh(Surv(years, state) ~ 1, ndata3, id= id,
-              qmatrix= nmat2, init= icoef)
+#if (file.exists("nfit0.rda")) {
+#    load("nfit0.rda")
+#} else {
+    nfit0 <- cmsh(Surv(years, state) ~ iage, ndata3, id= id,
+                  qmatrix= nmat2, init= icoef)
+    nfit1 <- cmsh(list(Surv(years, state) ~ iage + male + nafld,
+                   0:5 ~ male/common), 
+                  ndata3, id=id, qmatrix=nmat2, init=nfit0)
+    save(nfit0, nfit1, file= "nfit0.rda")
+#}
 nfit0
-
-nfit1 <- cmsh(list(Surv(years, state) ~ age + male + nafld,
-                   0:5 ~ male + nafld/common), 
-              ndata3, id=id, qmatrix=nmat2, init=nfit0)
 nfit1
+@
 
-# For Surv2 we have to fill in missing covariates
-indx <- match(ndata1$id, ndata1$id)  # matches each to the first
-ndata1$age <-  with(ndata1, age[indx] + years)
-ndata1$male <- ndata1$male[indx]
-ndata1$male <- ndata1$male[indx]
-ndata1$nafld <-ndata1$nafld[indx]
-
+Now compare this to the MSH fit treating transition times as exact.
+<<nfit2>>= 
 nfit2 <- coxph(list(Surv2(age, state) ~ male + nafld,
-                    0:5 ~ male+ nafld/common,
-                    1:2 + 1:3 + 1:4 ~ male+nafld/common,
+                    0:5 ~ male/common,
+                    1:2 + 1:3 + 1:4 ~ male + nafld/common,
                     2:3 + 2:4 ~ male + nafld/common),
                ndata1, id=id)
 nfit2
+
+# Hazard ratio plot
+xx <- summary(nfit2)$conf.int[, -2]
+yy <- c(1,3,5,7, 2,4,6,8:11)
+opar <- par(mar=c(5,6,1,1))
+matplot(xx, yy, log='x', type='n', xlab="Hazard Ratio", ylab="", yaxt='n')
+points(xx[,1], yy, pch=19) #, col=rep(2:1, c(4,7))[yy])
+segments(xx[,2], yy, xx[,3], yy)
+abline(h=4.5, lty=2)
+text(c(1, 1), c(3, 7), c("Male", "NAFLD"))
+nstate <- nfit1$states
+temp <- c(paste(nstate[1:3], nstate[2:4], sep=":"))
+ylab <- c(temp, "death", temp, paste(nstate[1:4], "death", sep=':'))
+axis(2, 1:11, ylab, las=2)
+
+# I don't want the intercept or age coefs
+index <- unique(c(nfit1$cmap[3:4,]))
+tempse <- sqrt(diag(solve(nfit1$fit$S2)))  # theory is still weak
+xx2 <- exp(coef(nfit1)[index] + outer(tempse[index], c(0, -1.96, 1.96), '*'))
+delta <- .15
+points(xx2[,1], yy+ delta, col=2, pch=15)
+segments(xx2[,2], yy+delta, xx2[,3], yy+delta, col=2)
+par(opar)
 @
 
+Now compare the predictions.
+<<ncurves>>=
+ndummy <- expand.grid(male=0:1, nafld=0:1)
+pcurve1 <- predict(nfit1, type='pstate', newdata=ndummy,
+                   time=list(iage=50:100), p0=c(1,0,0,0,0))
+pcurve2 <- survfit(nfit2, newdata=ndummy, start.time=50,
+                   p0=c(1,0,0,0,0))
+
+# compute the sojourn for pcurve1 (1 year intervals makes it easy)
+sojourn1 <- apply(pcurve1$pstate[1:50,,], 2:3, sum)
+temp2 <- summary(pcurve2, rmean=100)$table
+sojourn2 <- matrix(temp2[,3], 4, 5)
+ii <- c(1,2, 4, 3)
+temp <- t(rbind(sojourn1[ii,], sojourn2[ii,]))
+# colnames(temp) <- rep(c("F-", "M-", "M+", "F+"),2)
+z <- barplot(temp, horiz=T, 
+        col=c(c(4,3,5,2), 0), border=NA, xlab="Years remaining",
+        space=c(.1,.1, .1, .1, .5, .1, .1, .1))
+axis(2, c(2,7), c("State", "Transition"))
+box()
+text(rep(37,8), z, rep(c("F-", "M-", "M+", "F+"),2))
+
+opar <- par(mfrow=c(2,2))
+tlab <- paste(c("Male", "Female")[1+ndummy$male],
+              c("Control", "Nafld")[1+ndummy$nafld])
+for (i in 1:4) {
+    plot(pcurve1[1,1:2], col=1:5, lty=1, lwd=2, 
+         xlab="Age", ylab="Prob in state", main=tlab[i])
+    lines(pcurve2[1,1:2], col=1:5, lty=2, lwd=2)
+    
+}
+par(opar)
+
+@ 
+ 
 Yet to do:
 \begin{itemize}
   \item Note that nfit0 can be slow: initial estimates are hard
-  \item Should I have added age to nfit0? Is my goal to get a baseline
-    hazard, or just the numeric one of getting intial intercepts
-  \item Compare the results of nfit1 and nfit2. Plot with HR + CI for both?
-    Compare predicted p(t) and E(time in state) estimates
+  \item Compare predicted p(t) and E(time in state) estimates
   \item Come to some conclusions
 \end{itemize}
 
@@ -861,17 +1099,17 @@ just a glance.  There are several things we can note from the above.
     is the repeated argument.  When a subject has two sequential visits in
     the same state, the survfit and coxph routines need to know whether to
     treat the second observation as a new event. Most of the time they
-    should not, repeated infections in the CGD data set is a rare counterexample,
+    should not, repeated infections in the CGD data set is a counterexample,
     however.  In this data each row is a visit, the repeated form clearly shows
     that over half of all visit pairs are CU:CU; most patients stay stable for
-    many years before progression.  The total transitions table, from the first,
-    shows that 53\% (2296/4327) have no state transtions during follow-up.
+    many years before progression.  The (any) row of the total visits table
+    shows that 53\% (2296/4327) have no recorded transtions during follow-up.
   \item There are 30 instances of a CU:dementia pair.  Per the model we assume
     that these subjects passed through MCI, we simply did assess them often
     enough to observe the transient MCI state.
   \item Dementia:MCI is much less common than MCI:CU.  This reflects on one
     hand the clinical reality that CU and MCI are more difficult to distinguish
-    than dementia.
+    than dementia, and also fewer overall dementia cases.
   \item There are no transitions from death to another state, or from
     death to censored (further follow-up after death).  This is as it
     should be.
@@ -882,9 +1120,9 @@ just a glance.  There are several things we can note from the above.
     data collection system was designed.
     The nurse abstracters who review the history have a screen with fields
     for ``last assessment date for dementia' and 'dementia yes/no'.  
-    At a second, third, etc review for a patient, should that occur,
-    the contents of these are overwritten; thus
-    the data at any given time only has the most recent.
+    At a second, third, etc review for a patient, should one occur,
+    the contents of these are overwritten; thus the master data set
+    at any given time only has the most recent value.
   \item More dementias were found in record review than in study visits.
     We believe that this reflects informative censoring: subjects whose
     cognition is slipping selectively drop out, i.e., exactly those most
@@ -892,14 +1130,18 @@ just a glance.  There are several things we can note from the above.
   \end{itemize}
 Every real study has unique features and patterns like this.  Something that
 looks odd, e.g., item 6 above, needs to be thought through: the ``feature''
-you are seeing may well be a programming error. 
-The author's experience has normally been that an analysis will involve
-as many runs of \code{survcheck} and other tabulations,
-while building the data, as actual model fits after that point. 
+you are seeing may often be your own programming error. 
+The author's experience has normally been that the total number of calls to
+survcheck (and other tabulations) while building a proper analysis data
+set will exceed the number of model fits performed when using that data set.
 
- For this desired analysis we need to create two new variables: first
- diagnosis (of MCI and/or dementia) and off study diagnosis, as they are
- treated differently.
+For this desired analysis we need to create two new variables
+\begin{itemize}
+  \item Sequential progression: the first diagnosis of MCI, dementia (or death)
+  \item Off study diagnosis
+\end{itemize}
+The first is treated as a known state, the second as a marker. 
+Misclassification will be explored later in the document.
 
 <<dementdata1>>= 
 table2 <- function(...) table(..., useNA= "ifany")  # show NA in tables
@@ -907,9 +1149,9 @@ table2 <- function(...) table(..., useNA= "ifany")  # show NA in tables
 noback <- function(x, id, censor) {
     # turn reverse transitions into 'stayed the same'
     # assume the data is sorted by time within unique id, each unique id
-    #  is a block, but id labels not necessarily in sorted order
+    #  is a block (but id labels not necessarily in sorted order)
     ix <- ifelse(is.na(x), -1, as.numeric(x)) # placeholder
-    if (!missing(censor)) ix[x==censor] <- 0  #make it the smallest
+    if (!missing(censor)) ix[x==censor] <- 0  #make it the smallest level
     new <- unlist(tapply(ix, match(id, unique(id)), cummax))
     # A censored row can occur any time, not subject to the "only up" rule
     if (!missing(censor)) {
@@ -922,9 +1164,9 @@ noback <- function(x, id, censor) {
     else new
 }
 
-ddata <- dementia
 # first restrict the set of states, then stop backwards transitions
-temp <- factor(ddata$dx, c("alive", "CU", "MCI", "dementia", "death"))
+temp <- factor(dementia$dx, c("alive", "CU", "MCI", "dementia", "death"))
+ddata <- dementia
 ddata$maxdx <-noback(temp, ddata$ptnum, "alive")
 ddata$offdx <- factor(as.numeric(ddata$dx), 5:6, c("ND", "dementia"))
 with(ddata, table2(dx, maxdx))
@@ -936,7 +1178,7 @@ missmat <- matrix(c(1,1,0,0,0,1), ncol=2,
               dimnames=list(c("CU", "MCI", "dementia"), c("ND", "dementia")))
 missmat
 
-# The transition matrix
+# The true transition matrix
 mstate <- c("CU", "MCI", "dementia", "death")
 mmat <- matrix(0, 4, 4, dimnames=list(mstate, mstate))
 mmat[1,2] <- mmat[2,3] <- 1
@@ -966,7 +1208,7 @@ dfit1 <- cmsh(list(Surv(age, maxdx) ~ iage,
                            /discrete(init=missmat)
               )
 dfit1$fit$iter
-dfit1
+
 @ 
 
 There is a lot to unpack in the above example.
@@ -976,7 +1218,7 @@ There is a lot to unpack in the above example.
     This endpoint may be of medical interest in and of itself, as
     it corresponds perhaps more closely to clinical practice than the
     ``true MCI'' we will estimate a little later.  The first diagnosis of MCI
-    may well be the basis for treatment decisions.
+    may for instance be the basis for treatment decisions.
   \item The (declared to be) true transition matrix, \code{mmat} above,
     guides the underlying model fit. It is not optional.
   \item The formula statement is a list, the first element of the list is
@@ -995,7 +1237,7 @@ There is a lot to unpack in the above example.
     the log-likelihood at $\beta=0$ can be so small that the exp() function
     underflows, giving a probability of exactly 0 and correponding
     log-likelihood of log(0).  The routine may occasionally recover from such
-    a bad starting point.
+    a bad starting point, or may not.
 \end{itemize}
 
 The \code{marker} statment gives a mapping between a subset of states and
@@ -1013,16 +1255,16 @@ a probability distribution, each has to add to 1.  We read it as
     then probability(offdx== ``ND'') =0
   \item There is no row for death, for two reasons. The first is that if
     death is observed at a given date, we will not have observed a
-    nondemented/demented status on that same date based, thus
+    nondemented/demented status on that same date, thus
     the case does not arise.  The second is to ask what numerical value one would
-    put in that row, given the constraint that it has to add to 1?
-    (It is of course possible for someone to have had an office visit and
+    put in that row, given the constraint that it should add to 1?
+  \item It is of course possible for someone to have had an office visit and
     evaluation, then die in a car accident that same day on the way home.
     When there is a tied time like this, our experience is that P(data error)
     is by far the most likely case.  If such a case did occur, then
     to avoid complaints from the code
     the user will need to break the tie, e.g., make the office visit 
-    .1 day earlier or some such.)
+    .1 day earlier or some such.
     \end{itemize}
 The \Sexpr{~0} portion of the formula states that there are no estimated
 coefficients for this markere, and is
@@ -1064,8 +1306,7 @@ the data set to set it up for the cmsh function, and show some summaries.
 First fit CAV outcome as interval censored. 
 
 <<newcav>>=
-library(msm)
-cav2 <- cav
+cav2 <- msm::cav
 names(cav2) <- casefold(names(cav2))  # lower case (personal preference)
 
 # The model
@@ -1080,9 +1321,6 @@ cav2$cstate <- factor(cav2$state, 0:4,
                       c("alive", "no CAV", "mild/mod", "severe", "death"))
 table(cav2$cstate)       # no off study FU!
 survcheck(Surv2(years, cstate) ~1, cav2, id= ptnum)
-
-with(cav2, table(from= cstate[duplicated(ptnum, fromLast=TRUE)],
-                 to = cstate[duplicated(ptnum)]))[-1,]
 table(table(cav2$ptnum)) # number with 1, 2, 3, ... visits
 @
 
@@ -1091,7 +1329,7 @@ package, where the state variable is a factor such that
 the first level of the factor represents ``no event at this time''.
 The CAV data is unusual in that there are no censored observations, 
 each interval ends in one of the 4 states.
-The 622 subjects have betwen 2 15 assessments, 27\% with 2 and 21\% with 3.
+The 622 subjects have betwen 2 and 15 assessments, 27\% with 2 and 21\% with 3.
 The transitions table above shows the count of observed transtition pairs, a 
 subject with 5 visits will contribute 4 counts to the table.
 Remaining in the no CAV state accounts for the largest number of visit
@@ -1185,8 +1423,6 @@ The \code{cmap} component of the returned fit is the overall map between
 covariates, linear predictors, and coefficients.
 The final fit has 17 unique coefficients, the linear predictor for the 3:4
 (severe:death) transition for example makes use of coefficients 16, 17 and 13.
-
-
 
 \section{What is a hidden Markov model (HMM)?}
 The answer to this is that HMM is a general technique, and we see the
@@ -1295,8 +1531,6 @@ In this case each LP is simply an interecept.
 The diagnosis variable is categorical, leading to a multinomial distribution
 for the state:marker combination. The pattern argument will be illustrated in
 a later example.
-
-
 
 
 The first major difference between the MSH and HMM models is that observations

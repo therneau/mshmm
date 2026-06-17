@@ -7,7 +7,7 @@ scoring,
 along with Levenberg-Marquardt (LM) stabilization of the iteration.
 }
 \usage{
-hmmscore(par, fn, gr, iter = 30, scale = 2, shrink = 1, debug = FALSE, constraint, eps = 1e-6, hessian = FALSE, ...)
+hmmscore(par, fn, gr, iter = 30, scale = 2, shrink = 1, debug = FALSE, constraint, eps = 1e-8, hessian = FALSE, ...)
 }
 %- maybe also 'usage' for other objects documented here.
 \arguments{

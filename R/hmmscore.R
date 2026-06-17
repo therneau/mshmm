@@ -1,6 +1,6 @@
 hmmscore <- function(par, fn, gr, iter=30,
                      scale=2, shrink=1, debug=FALSE,
-                     constraint, eps=1e-6, hessian =FALSE, ...) {
+                     constraint, eps=1e-8, hessian =FALSE, ...) {
     if (scale <1.5) stop("invalid value for scale")
     if (iter < 1) stop("iteration count must be 1 or more")
 

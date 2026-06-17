@@ -1,6 +1,8 @@
 # Checks of the survexpm routine
 #
 library(mshmm)
+aeq <- function(x,y) all.equal(as.vector(x), as.vector(y))
+
 q1 <- matrix(0, 5, 5)  # the simple model of the NAFLD data
 q1[1,2] <- q1[2,3] <- q1[3,4] <- 1
 q1[1:4,5] <- 1
@@ -102,13 +104,13 @@ tied <- rbind(c(-.1, .02, .03,   0, .05),
 
 test <- survexpm(tied, deriv=T)
 test$method
-all.equal(test$P, expm(tied))
+all.equal(test$P, as.matrix(expm(tied)))
 
-etest <- hmmeigen(tied)
+etest <- mshmm:::hmmeigen(tied)  # this fcn is not exported
 rinv <- solve(etest$right)
 scale <- colSums(etest$right * etest$left)
-norm(etest$right)* norm(rinv)
-max(1/scale)
+norm(etest$right)* norm(rinv)  # huge condition number
+max(1/scale)                   # and approx condition number as well
 
 # Both of these fail, showing that survexp was correct to avoid the eigen
 test2 <- etest$right %*% diag(etest$values) %*% rinv
@@ -117,6 +119,7 @@ p1 <- etest$right %*% diag(exp(etest$values)) %*% rinv
 all.equal(p1, test$P)
 
 # The expm eigen has a more forgiving cutoff before switching to Pade
+# than my survexpm function
 all.equal(expm(tied), expm(tied, method="R_Eigen"))
 
 #
@@ -133,5 +136,5 @@ diag(R) <- -rowSums(R)
 q1 <- expm(R* 1.3)
 q2 <- pade(R* 1.3)
 q3 <- survexpm(R, 1.3, deriv=FALSE)
-aeq(q1, q2)
+aeq(q1, q2$P)
 aeq(q1, q3)

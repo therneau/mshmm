@@ -101,16 +101,20 @@ markerpair <- function(x, statemap) {
                 state[[1]] <- as.name("c")
                 temp <- eval(state)  # A(1:3) becomes the vector 1,2,3
                 temp <- unique(temp[!is.na(temp)]) # users do weird things....
-                index <- match(statemap[,jcol], temp, nomatch=0)
-                if (any(index ==0)) { # there is a string, not in jcol
+                itest <- match(temp, statemap[,jcol], nomatch=0)
+                if (any(itest ==0)) { # A('zed', 'mary') and mary is not present
+                    # in column A of statedata.
                     # special case: they can use numerics, e.g., state(1,3,4)
                     if (jcol==1 && all(temp== as.integer(temp) & temp>0 &
-                                       temp < nstate)) index <- temp
-                    else stop("value ", temp[index==0],
-                              "not found for variable ", sname[jcol])
-                }
-                stateinfo <- list(sname= names(statemap)[jcol], levels=temp,
-                               index=match(statemap[,jcol], temp, nomatch=0))
+                                       temp <= nstate)) index <- temp
+                    else stop("value ", paste(temp[itest==0]),
+                              " not found for variable ", sname[jcol])
+                    temp <- statemap[1,temp]
+                } else index <- match(statemap[,jcol], temp,  nomatch=0)
+
+                stateinfo <- list(sname= names(statemap)[jcol], 
+                                  levels= temp, 
+                                  index= index)
             }
         } else { # the user has a simple A:marker, where A is a col of statemap
             if (is.name(state)) jcol <- match(as.character(state), sname)    

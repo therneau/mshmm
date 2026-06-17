@@ -1,7 +1,7 @@
 Title: Multistate hazard models for interval censored data, including hidden Markov models
 Package: mshmm
-Version: 1.0-4
-Date: 2026-04-26
+Version: 1.0-5
+Date: 2026-06-08
 Depends: survival, Matrix, R (>= 3.5.0)
 Imports:  parallel, mvtnorm, quadprog
 Suggests: msm, knitr

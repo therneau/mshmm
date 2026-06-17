@@ -124,10 +124,13 @@ cmsh <- function(formula, data, subset, weights,
     # create the master formula, used for model.frame
     # the term.labels + reformulate + environment trio is used in [.terms;
     #  if it's good enough for base R it's good enough for me
+    # The final can have terms for the transitions, the markers, and the
+    #  initial state.  Calls to model.matrix will sometimes only want a subset
     tlab <- attr(delete.response(terms(dformula)), "term.labels") #rhs of dform
-    if (!is.null(parse1))
+    if (!is.null(parse1)) {
         tlab <- c(tlab, unlist(lapply(parse1$rhs, function(x){
             attr(terms.formula(x), "term.labels")})))
+    }
     if (nmarker > 0) {
         if (any(marker1$marker %in% tlab)) {
             stop("a variable can not be both a marker and a predictor")
@@ -141,7 +144,7 @@ cmsh <- function(formula, data, subset, weights,
     if (length(tlab) >0) {
         newform <- reformulate(unique(tlab), dformula[[2]])
         environment(newform) <- environment(dformula)
-        formula <- newform  # used for model.frame, not reported to user
+        formula <- newform  # used for model.frame
     }
 
     # Evaluate the expanded formula to create the model frame
@@ -302,7 +305,7 @@ cmsh <- function(formula, data, subset, weights,
         beta.names <- paste(rownames(cmap)[indx], colnames(cmap)[indx], sep='.')
     param <- rep(0, nparam)
     if (!missing(init)) {
-        if (inherits(init, "cmsh")) { # a prior hmm model
+        if (inherits(init, "cmsh")) { # a prior cmsh model
             priormod <- init
             init <- coef(priormod, matrix=TRUE, fixed=TRUE)
         }
@@ -526,14 +529,27 @@ cmsh <- function(formula, data, subset, weights,
                      mc.cores, control, mfun, mfattr, mpar, iter,
                      iexact, constraint, penmat)
 
-
     time2 <- proc.time()
+    
+    # Compute a variance estimate
+    temp <- mfit$fit
+    if (!is.null(temp$hessian)) {
+        if (!is.null(temp$U)) {
+            # robust variance
+            dfbeta <- solve(temp$hessian, temp$U)
+            vcov <- tcrossprod(dfbeta)
+        } else vcov <- solve(temp$hessian)
+    } else if (!is.null(temp$S)) {
+        vcov <- solve(temp$S)
+    } else vcov <- NULL
 
     # Undo any scaling and centering
     if (control$scale || control$center) {
         B <- coef.to.B(mfit$param, cmap, B)
         Bscale <- xtrans %*% B
         param <- B.to.coef(Bscale, cmap, fixed=TRUE)
+        #browser()
+        #if (vcov) stop("need to fill in")
     }
 
     # Add names
@@ -550,6 +566,8 @@ cmsh <- function(formula, data, subset, weights,
                   n = c(observations =nrow(mf), id =nid),
                   states= statenames
                   )
+    if (!is.null(vcov)) final$var <- vcov
+
     if (!is.null(removed)) final$removed <- removed
     if (!is.null(mfit$penalty) && mfit$penalty >0)   
         final$penalty <- c(initial= mfit$penalty0, final= mfit$penalty)

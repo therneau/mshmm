@@ -119,7 +119,7 @@ hmmboth <- function(param, logfun, detail = FALSE){
     #     if (debug>1) {cat("in hmmboth\n"); browser()}
     # }
     
-    list(loglik = loglik, deriv= deriv, S=S, S2=S2)
+    list(loglik = loglik, deriv= deriv, S=S, S2=S2, U=u)
 }
 
 # This is used by optim

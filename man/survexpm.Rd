@@ -5,7 +5,7 @@
   Compute the matrix exponential and its derivatives
 }
 \usage{
-survexpm(R, time = 1, deriv = FALSE, tol=1e-10 method=c("eigen", "pade"))
+survexpm(R, time = 1, deriv = FALSE, tol=1e-10, method=c("eigen", "pade"))
 }
 \arguments{
   \item{R}{the transition rate matrix R for a multistate hazard model}
