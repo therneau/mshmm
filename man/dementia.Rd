@@ -112,7 +112,7 @@ The seven carido-metabolic conditions were coded as
 \examples{
 table(table(dementia$ptnum))  # number of rows per subject
 id1 <- duplicated(dementia$id, fromLast=TRUE)
-id2 <- duplicated(demnetia$id)
+id2 <- duplicated(dementia$id)
 table(from= dementia$dx[id1], to= dementia$dx[id2]) #observed transitions
 }
 \keyword{datasets}

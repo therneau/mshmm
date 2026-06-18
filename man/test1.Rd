@@ -14,11 +14,12 @@ A small subset (4 subjects) of data from an imaging study.
     \item{\code{age}}{age in years}
     \item{\code{male}}{1=male, 0=female}
     \item{\code{educ}}{years of education}
-    \item{\code{dx}}{diagnosed disease state}
     \item{\code{apoepos}}{positive APOE genotype}
     \item{\code{thickness}}{cortical thickness}
+    \item{\code{state}}{current state}
     \item{\code{pib}}{PIB binding (a measure of amyloid)}
     \item{\code{fdg}}{mean FDG image level}
+    \item{\code{istate}}{integer version of state variable}
   }
 }
 \details{
