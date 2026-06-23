@@ -536,11 +536,11 @@ cmsh <- function(formula, data, subset, weights,
     if (!is.null(temp$hessian)) {
         if (!is.null(temp$U)) {
             # robust variance
-            dfbeta <- solve(temp$hessian, temp$U)
+            dfbeta <- gsolve(temp$hessian, temp$U)
             vcov <- tcrossprod(dfbeta)
-        } else vcov <- solve(temp$hessian)
+        } else vcov <- gsolve(temp$hessian)
     } else if (!is.null(temp$S)) {
-        vcov <- solve(temp$S)
+        vcov <- gsolve(temp$S)
     } else vcov <- NULL
 
     # Undo any scaling and centering

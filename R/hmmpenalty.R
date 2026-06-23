@@ -81,6 +81,7 @@ gsolve <- function(mat, y, eps=sqrt(.Machine$double.eps)) {
     dpos <- (temp$d > max(temp$d[1]*eps, 0))
     dd <- ifelse(dpos, 1/temp$d, 0)
     # all the parentheses save a tiny bit of time if y is a vector
+    if (missing(y)) y <- diag(nrow(mat))
     if (all(dpos)) x <- drop(temp$u %*% (dd*(t(temp$u) %*% y)))
     else if (!any(dpos)) x <- drop(temp$y %*% (0*y)) # extremely rare
     else x <-drop(temp$u[,dpos] %*%(dd[dpos] * (t(temp$u[,dpos, drop=FALSE]) %*% y)))

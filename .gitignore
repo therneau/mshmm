@@ -1,7 +1,7 @@
 src/*.so
 src/*.o
 src/cdecomp.c
-noweb
+src2
 vignettes/.*.aux
 vignettes/.*.log
 vignettes/.*.tex

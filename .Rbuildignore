@@ -7,6 +7,8 @@ noweb/
 .git
 .gitignore
 vignettes/test
+vignettes/temp
+vignettes/extra
 vigtemp
 R/maybe
 todotests

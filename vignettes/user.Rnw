@@ -895,16 +895,15 @@ nmat2[1,2] <- nmat2[2,3] <- nmat2[3,4] <- 1
 nmat2[1:4,5] <- 1
 nmat2
 
-#if (file.exists("nfit0.rda")) {
-#    load("nfit0.rda")
-#} else {
+if (FALSE) {
+    # these take a long time to fit, and so are now in the data directory
     nfit0 <- cmsh(Surv(years, state) ~ iage, ndata3, id= id,
                   qmatrix= nmat2, init= icoef)
     nfit1 <- cmsh(list(Surv(years, state) ~ iage + male + nafld,
                    0:5 ~ male/common), 
                   ndata3, id=id, qmatrix=nmat2, init=nfit0)
     save(nfit0, nfit1, file= "nfit0.rda")
-#}
+}
 nfit0
 nfit1
 @

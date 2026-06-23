@@ -15,7 +15,6 @@ A small subset (4 subjects) of data from an imaging study.
     \item{\code{male}}{1=male, 0=female}
     \item{\code{educ}}{years of education}
     \item{\code{apoepos}}{positive APOE genotype}
-    \item{\code{thickness}}{cortical thickness}
     \item{\code{state}}{current state}
     \item{\code{pib}}{PIB binding (a measure of amyloid)}
     \item{\code{fdg}}{mean FDG image level}
