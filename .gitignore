@@ -13,6 +13,6 @@ vignettes/zzz
 data/renal.R
 vignettes/temp
 R/maybe
-data/dementia.Rmd
+data/Dementia
 data/Readme
 tests/msutil.R

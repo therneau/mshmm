@@ -53,4 +53,25 @@ cmsh.control <- function(smallpos= 1e-3, debug= 0, center=TRUE, scale=FALSE,
     list(smallpos= smallpos, debug=debug, center=center, scale=scale, 
          makecluster=makecluster, detail=detail)
 }
-                         
+                                 
+# gsolve and qform are stolen from the survival package
+gsolve <- function(mat, y, eps=sqrt(.Machine$double.eps)) {
+    # solve using a generalized inverse
+    # this is very similar to the ginv function of MASS
+    temp <- svd(mat, nv=0)
+    dpos <- (temp$d > max(temp$d[1]*eps, 0))
+    dd <- ifelse(dpos, 1/temp$d, 0)
+    # all the parentheses save a tiny bit of time if y is a vector
+    if (missing(y)) y <- diag(nrow(mat))
+    if (all(dpos)) x <- drop(temp$u %*% (dd*(t(temp$u) %*% y)))
+    else if (!any(dpos)) x <- drop(temp$y %*% (0*y)) # extremely rare
+    else x <-drop(temp$u[,dpos] %*%(dd[dpos] * (t(temp$u[,dpos, drop=FALSE]) %*% y)))
+    attr(x, "df") <- sum(dpos)
+    x
+}
+
+qform <- function(var, beta) { # quadratic form b' (V-inverse) b
+    temp <- gsolve(var, beta)
+    list(test= sum(beta * temp), df=attr(temp, "df"))
+}
+

@@ -12,11 +12,10 @@ Cognitive change over time.
   }
 \usage{data("dementia")}
 \format{
-  A data frame with 24983 observations on 4200 subjects,
-  with the following 10 variables.
+  A data frame with 25302 observations on 4250 subjects,
+  with the following 14 variables.
   \describe{
-    \item{\code{ptnum}}{patient identifier of 1, 2, \ldots (not in
-      order of enrollment)}
+    \item{\code{ptnum}}{patient identifier of 1, 2, \ldots}
     \item{\code{age}}{age at this observation}
     \item{\code{male}}{0= female, 1= male}
     \item{\code{educ}}{years of education, less than 8 coded as 8}
@@ -34,20 +33,27 @@ Cognitive change over time.
      \item{\code{centiloid}}{PET measurment of amyloid level in the brain using
        Pittsburgh compound B (PiB), expressed in centiloid units}
      \item{\code{p.tau181}}{assay value of phosphorolated tau-181}
-     \item{\code{hpvol}}{hippcampal volume}
-     \item{\code{memory}}{a scaled memory score, based on a battery of
-       cognitive tests}
-     \item{\code{global}}{a global congition score, an amalgam of memory,
-       executive function, visual, and language domains}
+     \item{\code{cogzm}}{a z-scored composite of a set of cognitive
+       tests targeted at memory}
+     \item{\code{cogzm}}{a z-scored composite of a set of cognitive
+       tests targeted at language}
+     \item{\code{cogzm}}{a z-scored composite of a set of cognitive
+       tests of visual-spatial processing}
+     \item{\code{ptau181}}{an early assay of P-tau 181}
+     \item{\code{ptau217}}{an early assay of P-tau 217}
+     \item{\code{ab42.40}}{an assay of the Abeta protien 42 to Abeta 40
+       ratio}
   }
 }
 \details{
 The data set is modeled on a subset of the MCSA data used in Jack (2022).
-Covariates were further modified by the addition of random noise to the
-visit intervals, sex, and all continuous variables.
-As such this data will not reproduce the results in the reference,
-nor should it be used for clinical descison making.  It is useful for
-illustration of statistical methods, however.
+As best possible, it represents a similar pattern of visit frequencies
+and intervals between visits, marginal distirbutions of covariates, and
+patterns of correlation.  The primary purpose is for the illustration
+and exploration of statistical methods on a rich data set of this
+nature. It does not reproduce the results in the reference (though they
+are similar) and most certainly should be uses as a basis for clinical
+decision making or practice.
 
 The Mayo Clinic study of aging is based on an age and sex stratified
 random sample of subjects from Olmsted County, Minnesota.
@@ -76,7 +82,7 @@ for this reason subjects with no current evidence of amyloid accumulation
 were often scheduled for rescan at every other study visit rather than
 at each return.
 Since the PiB ligand did not become available until year 6 of the study
-a subset of those who elected to participate in imagine will be missing
+a subset of those who elected to participate in imaging will be missing
 PET for their first visits.
 For further details see Jack (2022) and the references therein.
 
@@ -85,7 +91,7 @@ diagnosis will be one of CU, MCI or dementia, an off study visit will be
 either nondemented or demented (nondem or off-dem), and simple status as
 either alive or dead.  Formally, these could be instead be represented
 as three covariates corresponding to a study visit, an off-study office
-visit where demented/not can be ascertained, and simple alive/dead
+visit where dementia can be ascertained, and simple alive/dead
 information, e.g., a death record, vaccination visit, patient
 correspondence, etc.
 In analysis this separation will sometimes be necessary.

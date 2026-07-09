@@ -1,7 +1,6 @@
 testmc
 Readme
-data/dementia.Rmd
-data/Readme
+data/Dementia
 data/renal.R
 noweb/
 .git
