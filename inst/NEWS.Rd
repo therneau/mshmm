@@ -15,3 +15,9 @@
     \item Add type="pstate" to the predict function, along with the
     ], dim, plot, lines, and points functions for pstate.cmsh objects
 }}
+\section{Changes in version 1.0-6}{
+  \itemize{
+    \item Update the dementia data set: add a few more variables, a few
+    less subjects, and overall a bit more care.
+    \item Add vcov and contrast functions
+}}
