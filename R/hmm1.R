@@ -14,15 +14,36 @@
 # In the math vignette, the vector of coefs is a Greek beta, so you will see
 #  'beta' used a lot in the comments and description.
 #
+# Initial state probabilities from linear predictors (used when there is no
+#  iprob matrix, i.e. nlp[3] > 0).  A multinomial logit with state 1 as the
+#  reference: eta[k] is the log odds of state k+1 versus state 1, for
+#  k = 1, ..., length(eta); any later states (e.g. death) have probability 0.
+# With gradient=TRUE the result has attribute "gradient", an nstate x
+#  length(eta) matrix of derivatives with respect to eta (see "derivative,
+#  linear predictor" in the code vignette).  hmm2 turns this into derivatives
+#  wrt the coefficients with eta.beta3.
+initfun <- function(nstate, eta, gradient=FALSE) {
+    neta <- length(eta)
+    if (neta >= nstate) stop("too many linear predictors for the initial state")
+    e <- c(1, exp(eta))
+    p <- c(e/sum(e), rep(0, nstate - neta - 1L))
+    if (gradient) {
+        # d p_j / d eta_k = p_j (I(j = k+1) - p_{k+1})
+        g <- -outer(p, p[1L + seq_len(neta)])
+        g[cbind(1L + seq_len(neta), seq_len(neta))] <-
+            p[1L + seq_len(neta)] * (1 - p[1L + seq_len(neta)])
+        attr(p, "gradient") <- g
+    }
+    p
+}
+
 hmm1 <- function(who, B) {
     if (control$debug >0) cat("in hmm1\n")
     rows <- which(id == who)  # the subjects of interest
     eta <- X[rows,] %*% B
-    # starting probability
+    # starting probability: a fixed iprob matrix, or linear predictors
     if (!is.null(iprob)) alpha <- iprob[who,]
-    else if (is.null(p0fixed))
-        alpha <- pfun(nstate, eta[1,e3], gradient=FALSE)
-    else alpha <- p0fixed
+    else alpha <- initfun(nstate, eta[1,e3], gradient=FALSE)
     
     # Now the response functions for this set
     # rlist was set up by cmsh
@@ -134,12 +155,13 @@ hmm2 <- function(who,  B) {
     R.d  <- matrix(0., nstate, nparm[2])   # might be 0 columns
     pi.d <- matrix(0., nstate, nparm[3])   # might be 0 columns
 
-    # starting probability
+    # starting probability: a fixed iprob matrix, or linear predictors
     if (!is.null(iprob)) alpha <- iprob[who,]
-    else if (is.null(p0fixed)) alpha <- pfun(nstate, eta[1,e3], gradient=TRUE)
-    else alpha <- p0fixed
-    if (nlp[3] >0) {
-        pi.d <- pitrans(attr(alpha, 'gradient'), X[rows[1],])
+    else {
+        alpha <- initfun(nstate, eta[1,e3], gradient=TRUE)
+        # chain rule: d alpha/d eta (nstate x nlp[3]) times d eta/d beta
+        #  (nlp[3] x nparm[3]), the initial state block of cmap
+        if (nlp[3] >0) pi.d <- attr(alpha, 'gradient') %*% eta.beta3(X[rows[1],])
         attr(alpha, 'gradient') <- NULL  # no longer needed
     }
     
@@ -179,6 +201,8 @@ hmm2 <- function(who,  B) {
             k <- ystate[j]
             alpha[-k] <- 0
             P.d[, -k] <- 0
+            if (nlp[2]) R.d[-k, ] <- 0
+            if (nlp[3]) pi.d[-k, ] <- 0
         }
         else if (otype[j] == 2) {
             # exact event time (death)
@@ -186,8 +210,14 @@ hmm2 <- function(who,  B) {
             klp <- (qmatrix[,k])  #linear preds for transitions to state k
             dtemp <- rmat[,k]  #rate at this point
             dtemp[k] <- 0      # we don't want -1*rowsum (r[k,k]) here
-            if (nlp[3]) pi.d <- pi.d * rep(dtemp, nlp[3])
-            if (nlp[2]) R.d  <- R.d  * rep(dtemp, nlp[2])
+            if (nlp[3]) {
+                ptmp <- colSums(pi.d * dtemp)
+                pi.d[,] <- 0; pi.d[k,] <- ptmp
+            }
+            if (nlp[2]) {
+                rtmp <- colSums(R.d * dtemp)
+                R.d[,] <- 0; R.d[k,] <- rtmp
+            }
             if (control$debug >1) {cat("death "); browser()}
             # Why the j-1 below?  A death density will depend on covariates
             #  measured prior to the death, not measured at the death
@@ -215,16 +245,17 @@ hmm2 <- function(who,  B) {
             for (k in 1:nmarker) {
                 if (!(is.na(ymarker[j,k]))) {
                     nc[k] <- nc[k] +1
-                    temp <- rfun[[k]][,nc[k]]
+                    temp <- rfun[[k]][,nc[k]]   # P(y | state), one per state
                     if (nlp[3]) pi.d <- pi.d * temp 
-                    if (nlp[1]) P.d  <- P.d * rep(temp, each= nrow(P.d))
+                    #if (nlp[1]) P.d  <- P.d * rep(temp, each=nlp[1]) # Terry previous
+                    if (nlp[1]) P.d <- P.d * rep(temp, each = nrow(P.d)) # MMR changed
                     if (nlp[2]) R.d  <- R.d * temp
                     if (!is.null(rgrad[[k]])) { #if there are derivatives
-                        j <- rlist$e2map[[k]] # which linear predictors
-                        # eta.b3(X[j,]) is d\eta/d\beta for all response lp
-                        # rgrad[[k]] will nstate rows, length(j) cols
-                        temp <- alpha %*% rgrad[[k]][,,nc[k]]
-                        R.d <- R.d + temp %*% eta.b3(X[j,])[,rlist$e2map[[k]]]
+                        # d alpha_new = d alpha * f + alpha * df/deta * deta/dbeta
+                        lpk <- rlist[[k]]$e2map   # this marker's lp (marker block)
+                        G <- matrix(rgrad[[k]][, nc[k], ], nrow=nstate)
+                        Z <- eta.beta2(X[j,])[lpk, , drop=FALSE]
+                        R.d <- R.d + (alpha * G) %*% Z
                     } 
                     if (control$debug>3) browser()
                     alpha <- alpha * temp
@@ -246,6 +277,8 @@ hmm2 <- function(who,  B) {
             if (length(exactabsorb)) {
                 alpha[exactabsorb] <- 0
                 P.d[,exactabsorb] <- 0
+                if (nlp[2]) R.d[exactabsorb, ] <- 0
+                if (nlp[3]) pi.d[exactabsorb, ] <- 0
             }
         }
 

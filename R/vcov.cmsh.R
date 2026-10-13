@@ -1,12 +1,17 @@
-vcov.cmsh <- function (object, complete = TRUE, ...) 
+vcov.cmsh <- function (object, complete = TRUE, markers = FALSE, ...) 
 {
+    # markers=FALSE (default): rows/columns for the parameters of a
+    #  misclassification matrix are left out, to match coef(object)
     if (is.null(object$var)) return(NULL)
     vmat <- object$var
-    vname <- names(object$coefficients)
-    dimnames(vmat) <- list(vname, vname)
-    if (!complete && any(is.na(coef(object)))) {
-        keep <- !is.na(coef(object))
-        vmat[keep, keep, drop = FALSE]
+    cf <- object$coefficients
+    if (nrow(vmat) == length(cf)) {
+        vname <- names(cf)
+        dimnames(vmat) <- list(vname, vname)
     }
-    else vmat
+    keep <- rep(TRUE, nrow(vmat))
+    if (!markers && length(object$epar) && nrow(vmat) == length(cf))
+        keep[object$epar] <- FALSE
+    if (!complete && nrow(vmat) == length(cf)) keep <- keep & !is.na(cf)
+    vmat[keep, keep, drop = FALSE]
 }
