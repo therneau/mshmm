@@ -273,7 +273,7 @@ parsemarker2 <- function(parse1, statedata, Terms, Xname, Xassign,
                    dimnames=list(Xname, lpname))
     if (numlp==0) { # there are no parameters, e.g. a fixed missclass matrix
         return(list(cmap=cmap, response = rlist[match(umarker, marker)],
-                    e2map = eindex))
+                    e2map = eindex, init = NULL))
     }
                     
 
@@ -301,13 +301,20 @@ parsemarker2 <- function(parse1, statedata, Terms, Xname, Xassign,
         cmap[irow, k] <- dtemp[irow,]
     }
         
-    # ditch the zero
-    cmap <- cmap[,!zeroform]
-    response <- (rlist[match(umarker, marker)])[!zeroform]
-    # map the elements of cmap to 0, 1, ...
+    # Static (~0) markers have no linear predictors, so there is nothing
+    #  to remove from cmap.  Map the elements of cmap to 0, 1, ...
     cmap[,] <- match(cmap, unique(c(0L, cmap))) - 1L
+
+    # starting values for the intercepts of each linear predictor, if the
+    #  distribution supplied them (e.g. discrete(init= ))
+    initval <- rep(NA_real_, numlp)
+    for (i in seq_along(umarker)) {
+        r <- rlist[[match(umarker[i], marker)]]
+        if (!is.null(r$init) && length(eindex[[i]]) == length(r$init))
+            initval[eindex[[i]]] <- r$init
+    }
     list(cmap=cmap, response = rlist[match(umarker, marker)],
-         rindex= eindex)
+         e2map = eindex, rindex = eindex, init = initval)
 }
                                                            
 # Run down the formula parse tree and see if there is an explicit

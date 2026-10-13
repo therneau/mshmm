@@ -30,7 +30,7 @@ hmmloglik <- function(param, logfun) {
         else mcfit <- mclapply(unique(id), logfun, B= B2,
                                mc.cores= mc.cores, mc.set.seed=FALSE)
     }
-    else mcfit <- lapply(unique(id), logfun, B=B)
+    else mcfit <- lapply(unique(id), logfun, B=B2)
     
     if (any(sapply(mcfit, is.character))) {
         # failure
@@ -85,7 +85,7 @@ hmmboth <- function(param, logfun, detail = FALSE){
         pname <- pname[cmap>0]  # names of the parameters
         alpha <-  sapply(mcfit, function(x) x$alpha)
         uid <- unique(id)
-        sname <- colnames(qmat) # the state names
+        sname <- colnames(qmatrix) # the state names
         dimnames(alpha) <- list(state=sname, id=uid)
         deriv <-  sapply(mcfit, function(x) x$deriv, simplify="array")
         deriv <- array(deriv, dim=c(length(pname), nstate, length(uid)),
