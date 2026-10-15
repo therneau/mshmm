@@ -307,7 +307,7 @@ cmsh <- function(formula, data, subset, weights,
     if (!missing(init)) {
         if (inherits(init, "cmsh")) { # a prior cmsh model
             priormod <- init
-            init <- coef(priormod, matrix=TRUE, fixed=TRUE)
+            init <- coef(priormod, matrix=TRUE, fixed=TRUE, markers=TRUE)
         }
         if (is.matrix(init)) {
             # allow for partial matching, so that a smaller model can feed a 
@@ -340,6 +340,41 @@ cmsh <- function(formula, data, subset, weights,
             }
             B <- coef.to.B(param, cmap, B)
         } else stop("init must be a numeric vector, matrix, or prior fit")
+    }
+
+    # starting values for estimated marker parameters (e.g. discrete(init=)),
+    #  used for any marker intercept the user's init did not set
+    if (nmarker > 0 && nlp[2] > 0 && !is.null(marker2$init)) {
+        for (k in seq_len(nlp[2])) {
+            jj <- nlp[1] + k
+            if (cmap[1, jj] > 0 && B[1, jj] == 0 && !is.na(marker2$init[k]))
+                B[1, jj] <- marker2$init[k]
+        }
+    }
+
+    # continuous markers with no starting values: start every group of
+    #  states at the overall mean and standard deviation of the marker
+    #  (moment estimates for a beta marker), which avoids a zero likelihood
+    #  from the default of mean 0, std 1
+    if (nmarker > 0 && nlp[2] > 0) {
+        for (i in seq_along(marker2$response)) {
+            r <- marker2$response[[i]]
+            cols <- marker2$e2map[[i]]
+            if (is.null(r$name) || !(r$name %in% c("gaussian", "logistic", "beta"))
+                || length(cols) == 0 || !is.null(r$init)) next
+            jj <- nlp[1] + cols
+            if (any(B[1, jj] != 0)) next          # the user supplied values
+            yv <- mf[[names(marker2$e2map)[i]]]
+            yv <- yv[!is.na(yv)]
+            if (length(yv) < 2) next
+            m0 <- mean(yv); s0 <- sd(yv)
+            if (r$name == "beta") {
+                k0 <- max(m0*(1 - m0)/s0^2 - 1, 0.1)
+                start2 <- log(c(m0*k0, (1 - m0)*k0))
+            } else start2 <- c(m0, log(s0))
+            free <- cmap[1, jj] > 0
+            B[1, jj[free]] <- rep(start2, length.out=length(jj))[free]
+        }
     }
 
     if (!missing(fixed)) {
@@ -480,16 +515,18 @@ cmsh <- function(formula, data, subset, weights,
         ymarker <- mf[unique(marker1$marker)]  # a data frame
         nmarker <- ncol(ymarker)
         rlist <- marker2$response
-        if (b2>0) eta <- X%*% B[,b2]
+        # attach each marker's linear predictors (columns of the marker block)
+        for (i in seq_along(rlist)) rlist[[i]]$e2map <- marker2$e2map[[i]]
+        eta <- X %*% B
         for (i in 1:nmarker) {
             # check for a valid response vector
             if (!is.null(rlist[[i]]$checkfun)) rlist[[i]]$checkfun(ymarker[,i])
             tfun <- rlist[[i]]$rfun
             keep <- !is.na(ymarker[,i])
-            if (length(rlist$e2map[[i]]) >0 ) {
+            if (length(rlist[[i]]$e2map) >0 ) {
                 # the e2map indices from parsemarker are within the cmap cols
                 #  for markers, hmm1 and hmm2 will want overall cmap index
-                j <- rlist$e2map[[i]] + nlp[1]
+                j <- rlist[[i]]$e2map + nlp[1]
                 test <- tfun(ymarker[keep,i], eta[keep, j])
                 }
             else test <- tfun(ymarker[keep,i]) #e.g. a fixed missclass matrix
@@ -548,8 +585,19 @@ cmsh <- function(formula, data, subset, weights,
         B <- coef.to.B(mfit$param, cmap, B)
         Bscale <- xtrans %*% B
         param <- B.to.coef(Bscale, cmap, fixed=TRUE)
-        #browser()
-        #if (vcov) stop("need to fill in")
+        # the variance was computed on the centered/scaled X; the map from
+        #  those coefficients to the reported ones is linear (xtrans), so
+        #  transform it with the Jacobian J:  V = J V0 J'
+        if (!is.null(vcov)) {
+            nfree <- nrow(vcov)
+            J <- matrix(0, nfree, nfree)
+            for (i in seq_len(nfree)) {
+                ei <- rep(0, nfree); ei[i] <- 1
+                Bi <- coef.to.B(ei, cmap, 0*B)
+                J[, i] <- B.to.coef(xtrans %*% Bi, cmap)
+            }
+            vcov <- J %*% vcov %*% t(J)
+        }
     }
 
     # Add names
@@ -567,6 +615,30 @@ cmsh <- function(formula, data, subset, weights,
                   states= statenames
                   )
     if (!is.null(vcov)) final$var <- vcov
+
+    # Discrete markers: the misclassification (emission) matrix is kept as
+    #  its own component, and its linear predictors / parameters are
+    #  recorded so that coef(), vcov(), print() and summary() can leave
+    #  them out of the transition coefficients.
+    if (!is.null(rlist)) {
+        mc <- build_misclass(rlist, names(ymarker),
+                             coef.to.B(param, cmap, fixed=TRUE), cmap, nlp,
+                             vcov, statenames)
+        if (length(mc$misclass)) {
+            final$misclass <- mc$misclass
+        }
+        # continuous markers (gaussian, logistic, beta): their parameters
+        #  are kept in fit$markers in the same way
+        mk <- build_markers(rlist, names(ymarker),
+                            coef.to.B(param, cmap, fixed=TRUE), cmap, nlp,
+                            vcov, statenames)
+        if (length(mk$markers)) final$markers <- mk$markers
+        ecols <- sort(unique(c(mc$ecols, mk$ecols)))
+        if (length(ecols)) {
+            final$ecols <- ecols        # marker columns of cmap
+            final$epar  <- sort(unique(c(mc$epar, mk$epar))) # in coefficients
+        }
+    }
 
     if (!is.null(removed)) final$removed <- removed
     if (!is.null(mfit$penalty) && mfit$penalty >0)   

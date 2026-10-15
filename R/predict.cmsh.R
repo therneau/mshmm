@@ -14,7 +14,9 @@ predict.cmsh <- function(object, newdata, type=c("link", "rate", "pstate"),
         if (missing(newdata) || is.null(newdata)) 
             X <- model.matrix(object)
         else X <- model.matrix(object, data=newdata)
-        eta <- X %*% coef(object, matrix=TRUE)
+        # linear predictors of the transitions only; marker parameters
+        #  (e.g. a misclassification matrix) are not rates
+        eta <- X %*% coef(object, matrix=TRUE, matrix2=FALSE, matrix3=FALSE)
     
         if (se.fit) {
             se <- 0* eta   # inherit the dimnames        
@@ -94,7 +96,7 @@ predict.cmsh <- function(object, newdata, type=c("link", "rate", "pstate"),
         qmap <- which(object$qmatrix != 0)
         cumhaz <- array(0, dim=c(ntime, ncurve, length(qmap)))
         delta <- diff(dtime[,1])
-        beta <- coef(object, matrix=TRUE)
+        beta <- coef(object, matrix=TRUE, matrix2=FALSE, matrix3=FALSE) # rates only
 
         for (k in 1:ncurve) {
             pstate[1,k,] <- p0
