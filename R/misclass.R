@@ -7,9 +7,7 @@
 #    coefficients : the estimated parameters on the logit scale
 #               (log odds against the row's reference level), with se
 #    fixed    : TRUE if the matrix was supplied (~ 0 / discrete(init=))
-# The helper below is called once, at the end of cmsh().  The matrix itself
-#  comes from the format() function that discrete() returns, so the
-#  distribution controls its own display (see response.R).
+# The helper below is called once, at the end of cmsh().
 
 build_misclass <- function(rlist, mnames, B, cmap, nlp, vcov, statenames,
                            conf.int = 0.95) {
@@ -17,11 +15,11 @@ build_misclass <- function(rlist, mnames, B, cmap, nlp, vcov, statenames,
     z <- qnorm(1 - (1 - conf.int)/2)
     for (i in seq_along(rlist)) {
         r <- rlist[[i]]
-        if (!identical(r$type, "discrete")) next
+        if (is.null(r$name) || r$name != "discrete") next
         has <- which(r$index > 0)          # states that can show the marker
         if (isTRUE(r$static)) {
-            has <- which(r$index > 0 & rowSums(abs(r$format())) > 0)
-            P <- r$format()[has, , drop=FALSE]
+            has <- which(r$index > 0 & rowSums(abs(r$missmat)) > 0)
+            P <- r$missmat[has, , drop=FALSE]
             dimnames(P) <- list(state = statenames[has], observed = r$mlevel)
             NAm <- P; NAm[,] <- NA_real_
             out[[mnames[i]]] <- list(matrix = P, se = NAm, lower = NAm,
@@ -34,7 +32,18 @@ build_misclass <- function(rlist, mnames, B, cmap, nlp, vcov, statenames,
         cols <- r$e2map + nlp[1]           # this marker's columns of cmap
         ecols <- c(ecols, cols)
         eta0 <- B[1, cols]                 # intercepts (logit scale)
-        pfun <- r$format                  # group x level probabilities
+        pfun <- function(eta) {            # group x level probabilities
+            P <- matrix(0, nrow(emap), ncol(emap))
+            for (g in seq_len(nrow(emap))) {
+                e <- rep(-Inf, ncol(emap))
+                e[emap[g,] == -1L] <- 0
+                k <- which(emap[g,] > 0)
+                e[k] <- eta[emap[g, k]]
+                e <- exp(e - max(e))
+                P[g,] <- e/sum(e)
+            }
+            P
+        }
         Pg <- pfun(eta0)
         # delta method for the probabilities
         idx <- cmap[1, cols]               # parameter numbers (<=0: fixed)
@@ -95,12 +104,12 @@ build_misclass <- function(rlist, mnames, B, cmap, nlp, vcov, statenames,
     list(misclass = out, ecols = ecols, epar = epar)
 }
 
-# Continuous markers.  fit$markers has one element per gaussian, logistic,
-#  beta or gamma marker:
-#    distribution : "gaussian", "logistic", "beta" or "gamma"
+# Continuous markers.  fit$markers has one element per gaussian, logistic
+#  or beta marker:
+#    distribution : "gaussian", "logistic" or "beta"
 #    parameters   : one row per group of states, the two parameters on
-#                   their natural scale, at covariate values of 0, as given
-#                   by the distribution's format() function (response.R)
+#                   their natural scale (mean, std or shape1, shape2), at
+#                   covariate values of 0
 #    se, lower, upper : standard errors and confidence limits of those
 #    coefficients : every coefficient of the marker's linear predictors
 #                   (mean, log(std) / log(shape); plus any covariates)
@@ -111,12 +120,15 @@ build_markers <- function(rlist, mnames, B, cmap, nlp, vcov, statenames,
     z <- qnorm(1 - (1 - conf.int)/2)
     for (i in seq_along(rlist)) {
         r <- rlist[[i]]
-        if (!identical(r$type, "continuous")) next
+        if (is.null(r$name) || !(r$name %in% c("gaussian", "logistic", "beta")))
+            next
         ng <- length(r$glevels)
         grp <- sapply(seq_len(ng), function(g)
                       paste(statenames[r$index == g], collapse = "/"))
-        nat <- function(eta) {      # natural scale, ng x 2, from format()
-            m <- r$format(eta)
+        islog <- if (r$name == "beta") c(TRUE, TRUE) else c(FALSE, TRUE)
+        nat <- function(eta) {      # natural scale, ng x 2
+            m <- matrix(eta, ncol = 2, byrow = TRUE)
+            for (k in 1:2) if (islog[k]) m[, k] <- exp(m[, k])
             dimnames(m) <- list(state = grp, parameter = r$parnames)
             m
         }
@@ -139,13 +151,14 @@ build_markers <- function(rlist, mnames, B, cmap, nlp, vcov, statenames,
             se0[use] <- sqrt(pmax(0, diag(vcov)[idx[use]]))
         }
         P <- nat(eta0)
-        # each natural parameter is an increasing function of its own linear
-        #  predictor: the delta method for the se, and the limits are the
-        #  transformed limits of the linear predictor
-        h <- 1e-6
-        dP <- (nat(eta0 + h) - nat(eta0 - h))/(2*h)
-        sem <- dP * matrix(se0, ncol = 2, byrow = TRUE)
-        lo <- nat(eta0 - z*se0); hi <- nat(eta0 + z*se0)
+        sem <- matrix(se0, ncol = 2, byrow = TRUE)
+        lo <- matrix(eta0 - z*se0, ncol = 2, byrow = TRUE)
+        hi <- matrix(eta0 + z*se0, ncol = 2, byrow = TRUE)
+        for (k in 1:2) if (islog[k]) {
+            sem[, k] <- P[, k]*sem[, k]            # delta method
+            lo[, k] <- exp(lo[, k]); hi[, k] <- exp(hi[, k])
+        }
+        dimnames(sem) <- dimnames(lo) <- dimnames(hi) <- dimnames(P)
         # all coefficients of these linear predictors
         cm <- cmap[, cols, drop = FALSE]
         w <- which(cm != 0, arr.ind = TRUE)

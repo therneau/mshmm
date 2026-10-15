@@ -7,7 +7,7 @@
 # likewise  multinomial(stateinfo, nclass, pattern)
 #
 # hmm.dist is used by parsemarker to check for legal names
-hmm.dist <- c("gaussian", "logistic", "beta", "gamma", "discrete")
+hmm.dist <- c("gaussian", "logistic", "beta", "discrete")
 
 # stateinfo: name and level information that is used to create labels
 #  for the linear predictors, and to match linear predictors to states.
@@ -26,13 +26,6 @@ hmm.dist <- c("gaussian", "logistic", "beta", "gamma", "discrete")
 #   pname: labels for the parameters
 #   subset: which subset are referred to by the param argument
 #   checkfun, optional
-#   format: a function that turns the marker's linear predictors (at
-#     covariate values of 0) into the parameters on the scale shown to the
-#     user: the misclassification matrix for discrete, (mean, std) for
-#     gaussian and logistic, the shapes for beta, (shape, rate) for gamma.
-#     print(), summary() and fit$misclass / fit$markers use it, so each
-#     distribution controls its own display (see "Response functions" in the
-#     code vignette).
 # The functions below are called by parsemarker2, and the presence or
 #  absence of levels is sometimes enough for an error, .e.g. a factor can't
 #  be a gaussian marker.  But the full set of y values that will be presented
@@ -42,13 +35,12 @@ hmm.dist <- c("gaussian", "logistic", "beta", "gamma", "discrete")
 #  a list will be caught in the later check.
 #  
 # ---------------------------------------------------------------------
-# Continuous markers: gaussian, logistic, beta and gamma.
+# Continuous markers: gaussian, logistic and beta.
 # Each group of states (stateinfo$levels) has its own two parameters, held
 #  in two linear predictors per group, in the order
 #     (group 1: par 1, par 2), (group 2: par 1, par 2), ...
 #   gaussian, logistic:  mean, log(std)
 #   beta              :  log(shape1), log(shape2)
-#   gamma             :  log(shape), log(rate)
 # rfun(y, eta, gradient) returns an nstate x m matrix of densities
 #  f(y | state) (0 for states that cannot produce the marker); with
 #  gradient=TRUE it has attribute "gradient", an nstate x m x nlp array of
@@ -56,14 +48,13 @@ hmm.dist <- c("gaussian", "logistic", "beta", "gamma", "discrete")
 # Options, given in the marker formula:
 #   param = "mean" or "std" (...): which parameters this formula line applies to
 #   init  = matrix of starting values on the natural scale, one row per
-#           group of states, columns (mean, std), (shape1, shape2) or
-#           (shape, rate).
+#           group of states, columns (mean, std) or (shape1, shape2).
 #           With ~ 0 (no estimated parameters) init gives the fixed values.
 #  With no init, cmsh() starts every group at the overall mean and standard
 #  deviation of the marker; give init when the states are fully hidden.
 # ---------------------------------------------------------------------
 contmarker <- function(name, parnames, stateinfo, mlevel, param, init,
-                       static, logdens, link, inverse, check) {
+                       static, logdens, link, check) {
     if (length(mlevel) > 0)
         stop("a factor variable cannot be a ", name, " marker")
     if (missing(static) || is.null(static)) static <- FALSE
@@ -98,14 +89,6 @@ contmarker <- function(name, parnames, stateinfo, mlevel, param, init,
     if (static && is.null(initval))
         stop("init is needed for ~ 0 / ", name)
 
-    # format: linear predictors (par1, par2 for group 1, group 2, ...) to the
-    #  natural-scale parameters, one row per group of states
-    format <- function(eta) {
-        m <- inverse(matrix(eta, ncol=2, byrow=TRUE))
-        colnames(m) <- parnames
-        m
-    }
-
     # eta: m rows, 2*npeak columns
     core <- function(y, eta, gradient) {
         ny <- length(y)
@@ -136,13 +119,12 @@ contmarker <- function(name, parnames, stateinfo, mlevel, param, init,
                  FALSE)
         return(list(name=name, rfun=rfun, pname=NULL, static=TRUE,
                     checkfun=check, index=index, glevels=stateinfo$levels,
-                    parnames=parnames, fixedpar=fixed, format=format,
-                    type="continuous"))
+                    parnames=parnames, fixedpar=fixed))
     }
     rfun <- function(y, eta, gradient=FALSE) core(y, eta, gradient)
     list(name=name, rfun=rfun, pname=pname, subset=subset, checkfun=check,
          init=initval, static=FALSE, index=index, glevels=stateinfo$levels,
-         parnames=parnames, format=format, type="continuous")
+         parnames=parnames)
 }
 
 gaussian <- function(stateinfo, mlevel, param, init, static, ...) {
@@ -156,14 +138,12 @@ gaussian <- function(stateinfo, mlevel, param, init, static, ...) {
         if (any(m[,2] <= 0)) stop("std must be positive")
         cbind(m[,1], log(m[,2]))
     }
-    inverse <- function(m) cbind(m[,1], exp(m[,2]))
     check <- function(y)
         if (!is.numeric(y)) stop("a gaussian marker must be numeric")
     contmarker("gaussian", c("mean", "std"), stateinfo, mlevel, 
                if (missing(param)) NULL else param,
                if (missing(init)) NULL else init,
-               if (missing(static)) FALSE else static, logdens, link, inverse,
-               check)
+               if (missing(static)) FALSE else static, logdens, link, check)
 }
 
 makedistlabels <- function(stateinfo, parms) {
@@ -194,14 +174,12 @@ logistic <- function(stateinfo, mlevel, param, init, static, ...) {
         if (any(m[,2] <= 0)) stop("std must be positive")
         cbind(m[,1], log(m[,2]))
     }
-    inverse <- function(m) cbind(m[,1], exp(m[,2]))
     check <- function(y)
         if (!is.numeric(y)) stop("a logistic marker must be numeric")
     contmarker("logistic", c("mean", "std"), stateinfo, mlevel, 
                if (missing(param)) NULL else param,
                if (missing(init)) NULL else init,
-               if (missing(static)) FALSE else static, logdens, link, inverse,
-               check)
+               if (missing(static)) FALSE else static, logdens, link, check)
 }
 
 # beta distribution for a marker in (0, 1).  Parameters: log(shape1),
@@ -227,40 +205,7 @@ beta <- function(stateinfo, mlevel, param, init, static, ...) {
     contmarker("beta", c("shape1", "shape2"), stateinfo, mlevel, 
                if (missing(param)) NULL else param,
                if (missing(init)) NULL else init,
-               if (missing(static)) FALSE else static, logdens, link, 
-               function(m) exp(m), check)
-}
-
-# gamma distribution for a positive marker.  Parameters: log(shape), log(rate)
-#  log f = a log(b) + (a-1) log(y) - b y - lgamma(a), a = shape, b = rate
-#  d log f / d log(a) = a (log(b) + log(y) - digamma(a))
-#  d log f / d log(b) = a - b y
-# The mean is shape/rate and the variance shape/rate^2.
-# cmsh() has no automatic starting values for a gamma marker; give init
-#  (e.g. shape = mean^2/var, rate = mean/var) when the states are hidden.
-gamma <- function(stateinfo, mlevel, param, init, static, ...) {
-    logdens <- function(y, la, lb, gradient) {
-        a <- exp(la); b <- exp(lb)
-        out <- list(logf = dgamma(y, shape=a, rate=b, log=TRUE))
-        if (gradient) {
-            out$d1 <- a * (lb + log(y) - digamma(a))
-            out$d2 <- a - b*y
-        }
-        out
-    }
-    link <- function(m) {
-        if (any(m <= 0)) stop("shape and rate must be positive")
-        log(m)
-    }
-    check <- function(y) {
-        if (!is.numeric(y) || any(y <= 0, na.rm=TRUE)) 
-            stop("a gamma marker must be positive")
-    }
-    contmarker("gamma", c("shape", "rate"), stateinfo, mlevel, 
-               if (missing(param)) NULL else param,
-               if (missing(init)) NULL else init,
-               if (missing(static)) FALSE else static, logdens, link,
-               function(m) exp(m), check)
+               if (missing(static)) FALSE else static, logdens, link, check)
 }
 
 # multivariate logit, first category is the reference. If there are k
@@ -352,11 +297,8 @@ discrete <- function(stateinfo, mlevel, init, pattern, static) {
         missmat <- unname(as.matrix(missmat))
         rfun <- function(y, error= missmat, gradient=FALSE) 
             error[,as.integer(y), drop=FALSE]  
-        # format: the fixed matrix, one row per state
-        format <- function(eta) missmat
         return(list(name="discrete", rfun=rfun, pname=NULL, static=TRUE,
-                    missmat=missmat, mlevel=mlevel, index=index,
-                    format=format, type="discrete"))
+                    missmat=missmat, mlevel=mlevel, index=index))
     }
 
     # ---- estimated case ----
@@ -446,24 +388,9 @@ discrete <- function(stateinfo, mlevel, init, pattern, static) {
         if (!is.factor(y))
             stop("marker for a discrete distribution must be categorical")
     }
-
-    # format: the nlp linear predictors to the misclassification matrix,
-    #  one row per group of states, one column per marker level
-    format <- function(eta) {
-        P <- matrix(0, ngroup, nlevel)
-        for (g in seq_len(ngroup)) {
-            e <- rep(-Inf, nlevel)
-            e[emap[g,] == -1L] <- 0
-            k <- which(emap[g,] > 0)
-            e[k] <- eta[emap[g, k]]
-            e <- exp(e - max(e))
-            P[g,] <- e/sum(e)
-        }
-        P
-    }
             
     list(name="discrete", rfun=rfun, pname=pname, subset=seq_len(nlp),
          init=initval, emap=emap, checkfun= check, static=FALSE,
-         mlevel=mlevel, index=index, glevels=stateinfo$levels,
-         format=format, type="discrete")
+         mlevel=mlevel, index=index, glevels=stateinfo$levels)
 }
+        
