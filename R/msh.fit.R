@@ -148,8 +148,8 @@ msh.fit <- function(id, ytime, ystate, X, iprob, B,
         return(rval)
     }
        
-    clist <- list() # build the do.call argument list
-    clist[[mfattr$par]] <- param
+    clist <- mpar # build the do.call argument list
+    clist[[mfattr$param]] <- param
     if (mfattr$deriv) {
         # most common call, iteration using gradients
         if (is.null(mfattr$gfun)) {
@@ -169,15 +169,20 @@ msh.fit <- function(id, ytime, ystate, X, iprob, B,
     if (is.character(mfattr$iter)) clist[[mfattr$iter]] <- iter  #simple arg
     else { # add it to an mpar argument (optim uses control$maxit)
         tname <- names(mfattr$iter) # what's it called
-        temp <- mpar[tname] 
+        temp <- clist[[tname]]
         if (is.null(temp)) {
             temp <- list() # if null, add it as a list
             temp[[mfattr$iter]] <- iter
             clist[[tname]] <- temp
         } else if (is.null(temp[[mfattr$iter]])) {
             temp[[mfattr$iter]] <- iter
-            mpar$tname <- temp
+            clist[[tname]] <- temp
         }
+    }
+    if (!is.null(conmat)) {
+        if (is.null(mfattr$constraint))
+            stop("the selected optimizer does not support constraints")
+        clist[[mfattr$constraint]] <- conmat
     }
     fit <- do.call(mfun, clist)
 

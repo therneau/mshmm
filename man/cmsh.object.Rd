@@ -33,6 +33,11 @@ object.
   \item{nlp}{the number of linear predictor columns for the rates matrix (q),
     response functions (m) and initial state (p). This is also marks
     which columns of \code{cmap} correspond to each portion.}
+  \item{markers}{natural-scale parameter estimates, standard errors, and
+    confidence limits for fitted continuous marker distributions.}
+  \item{misclass}{fixed or fitted categorical emission probabilities
+    \eqn{P(\mathrm{observed}\mid\mathrm{latent\ level})}, with uncertainty
+    when estimated.}
   \item{na.action}{the na.action attribute, if any, that was returned by
     the \code{\link{model.frame}} routine, containing information on
     any deleted observations.}

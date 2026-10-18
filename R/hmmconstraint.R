@@ -1,7 +1,7 @@
 # The user provides constraints as special data sets, each row specifies
 #  a linear predictor _lp_, a constraint id _cid_ and a constant _cwt_
 #
-hmmconstraint <- function(cdata, Terms, cmap) {
+hmmconstraint <- function(cdata, Terms, cmap, xtrans, B) {
     if (!inherits(cdata, "data.frame")) 
         stop("constraint or penalty must be a data frame containing ",
              " _lp__, _cid_, _cwt_ and data set variables")
@@ -17,7 +17,7 @@ hmmconstraint <- function(cdata, Terms, cmap) {
         stop("linear predictor not found in model: ", bad[1])
     }
 
-    cid <- cdata(,"_cid_")
+    cid <- cdata[,"_cid_"]
     if (!is.numeric(cid) || any(is.na(cid)) || any(cid != floor(cid)) || 
         any(cid<1))
         stop("the constrast id _cid_ must be a postive integer")
@@ -32,11 +32,24 @@ hmmconstraint <- function(cdata, Terms, cmap) {
         stop("contrast weights _cwt_ must be numeric, and not missing")
 
     cid <- match(cid, unique(cid)) # make them 1, 2, ... for convenience
-    const <- matrix(0, max(cid), nrow(cmap))
-    for (i in 1:max(cid)) {
+    if (missing(xtrans)) xtrans <- diag(nrow(cmap))
+    if (!is.matrix(xtrans) || any(dim(xtrans) != nrow(cmap)))
+        stop("xtrans has the wrong dimension")
+    if (missing(B)) B <- matrix(0, nrow(cmap), ncol(cmap))
+
+    cX <- cX %*% xtrans
+    nparam <- length(B.to.coef(B, cmap))
+    const <- matrix(0, max(cid), nparam + 1L)
+    for (i in seq_len(max(cid))) {
         for (j in which(cid==i)) {
-            xvar <- which(cmap[,eta[j]] > 0) # variables for this lp
-            const[i,xvar] <- const[i, xvar] + cwt[j]* X[j, xvar]
+            pmap <- cmap[,etaid[j]]
+            z <- cwt[j] * cX[j,]
+            for (p in unique(pmap[pmap > 0]))
+                const[i, 1L + p] <- const[i, 1L + p] + sum(z[pmap == p])
+            fixed <- which(pmap < 0)
+            if (length(fixed))
+                const[i, 1L] <- const[i, 1L] +
+                    sum(z[fixed] * B[fixed, etaid[j]])
         }
     }
     const

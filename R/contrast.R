@@ -13,13 +13,13 @@ contrast <- function(fit, data, global=FALSE, weight, transition,
         }
         if (length(k)==1) j <- cmap[,k]  else stop("not done")
 
-        vmat <- vcov(fit)[j,j, drop=FALSE]
-        beta <- coef(fit)[j]
+        vmat <- vcov(fit, markers=TRUE)[j,j, drop=FALSE]
+        beta <- coef(fit, markers=TRUE)[j]
         if (any(j==0)) newx <- newx[, j>0, drop=FALSE]
     }
     else {
-        vmat <- vcov(fit)
-        beta <- coef(fit)
+        vmat <- vcov(fit, markers=TRUE)
+        beta <- coef(fit, markers=TRUE)
     }
     
     if (global)  # test for all differences =0

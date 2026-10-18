@@ -25,7 +25,9 @@ cmsh(formula, data, subset, weights,
   \item{qmatrix}{a square matrix whose row and column labels are the
     states, positive elements indicate valid transitions}
   \item{markers}{an optional list of formulas defining state:marker
-      relationships, a key component of hidden Markov models (HMM)}
+      relationships, a key component of hidden Markov models (HMM).
+      Supported response families are \code{gaussian}, \code{logistic},
+      \code{beta}, \code{gamma}, and \code{discrete}.}
   \item{iprob}{optional, the initial distribution of states. Either a
     matrix with one row per unique id and one column per state, a
     vector with one element per state, or a formula}
@@ -86,5 +88,14 @@ Missing rate variables at intermediate times are filled in using last value
 carried forward. 
 Missing markers are ignored, as episodic observation of marker variables is
 expected.
+
+Continuous marker families use two parameters per latent marker level:
+mean and standard deviation for Gaussian and logistic responses, two shape
+parameters for beta responses, and shape and rate for gamma responses.
+Categorical markers use \code{discrete}; they may have a fixed emission matrix
+or estimated multinomial-logit probabilities, including shared cells specified
+with a pattern matrix.  Marker-specific \code{init} matrices are supplied on
+the natural parameter scale.  Fitted natural-scale results are available in
+the \code{markers} and \code{misclass} components of the returned object.
 }
 \author{Terry Therneau}

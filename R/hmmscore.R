@@ -6,7 +6,15 @@ hmmscore <- function(par, fn, gr, iter=30,
 
     ncoef <- length(par)
     if (missing(constraint)) ncon <- 0
-    else ncon <- nrow(constraint)
+    else {
+        if (!is.matrix(constraint) || ncol(constraint) != ncoef + 1L)
+            stop("constraint must have one constant and one column per parameter")
+        if (any(!is.finite(constraint)))
+            stop("constraint contains non-finite values")
+        if (any(drop(constraint %*% c(1, par)) < -sqrt(.Machine$double.eps)))
+            stop("initial parameters do not satisfy the constraints")
+        ncon <- nrow(constraint)
+    }
 
     # Some tracing information: the coefficients, loglik, and LM scale
     #  as we go along, and the active set if necessary.
@@ -46,8 +54,14 @@ hmmscore <- function(par, fn, gr, iter=30,
     log0 <- fit$loglik  # the initial loglik
     oldpar <- par
     halving <- 1
+    completed.iter <- 0L
+    stop.reason <- "max_iter"
     for (i in 1:iter) {
-        if (halving < 1/64) break # stuck: 6 iters in a row with no progress
+        if (halving < 1/64) {
+            stop.reason <- "step_halving"
+            break # stuck: 6 iters in a row with no progress
+        }
+        completed.iter <- i
         S <- fit$S
         dS <- diag(S)
  
@@ -56,7 +70,8 @@ hmmscore <- function(par, fn, gr, iter=30,
         if (ncon>0) {
             Ebeta <- as.vector(constraint[,-1] %*% par)
             boundary <- shrink*halving*(Ebeta + constraint[,1])
-            temp <- solve.QP(S+dmat, -fit$deriv, -t(constraint[,-1]),
+            temp <- solve.QP(S+dmat, -fit$deriv,
+                             -t(constraint[,-1, drop=FALSE]),
                              -boundary)
             newpar <- par- temp$solution*shrink*halving
             active <- sort(temp$iact)
@@ -91,10 +106,12 @@ hmmscore <- function(par, fn, gr, iter=30,
                 trdata <- list(coef=cmat[1:(i+1),], loglik=logmat[1:(i+1),])
                 if (newfit$loglik > fit$loglik) # very last step was better
                     rval <- c(newfit, list(coef=newpar, iter=i, converged=TRUE,
+                                          stop.reason="converged",
                                           trace=trdata))  #all done
                 else {
                     logmat[i+1, 4] <- 0  # no step
                     rval <- c(fit, list(coef=par, iter=i, converged=TRUE,
+                                       stop.reason="converged",
                                        trace=trdata))
                 }
                 if (hessian) {  # compute the hessian matrix
@@ -125,7 +142,9 @@ hmmscore <- function(par, fn, gr, iter=30,
                     try2 <- (1-lambda)*par + lambda*newpar
                     fit2 <- fn(try2, ...)  # we expect this to usually work
                     if (fit2$loglik > fit$loglik) { # shrinkage worked
-                        logmat[i+1,4] <- fit2$loglik
+                        cmat[i+1,] <- try2
+                        logmat[i+1,1] <- fit2$loglik
+                        logmat[i+1,4] <- lambda * halving
                         fit <- fit2
                         par <- try2
                     } else halving <- halving /2  # and smaller steps
@@ -144,10 +163,15 @@ hmmscore <- function(par, fn, gr, iter=30,
         }
     }
 
-    if (ncon>0) trdata <- list(coef=cmat, loglik=logmat, active=actmat)
-    else trdata <- list(coef=cmat, loglik=logmat)
+    keep <- seq_len(completed.iter + 1L)
+    if (ncon>0) trdata <- list(coef=cmat[keep,,drop=FALSE],
+                               loglik=logmat[keep,,drop=FALSE],
+                               active=actmat[keep,,drop=FALSE])
+    else trdata <- list(coef=cmat[keep,,drop=FALSE],
+                        loglik=logmat[keep,,drop=FALSE])
 
-    rval <- c(fit, list(coef=par, iter= iter, converged = FALSE, trace=trdata))
+    rval <- c(fit, list(coef=par, iter=completed.iter, converged=FALSE,
+                        stop.reason=stop.reason, trace=trdata))
 
     if (hessian) {  # compute the hessian matrix, same algorithm as optimHess
         # hessian contains the epsilon, usually

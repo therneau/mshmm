@@ -5,13 +5,17 @@
   a vector or a matrix.
 }
 \usage{
-\method{coef}{cmsh}(object, matrix= FALSE, fixed= TRUE, 
+\method{coef}{cmsh}(object, matrix= FALSE, markers= TRUE, fixed= TRUE,
                    matrix1= matrix, matrix2= matrix, matrix3= matrix, ...)
 }
 \arguments{
   \item{object}{an cmsh object}
   \item{matrix}{if TRUE, return the coefficients as a matrix, otherwise
     as a vector}
+  \item{markers}{if TRUE (the backward-compatible default), include
+    marker-distribution coefficients.  Use \code{markers=FALSE} for only
+    transition and initial-state coefficients; natural-scale marker results
+    are stored in \code{object$markers} and \code{object$misclass}.}
   \item{fixed}{include fixed coefficients in the result}
   \item{matrix1}{if TRUE, include group 1 coefficients in the matrix}
   \item{matrix2}{if TRUE, include group 2 coefficients in the matrix}

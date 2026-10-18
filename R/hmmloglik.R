@@ -30,7 +30,7 @@ hmmloglik <- function(param, logfun) {
         else mcfit <- mclapply(unique(id), logfun, B= B2,
                                mc.cores= mc.cores, mc.set.seed=FALSE)
     }
-    else mcfit <- lapply(unique(id), logfun, B=B)
+    else mcfit <- lapply(unique(id), logfun, B=B2)
     
     if (any(sapply(mcfit, is.character))) {
         # failure
@@ -81,11 +81,13 @@ hmmboth <- function(param, logfun, detail = FALSE){
         # This is a special call for debugging.  Return the per subject
         #  raw values, logfun above will have been hmm2 (detail arg isn't passed
         #  to hmm1).  Give names, since I'll use this only rarely and forget
-        pname <- outer(rownames(cmap), colnames(cmap), paste, sep='_')
-        pname <- pname[cmap>0]  # names of the parameters
+        plabel <- outer(rownames(cmap), colnames(cmap), paste, sep='_')
+        parameter_ids <- sort(unique(cmap[cmap > 0]))
+        pname <- vapply(parameter_ids, function(i)
+            plabel[which(cmap == i)[1L]], character(1))
         alpha <-  sapply(mcfit, function(x) x$alpha)
         uid <- unique(id)
-        sname <- colnames(qmat) # the state names
+        sname <- colnames(qmatrix) # the state names
         dimnames(alpha) <- list(state=sname, id=uid)
         deriv <-  sapply(mcfit, function(x) x$deriv, simplify="array")
         deriv <- array(deriv, dim=c(length(pname), nstate, length(uid)),

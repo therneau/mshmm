@@ -14,16 +14,14 @@ predict.cmsh <- function(object, newdata, type=c("link", "rate", "pstate"),
         if (missing(newdata) || is.null(newdata)) 
             X <- model.matrix(object)
         else X <- model.matrix(object, data=newdata)
-        eta <- X %*% coef(object, matrix=TRUE)
+        eta <- X %*% coef(object, matrix=TRUE, matrix2=FALSE,
+                          matrix3=FALSE, markers=TRUE)
     
         if (se.fit) {
             se <- 0* eta   # inherit the dimnames        
             ncoef <- length(object$coef)
-            if (is.null(object$fit$hessian)) {
-                # warning("std.err=TRUE and model has no hessian")
-                vmat <- solve(object$fit$S)
-            }
-            else vmat <- solve(object$fit$hessian)
+            vmat <- vcov(object, markers=TRUE)
+            if (is.null(vmat)) stop("variance matrix is not available")
             for (j in 1:ncol(eta)) {
                 Z <- matrix(0., nrow(X), length(object$coef))
                 for (k in unique(object$cmap[,j])) {
@@ -42,14 +40,14 @@ predict.cmsh <- function(object, newdata, type=c("link", "rate", "pstate"),
             if (type== "link") return(list(fit=eta, se.fit=se))
             else if (type=="rate") {
                 # only return the rate parameters
-                keep <- 1:sum(object$qmat > 0)            
+                keep <- 1:sum(object$qmatrix > 0)
                 return(list(fit=exp(eta[,keep]), 
-                            se.fit=exp(eta[keep])*se[,keep]))
+                            se.fit=exp(eta[,keep])*se[,keep]))
             }
         } else { # no se
             if (type == "link") eta
             else if (type=="rate") {
-                keep <- 1:sum(object$qmat > 0)        
+                keep <- 1:sum(object$qmatrix > 0)
                 exp(eta[,keep])
             }
         }
@@ -94,7 +92,8 @@ predict.cmsh <- function(object, newdata, type=c("link", "rate", "pstate"),
         qmap <- which(object$qmatrix != 0)
         cumhaz <- array(0, dim=c(ntime, ncurve, length(qmap)))
         delta <- diff(dtime[,1])
-        beta <- coef(object, matrix=TRUE)
+        beta <- coef(object, matrix=TRUE, matrix2=FALSE,
+                     matrix3=FALSE, markers=TRUE)
 
         for (k in 1:ncurve) {
             pstate[1,k,] <- p0

@@ -1,7 +1,7 @@
 testmc
 Readme
-data/Dementia
-data/renal.R
+^data/Dementia$
+^data/renal\.R$
 noweb/
 .git
 .gitignore
